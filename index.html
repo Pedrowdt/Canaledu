@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roteiro Canal Educação</title>
+<!-- xlsx-js-style: drop-in replacement do SheetJS com suporte real a estilos (cores, fontes, bordas) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<!-- Supabase JS client — usado para login e sincronização em nuvem -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root, body {
+    --bg: #ffffff;
+    --bg2: #f5f6fa;
+    --bg3: #eceef5;
+    --border: #d5d9e6;
+    --border2: #b9bfd1;
+    --text: #1a1d29;
+    --muted: #5b6480;
+    --accent: #2f6fe0;
+    --accent2: #6b4fe0;
+    --green: #17a55a;
+    --amber: #c07a1a;
+    --red: #c53434;
+    --cyan: #1e97a8;
+    --pink: #c85485;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+  /* ── Tema Noite (escuro) ── */
+  body.theme-night {
+    --bg: #0f1117;
+    --bg2: #171923;
+    --bg3: #1e2130;
+    --border: #2a2f45;
+    --border2: #353b55;
+    --text: #e2e8f0;
+    --muted: #8891b0;
+    --accent: #4f8ef7;
+    --accent2: #7c5cf7;
+    --green: #2dca72;
+    --amber: #f0a742;
+    --red: #e85d5d;
+    --cyan: #38d1e3;
+    --pink: #e879a6;
+  }
+  /* ── Tema Pôr-do-Sol ── */
+  body.theme-sunset {
+    --bg: #1a1423;
+    --bg2: #241a30;
+    --bg3: #2f2140;
+    --border: #4a3560;
+    --border2: #6a4d85;
+    --text: #fde68a;
+    --muted: #d4a373;
+    --accent: #ff8b3d;
+    --accent2: #ff5e78;
+    --green: #a3d977;
+    --amber: #ffd166;
+    --red: #ff5e78;
+    --cyan: #ffb066;
+    --pink: #ff8fbf;
+  }
+  /* ── Tema Cozy (bege) ── */
+  body.theme-cozy {
+    --bg: #faf6f1;
+    --bg2: #f2ebe0;
+    --bg3: #ebe0cf;
+    --border: #d9c9b0;
+    --border2: #b89a72;
+    --text: #3d2c1e;
+    --muted: #7a5f45;
+    --accent: #c07a1a;
+    --accent2: #a05a12;
+    --green: #6b8a3a;
+    --amber: #b8791a;
+    --red: #a63a2a;
+    --cyan: #4a7a72;
+    --pink: #b8556e;
+  }
+  /* ── Tema Alto Contraste ── */
+  body.theme-hicontrast {
+    --bg: #000000;
+    --bg2: #000000;
+    --bg3: #111111;
+    --border: #ffffff;
+    --border2: #ffffff;
+    --text: #ffffff;
+    --muted: #cccccc;
+    --accent: #ffff00;
+    --accent2: #ffcc00;
+    --green: #00ff66;
+    --amber: #ffcc00;
+    --red: #ff5555;
+    --cyan: #00ffff;
+    --pink: #ff66cc;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; }
+
+  /* LAYOUT */
+  .app { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; }
+  .topbar .logo { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--accent); letter-spacing: 0.07em; white-space: nowrap; flex-shrink: 0; }
+  .topbar .logo span { color: var(--muted); }
+  .tabs { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+  .tab { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 6px; cursor: pointer; font-size: 11.5px; font-weight: 500; color: var(--muted); border: none; background: transparent; transition: all .15s; letter-spacing: 0.02em; white-space: nowrap; }
+  .tab:hover { color: var(--text); background: var(--bg3); }
+  .tab.active { color: var(--accent); background: rgba(79,142,247,.1); }
+  .tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 4px; font-size: 9.5px; background: var(--bg3); color: var(--muted); margin-left: 5px; }
+  .topbar-right { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); cursor: pointer; font-size: 11.5px; font-family: var(--sans); font-weight: 500; transition: all .15s; white-space: nowrap; }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #3a7de0; border-color: #3a7de0; color: #fff; }
+  .btn-sm { height: 24px; padding: 0 8px; font-size: 10.5px; }
+  .btn-icon { width: 26px; padding: 0; font-size: 12.5px; }
+  .btn-danger { border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: rgba(232,93,93,.1); }
+  .btn-green { border-color: var(--green); color: var(--green); }
+  .btn-green:hover { background: rgba(45,202,114,.1); }
+  #theme-selector.btn-sm { height: 24px; line-height: 1; }
+
+  /* PANELS */
+  .content { overflow: hidden; }
+  .panel { display: none; height: 100%; overflow: hidden; }
+  .panel.active { display: flex; flex-direction: column; }
+
+  /* ROTEIRO PANEL */
+  #panel-roteiro { flex-direction: row; }
+  .roteiro-sidebar { width: 280px; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-head { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
+  .sidebar-head h3 { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+  .date-display { font-family: var(--mono); font-size: 15px; font-weight: 500; color: var(--accent); }
+  .week-nav { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .week-arrow { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all .15s; padding: 0; font-family: var(--sans); }
+  .week-arrow:hover { border-color: var(--border2); color: var(--text); }
+  .week-label { font-size: 10px; color: var(--muted); flex: 1; text-align: center; font-family: var(--mono); }
+  .day-selector { display: flex; gap: 3px; margin-top: 6px; }
+  .day-btn { flex: 1; padding: 5px 2px; border-radius: 5px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; text-align: center; font-family: var(--sans); transition: all .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; position: relative; }
+  .day-btn:hover { border-color: var(--border2); color: var(--text); }
+  .day-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,.08); }
+  .day-btn.today { border-color: var(--border2); }
+  .day-btn.today .day-btn-date { color: var(--green); }
+  .day-btn-name { font-weight: 600; font-size: 9px; letter-spacing: 0.03em; }
+  .day-btn-date { font-family: var(--mono); font-size: 9px; color: var(--muted); }
+  .day-btn.active .day-btn-date { color: var(--accent); }
+  .day-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
+  .pecas-search { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .pecas-search input { width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: var(--sans); outline: none; }
+  .pecas-search input:focus { border-color: var(--accent); }
+  .pecas-filters { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .filter-btn { padding: 3px 8px; border-radius: 12px; border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; font-family: var(--sans); transition: all .15s; }
+  .filter-btn:hover, .filter-btn.active { border-color: currentColor; }
+  .filter-btn[data-t="ECHM"].active { color: var(--amber); border-color: var(--amber); background: rgba(240,167,66,.08); }
+  .filter-btn[data-t="ECHE"].active { color: var(--pink); border-color: var(--pink); background: rgba(236,72,153,.08); }
+  .filter-btn[data-t="EINT"].active { color: var(--cyan); border-color: var(--cyan); background: rgba(56,209,227,.08); }
+  .filter-btn[data-t="RCOM"].active { color: var(--green); border-color: var(--green); background: rgba(45,202,114,.08); }
+  .filter-btn[data-t="RPOL"].active { color: var(--pink); border-color: var(--pink); background: rgba(232,121,166,.08); }
+  .filter-btn[data-t="EVNH"].active { color: var(--muted); border-color: var(--muted); background: rgba(136,145,176,.08); }
+  .filter-btn[data-t="RPRO"].active { color: var(--accent2); border-color: var(--accent2); background: rgba(124,92,247,.08); }
+  .pecas-list { flex: 1; overflow-y: auto; }
+  .peca-item { padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: grab; transition: background .1s; display: flex; flex-direction: column; gap: 2px; }
+  .peca-item:hover { background: var(--bg3); }
+  .peca-item:active { cursor: grabbing; }
+  .peca-code { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .peca-name { font-size: 11px; color: var(--text); line-height: 1.3; }
+  .peca-meta { display: flex; gap: 6px; align-items: center; }
+  .peca-dur { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .type-badge { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; letter-spacing: 0.05em; }
+  .badge-ECHM { color: var(--amber); background: rgba(240,167,66,.12); }
+  .badge-EINT { color: var(--cyan); background: rgba(56,209,227,.12); }
+  .badge-RCOM { color: var(--green); background: rgba(45,202,114,.12); }
+  .badge-RPOL { color: var(--pink); background: rgba(232,121,166,.12); }
+  .badge-EVNH { color: var(--muted); background: rgba(136,145,176,.12); }
+  .badge-RPRO { color: var(--accent2); background: rgba(124,92,247,.12); }
+  .peca-obs { font-size: 10px; color: var(--amber); margin-top: 1px; }
+  .peca-expired { opacity: 0.4; }
+
+  /* ROTEIRO MAIN */
+  .roteiro-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .roteiro-toolbar { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .roteiro-toolbar .time-info { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-left: auto; }
+  .roteiro-toolbar .time-info span { color: var(--text); }
+  .roteiro-table-wrap { flex: 1; overflow-y: auto; }
+  table.roteiro { width: 100%; border-collapse: collapse; }
+  table.roteiro thead th { position: sticky; top: 0; background: var(--bg2); padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--border); z-index: 2; white-space: nowrap; }
+  table.roteiro tbody tr { border-bottom: 1px solid var(--border); cursor: default; transition: background .1s; }
+  table.roteiro tbody tr:hover { background: var(--bg3); }
+  table.roteiro tbody tr.drag-over { background: rgba(79,142,247,.1); outline: 1px dashed var(--accent); }
+  table.roteiro tbody tr.dragging { opacity: 0.4; }
+  table.roteiro td { padding: 6px 12px; font-size: 12px; vertical-align: middle; }
+  .col-seq { width: 36px; font-family: var(--mono); font-size: 10px; color: var(--border2); }
+  .col-code { width: 120px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .col-desc { }
+  .col-dur { width: 72px; font-family: var(--mono); font-size: 11px; text-align: right; color: var(--muted); }
+  .col-in { width: 72px; font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .col-type { width: 64px; }
+  .col-act { width: 60px; text-align: center; }
+  .row-actions { display: flex; gap: 4px; justify-content: center; opacity: 0; transition: opacity .1s; }
+  tr:hover .row-actions { opacity: 1; }
+  .act-btn { padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); cursor: pointer; font-size: 10px; font-family: var(--sans); transition: all .1s; }
+  .act-btn:hover { border-color: var(--red); color: var(--red); }
+  .row-program { background: rgba(124,92,247,.04); }
+  .row-program td.col-desc { color: var(--text); font-weight: 500; }
+  .drag-handle { cursor: grab; color: var(--border2); padding-right: 4px; font-size: 14px; }
+  .drag-handle:hover { color: var(--muted); }
+
+  /* PECAS PANEL */
+  #panel-pecas .container { padding: 20px; max-width: 1100px; }
+  .pecas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 16px; }
+  .peca-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .peca-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+  .peca-card-name { font-size: 12px; font-weight: 500; line-height: 1.4; flex: 1; }
+  .peca-card-meta { display: flex; gap: 6px; align-items: center; }
+  .peca-card-code { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .peca-card-dur { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .peca-card-obs { font-size: 10px; color: var(--amber); margin-top: 4px; }
+  .peca-card-val { font-size: 10px; color: var(--red); margin-top: 2px; }
+
+  /* PROGRAMAS PANEL */
+  #panel-programas .container { padding: 20px; }
+  .prog-list { margin-top: 16px; }
+  .prog-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); border-radius: 4px; }
+  .prog-item:hover { background: var(--bg2); }
+  .prog-item-code { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 120px; flex-shrink: 0; }
+  .prog-item-name { flex: 1; font-size: 12px; }
+  .prog-item-dur { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* SECTION HEADER */
+  .section-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+  .section-header h2 { font-size: 13px; font-weight: 600; }
+  .section-header .search { flex: 1; max-width: 280px; }
+  .section-header input { width: 100%; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: var(--sans); outline: none; }
+  .section-header input:focus { border-color: var(--accent); }
+  .filter-row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+
+  .grade-ok   { font-size:10px; color:var(--green); margin-left:6px; font-family:var(--mono); }
+  .grade-warn { font-size:10px; color:var(--amber); margin-left:6px; font-family:var(--mono); font-weight:600; }
+  .row-grade-warn { background: rgba(240,167,66,.06) !important; }
+  .row-grade-warn td.col-code { border-left: 2px solid var(--amber); }
+  /* Aviso de início no 1º bloco / bloco único — apenas informativo */
+  .bl01-aviso { font-size:10px; margin-left:8px; padding:1px 6px; border-radius:3px; font-family:var(--mono); font-weight:600; letter-spacing:.02em; white-space:nowrap; }
+  .bl01-aviso-ok    { color:var(--green); background:rgba(45,202,114,.10); }
+  .bl01-aviso-early { color:var(--accent); background:rgba(79,142,247,.12); }
+  .bl01-aviso-late  { color:var(--amber); background:rgba(240,167,66,.14); }
+  .bl01-aviso-ack {
+    margin-left:6px; padding:0 5px; border-radius:2px; border:1px solid currentColor;
+    background:transparent; color:inherit; font-family:var(--mono); font-size:9px;
+    font-weight:700; letter-spacing:.02em; text-transform:uppercase; cursor:pointer;
+    line-height:1.6; vertical-align:1px; opacity:.85; transition:opacity .15s, background .15s;
+  }
+  .bl01-aviso-ack:hover { opacity:1; background:rgba(255,255,255,.08); }
+  .row-slot td { opacity:.45; font-style:italic; }
+  .stat-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 8px; border-radius:4px; border:1px solid var(--border2); background:var(--bg3); font-size:11px; color:var(--muted); cursor:pointer; transition:all .15s; user-select:none; }
+  .stat-badge:hover { border-color:var(--accent); color:var(--text); }
+  .stat-badge-active { border-color:var(--accent) !important; background:rgba(79,142,247,.12) !important; color:var(--accent) !important; }
+  .stat-badge strong { color:var(--text); }
+  .stat-badge-active strong { color:var(--accent); }
+  .stat-clear { border-color:var(--red,#ef4444) !important; color:var(--red,#ef4444) !important; }
+  .act-btn[onclick*="editItem"] { color: var(--accent); }
+  .peca-fixa-row { display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);transition:background .1s; }
+  .peca-fixa-row:last-child { border-bottom:none; }
+  .peca-fixa-row:hover { background:var(--bg3); }
+  .peca-fixa-off { opacity:.45; }
+  .peca-fixa-info { flex:1;min-width:0; }
+  .peca-fixa-name { font-size:12px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .peca-fixa-meta { display:flex;gap:8px;align-items:center;margin-top:2px;flex-wrap:wrap; }
+  .peca-fixa-toggle input[type=checkbox] { width:16px;height:16px;cursor:pointer;accent-color:var(--accent); }
+  .peca-card-actions { display:flex; gap:6px; margin-top:6px; justify-content:flex-end; }
+  .act-btn-danger { color:var(--red) !important; }
+  .act-btn-danger:hover { background:rgba(239,68,68,.12) !important; }
+  .grade-assume-btn { margin-left:6px; padding:1px 7px; border-radius:3px; border:1px solid var(--amber); background:transparent; color:var(--amber); font-size:9px; cursor:pointer; font-family:var(--sans); font-weight:600; transition:all .15s; letter-spacing:0.03em; }
+  .grade-assume-btn:hover { background:rgba(240,167,66,.15); }
+  .grade-row { display:flex; align-items:center; gap:8px; margin-bottom:5px; padding:4px 6px; border-radius:6px; border:1px solid transparent; transition:background .1s; }
+  .grade-row:hover { background:var(--bg3); border-color:var(--border); }
+  .grade-row.drag-over-grade { border-color:var(--accent); background:rgba(79,142,247,.08); }
+  .grade-row.dragging-grade { opacity:.4; }
+  .grade-drag { cursor:grab; color:var(--border2); font-size:14px; padding:0 2px; flex-shrink:0; }
+  .grade-drag:hover { color:var(--muted); }
+  .grade-name { flex:1; font-size:11px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row-selected { background: rgba(79,142,247,.10) !important; outline: 1px solid rgba(79,142,247,.35); }
+  .row-selected td.col-seq { color: var(--accent); font-weight: 600; }
+  .break-summary-row { background: transparent !important; cursor: default; }
+  .break-summary-row:hover { background: transparent !important; }
+  .break-summary { display: flex; align-items: center; gap: 8px; padding: 2px 12px 2px 48px; }
+  .break-label { font-size: 9px; font-weight: 600; color: var(--border2); text-transform: uppercase; letter-spacing: 0.06em; }
+  .break-dur { font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--bg3); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--border); }
+  /* GRADE VISUAL */
+  #panel-grade-visual { overflow:hidden; }
+  .gv-grid {
+    display: grid;
+    grid-template-columns: 55px repeat(7, minmax(120px, 1fr));
+    min-width: 900px;
+    border-top: 1px solid var(--border);
+  }
+  /* Header cells */
+  .gv-th { padding:8px 6px; font-size:11px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--muted); background:var(--bg2);
+    position:sticky; top:0; z-index:20; border-right:1px solid var(--border);
+    border-bottom:2px solid var(--border2); text-align:center; }
+  .gv-th.gv-today { color:var(--accent); background:rgba(79,142,247,.1); border-bottom-color:var(--accent); }
+  .gv-time-hdr { text-align:left; padding:8px 4px; font-size:9px; }
+  /* Time axis */
+  .gv-time-label { padding:4px 4px; font-size:9px; font-family:var(--mono); color:var(--muted);
+    background:var(--bg2); border-right:1px solid var(--border2); border-bottom:1px solid var(--border);
+    display:flex; align-items:flex-start; line-height:1; padding-top:5px; }
+  /* Program cells */
+  .gv-prog { background:color-mix(in srgb, var(--prog-color) 14%, var(--bg));
+    border-left:3px solid var(--prog-color); border-bottom:1px solid var(--border);
+    border-right:1px solid var(--border);
+    padding:5px 7px; overflow:hidden; cursor:default;
+    transition:background .12s; display:flex; flex-direction:column; gap:2px; }
+  .gv-prog:hover { background:color-mix(in srgb, var(--prog-color) 26%, var(--bg)); }
+  .gv-prog-top { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .gv-prog-time { font-size:10px; font-family:var(--mono); color:var(--prog-color);
+    font-weight:700; white-space:nowrap; }
+  .gv-prog-time em { font-style:normal; opacity:.65; font-size:9px; }
+  .gv-prog-name { font-size:11px; color:var(--text); line-height:1.3; overflow:hidden;
+    display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; }
+  .gv-ok     { color:var(--green); font-size:10px; font-weight:700; }
+  .gv-warn   { color:var(--amber); font-size:10px; font-weight:700; }
+  .gv-absent { color:var(--border2); font-size:10px; }
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+  /* MODAL */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw; max-height: 90vh; overflow-y: auto; }
+  .modal::-webkit-scrollbar { width: 10px; }
+  .modal::-webkit-scrollbar-track { background: var(--bg3); border-radius: 6px; }
+  .modal::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 6px; }
+  .modal::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .modal { scrollbar-width: thin; scrollbar-color: var(--border2) var(--bg3); }
+  .modal h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+  .form-row { margin-bottom: 12px; }
+  .form-row label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .form-row input, .form-row select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: var(--sans); outline: none; }
+  .form-row input:focus, .form-row select:focus { border-color: var(--accent); }
+  select option { background: var(--bg3); }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; padding: 10px 16px; font-size: 12px; z-index: 200; animation: toastIn .2s ease; }
+  .toast.success { border-color: var(--green); color: var(--green); }
+  .toast.error { border-color: var(--red); color: var(--red); }
+  @keyframes toastIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+
+  .pd-section { border-bottom: 1px solid var(--border); }
+  .pd-section-head { padding: 6px 12px; font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; background: var(--bg2); }
+  .pd-done { opacity: 0.4; }
+  .pd-done .peca-name { text-decoration: line-through; }
+
+  /* VAZIO */
+  .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; color: var(--muted); gap: 8px; }
+  .empty .icon { font-size: 32px; opacity: 0.3; }
+  .empty p { font-size: 12px; text-align: center; max-width: 220px; line-height: 1.5; }
+
+  /* STAT ROW */
+  .stat-row { display: flex; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-wrap: wrap; }
+  .stat { display: flex; flex-direction: column; gap: 1px; }
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-val { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); }
+  .stat-val.accent { color: var(--accent); }
+  .stat-val.green { color: var(--green); }
+  .stat-val.amber { color: var(--amber); }
+
+/* ── Login overlay (cloud-sync.js) ── */
+#login-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg2, #f5f6fa);
+  font-family: var(--sans, sans-serif);
+}
+#login-overlay .login-box {
+  width: 320px; max-width: 90vw;
+  background: var(--bg, #fff);
+  border: 1px solid var(--border, #d5d9e6);
+  border-radius: 10px;
+  padding: 28px 26px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.08);
+}
+#login-overlay .login-logo {
+  font-family: var(--mono, monospace);
+  font-weight: 600; letter-spacing: .04em;
+  margin-bottom: 18px; text-align: center;
+  color: var(--text, #1a1d29);
+}
+#login-overlay .login-logo span { color: var(--accent, #2f6fe0); }
+#login-overlay input {
+  width: 100%; box-sizing: border-box;
+  padding: 10px 12px; margin-bottom: 10px;
+  border: 1px solid var(--border2, #b9bfd1); border-radius: 6px;
+  font-size: 14px; font-family: var(--sans, sans-serif);
+}
+#login-overlay button {
+  width: 100%; padding: 10px 12px; margin-top: 4px;
+  border: none; border-radius: 6px; cursor: pointer;
+  background: var(--accent, #2f6fe0); color: #fff;
+  font-size: 14px; font-weight: 500;
+}
+#login-overlay button:disabled { opacity: .6; cursor: default; }
+#login-overlay .login-error {
+  color: var(--red, #c53434); font-size: 12.5px; margin-top: 8px; min-height: 16px;
+}
+#login-overlay .login-hint {
+  color: var(--muted, #5b6480); font-size: 12px; margin-top: 14px; text-align: center;
+}
+#cloud-sync-status {
+  position: fixed; bottom: 10px; right: 12px; z-index: 9998;
+  font-family: var(--mono, monospace); font-size: 11px;
+  color: var(--muted, #5b6480); background: var(--bg2, #f5f6fa);
+  padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border, #d5d9e6);
+  display: none;
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     LOGIN — exibido até o usuário autenticar via Supabase.
+     A aplicação (.app) só aparece depois do login.
+     ═══════════════════════════════════════════════════════ -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">CANAL <span>EDUCAÇÃO</span><br>ROTEIRO</div>
+    <input type="email" id="login-email" placeholder="E-mail" autocomplete="username">
+    <input type="password" id="login-password" placeholder="Senha" autocomplete="current-password">
+    <button id="login-submit" onclick="cloudSyncLogin()">Entrar</button>
+    <div class="login-error" id="login-error"></div>
+    <div class="login-hint">Acesso restrito à equipe. Fale com o administrador para receber um login.</div>
+  </div>
+</div>
+
+<div id="cloud-sync-status"></div>
+
+<div class="app" style="display:none">
+  <!-- ═══════════════════════════════════════════════════════
+       TOPBAR: Logo, abas de navegação e botões de exportação
+       ═══════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="logo">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
+    <nav class="tabs">
+      <button class="tab active" onclick="showPanel('roteiro')">Roteiro do Dia</button>
+      <button class="tab" onclick="showPanel('pecas')">Banco de Peças <span class="tab-badge" id="badge-pecas">0</span></button>
+      <button class="tab" onclick="showPanel('programas')">Programas <span class="tab-badge" id="badge-prog">0</span></button>
+      <button class="tab" onclick="showPanel('pecas-dia')">Peças do Dia <span class="tab-badge" id="badge-pecas-dia">0</span></button>
+      <button class="tab" onclick="showPanel('grade-visual');renderGrade()">Grade Semanal</button>
+    </nav>
+    <div class="topbar-right">
+      <select id="theme-selector" onchange="setTheme(this.value)"
+              class="btn btn-sm" title="Tema visual"
+              style="cursor:pointer">
+        <option value="day">☀ Dia</option>
+        <option value="night">🌙 Noite</option>
+        <option value="sunset">🌅 Pôr-do-Sol</option>
+        <option value="cozy">☕ Cozy</option>
+        <option value="hicontrast">◐ Alto Contraste</option>
+      </select>
+      <button class="btn btn-sm btn-icon" onclick="importData()" title="Importar — CSV do Notion ou JSON de backup">📥</button>
+      <button class="btn btn-sm btn-icon" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)" title="Inserir Peças — distribuir peças do dia no roteiro automaticamente">⚡</button>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-sm btn-icon btn-green" onclick="exportExcel()" title="Exportar CSV (Roteiro Rede)">📄</button>
+        <button class="btn btn-sm btn-icon" onclick="exportXLSX()" title="Exportar planilha Excel (XLSX)" style="border-color:var(--cyan);color:var(--cyan)">📊</button>
+        <button class="btn btn-sm btn-icon" onclick="exportPDF()" title="Exportar PDF para impressão" style="border-color:var(--pink);color:var(--pink)">📕</button>
+      </div>
+      <!-- Botão Admin: configuração de regras de negócio (acesso restrito) -->
+      <button class="btn btn-sm btn-icon" onclick="openAdminModal()"
+        style="border-color:var(--amber);color:var(--amber);margin-left:4px"
+        title="Admin — configurar regras de negócio, horários e automação">⚙</button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════
+       ÁREA PRINCIPAL: Contém todos os painéis (abas)
+       Apenas um painel fica visível por vez (.panel.active)
+       ═══════════════════════════════════════════════════════ -->
+  <main class="content">
+
+    <!-- ───────────────────────────────────────────────────────
+         PAINEL ROTEIRO DO DIA
+         Contém: seletor de semana (sidebar) + tabela do roteiro
+         Ativado pela aba "Roteiro do Dia"
+         ─────────────────────────────────────────────────────── -->
+    <section class="panel active" id="panel-roteiro">
+      <div class="roteiro-sidebar">
+        <div class="sidebar-head">
+          <h3>Roteiro</h3>
+          <div class="date-display" id="date-display">—</div>
+          <div class="week-nav">
+            <button class="week-arrow" onclick="changeWeek(-1)" title="Semana anterior">‹</button>
+            <span class="week-label" id="week-label">—</span>
+            <button class="week-arrow" onclick="changeWeek(+1)" title="Próxima semana">›</button>
+          </div>
+          <div class="day-selector" id="day-selector"></div>
+        </div>
+        <div class="pecas-search">
+          <input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-search-input" oninput="renderPecasSidebarDebounced()">
+        </div>
+        <!-- Filtros de tipo da sidebar: clique para ativar/desativar -->
+        <div class="pecas-filters" id="pecas-filters">
+          <button class="filter-btn" data-t="ECHM" onclick="toggleFilter('ECHM')">ECHM</button>
+          <button class="filter-btn" data-t="ECHE" onclick="toggleFilter('ECHE')">ECHE</button>
+          <button class="filter-btn" data-t="EINT" onclick="toggleFilter('EINT')">EINT</button>
+          <button class="filter-btn" data-t="RCOM" onclick="toggleFilter('RCOM')">RCOM</button>
+          <button class="filter-btn" data-t="RPOL" onclick="toggleFilter('RPOL')">RPOL</button>
+          <button class="filter-btn" data-t="EVNH" onclick="toggleFilter('EVNH')">EVNH</button>
+          <button class="filter-btn" data-t="RPRO" onclick="toggleFilter('RPRO')">PGM</button>
+        </div>
+        <!-- Filtro de duração máxima da sidebar -->
+        <div style="padding:4px 10px">
+          <select id="sidebar-dur-filter" onchange="renderPecasSidebar()"
+            style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;font-family:var(--sans);outline:none">
+            <option value="">⏱ Qualquer duração</option>
+            <option value="30">Até 0:30</option>
+            <option value="60">Até 1:00</option>
+            <option value="90">Até 1:30</option>
+            <option value="120">Até 2:00</option>
+            <option value="180">Até 3:00</option>
+            <option value="300">Até 5:00</option>
+            <option value="600">Até 10:00</option>
+          </select>
+        </div>
+        <!-- Botão de acesso às peças fixas -->
+        <div style="padding:4px 10px">
+          <button id="btn-pecas-fixas" class="btn btn-sm" onclick="openPecasFixasModal()"
+            style="width:100%;font-size:11px" title="Gerenciar peças que entram automaticamente em todo roteiro gerado">
+            📌 Fixas
+          </button>
+        </div>
+        <div class="pecas-list" id="pecas-sidebar-list"></div>
+      </div>
+
+      <div class="roteiro-main">
+        <div class="stat-row" id="stat-row"></div>
+        <!-- BARRA DE FERRAMENTAS DO ROTEIRO: botões de ação + indicadores de tempo -->
+        <div class="roteiro-toolbar">
+          <!-- Botão para abrir modal de inserção de peça no roteiro -->
+          <button class="btn btn-sm" onclick="addItemModal()">+ Adicionar peça</button>
+          <!-- Botão para limpar todo o roteiro do dia atual (com confirmação) -->
+          <button class="btn btn-sm" onclick="clearRoteiro()">Limpar roteiro</button>
+          <!-- Botão para abrir o modal de configuração da grade semanal -->
+          <button class="btn btn-sm" onclick="openGradeModal()" title="Definir horários da grade semanal" style="border-color:var(--green);color:var(--green)">📅 Grade</button>
+          <!-- Botão de backup automático: escolhe pasta e ativa backup a cada 2min (Chrome/Edge) -->
+           <button class="btn btn-sm" id="btn-backup" onclick="setupAutoBackup()" title="Configurar backup automático em pasta local (Chrome/Edge). Salva JSON a cada alteração." style="border-color:var(--amber);color:var(--amber)">💾 Backup auto</button>
+           <!-- Botão para baixar manualmente o JSON de backup completo -->
+           <button class="btn btn-sm" onclick="exportJSON()" title="Baixar agora o backup completo (.json) — roteiros, banco de peças, programas e grade" style="border-color:var(--amber);color:var(--amber)">⬇ Baixar backup</button>
+           <!-- Indicador discreto do último backup realizado -->
+           <span id="backup-status" style="font-size:10px;color:var(--muted);font-family:var(--mono)"></span>
+          <div class="time-info">
+            06:00:00 → <span id="end-time">—</span> &nbsp;|&nbsp; <span id="total-items">0</span> itens &nbsp;|&nbsp; <span id="total-dur">00:00:00</span>
+          </div>
+        </div>
+        <!-- BARRA BUSCAR & SUBSTITUIR — busca peças no roteiro e troca em massa -->
+        <div class="roteiro-find" style="display:flex;gap:8px;align-items:center;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em">🔎 BUSCAR</span>
+          <input type="text" id="find-input" placeholder="code ou descrição da peça..." oninput="findInRoteiro()"
+            style="flex:1;min-width:180px;padding:5px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--mono);outline:none">
+          <span id="find-count" style="font-size:11px;color:var(--muted);font-family:var(--mono);min-width:120px">—</span>
+          <button class="btn btn-sm" onclick="findStepRoteiro(-1)" title="Ocorrência anterior" style="padding:4px 8px">‹</button>
+          <button class="btn btn-sm" onclick="findStepRoteiro(+1)" title="Próxima ocorrência" style="padding:4px 8px">›</button>
+          <span style="width:1px;height:18px;background:var(--border2)"></span>
+          <span style="font-size:11px;color:var(--muted);font-family:var(--mono);letter-spacing:.05em">SUBSTITUIR POR</span>
+          <input type="text" id="replace-input" placeholder="code da nova peça..." oninput="findValidateReplace()"
+            style="width:160px;padding:5px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--mono);outline:none">
+          <span id="replace-desc" style="font-size:11px;color:var(--muted);font-family:var(--sans);flex:0 1 200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span>
+          <button class="btn btn-sm" onclick="replaceCurrentInRoteiro()" style="border-color:var(--accent);color:var(--accent)" title="Substituir somente a ocorrência atual (destacada em azul)">↻ Substituir esta</button>
+          <button class="btn btn-sm" onclick="replaceAllInRoteiro()" style="border-color:var(--cyan);color:var(--cyan)">↻ Substituir todas</button>
+        </div>
+        <div class="roteiro-table-wrap">
+          <table class="roteiro">
+            <thead>
+              <tr>
+                <th class="col-seq">#</th>
+                <th class="col-code">Code</th>
+                <th class="col-desc">Descrição</th>
+                <th class="col-dur">Duração</th>
+                <th class="col-in">IN</th>
+                <th class="col-type">Tipo</th>
+                <th class="col-act"></th>
+              </tr>
+            </thead>
+            <tbody id="roteiro-tbody"></tbody>
+          </table>
+          <div id="roteiro-empty" class="empty" style="display:none">
+            <div class="icon">📋</div>
+            <p>Roteiro vazio. Arraste peças da lateral ou clique em "+ Adicionar peça".</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────────────────
+         PAINEL BANCO DE PEÇAS
+         Contém: busca + filtros por tipo + grid de cards
+         Cada card tem botões de editar (✎) e excluir (🗑)
+         Botões: Nova peça, Importar XLSX/JSON, Exportar XLSX/JSON
+         ─────────────────────────────────────────────────────── -->
+    <section class="panel" id="panel-pecas">
+      <div class="section-header">
+        <h2>Banco de Peças</h2>
+        <div class="search"><input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-panel-search" oninput="renderPecasPanelDebounced()"></div>
+        <div class="filter-row" id="pecas-panel-filters">
+          <button class="filter-btn" data-t="ECHM" onclick="togglePanelFilter('ECHM')">ECHM</button>
+          <button class="filter-btn" data-t="ECHE" onclick="togglePanelFilter('ECHE')">ECHE</button>
+          <button class="filter-btn" data-t="EINT" onclick="togglePanelFilter('EINT')">EINT</button>
+          <button class="filter-btn" data-t="RCOM" onclick="togglePanelFilter('RCOM')">RCOM</button>
+          <button class="filter-btn" data-t="RPOL" onclick="togglePanelFilter('RPOL')">RPOL</button>
+          <button class="filter-btn" data-t="EVNH" onclick="togglePanelFilter('EVNH')">EVNH</button>
+        </div>
+        <!-- Filtro de duração máxima do banco de peças -->
+        <select id="panel-dur-filter" onchange="renderPecasPanel()"
+          style="padding:6px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);outline:none"
+          title="Filtrar por duração máxima">
+          <option value="">⏱ Qualquer duração</option>
+          <option value="30">Até 0:30</option>
+          <option value="60">Até 1:00</option>
+          <option value="90">Até 1:30</option>
+          <option value="120">Até 2:00</option>
+          <option value="180">Até 3:00</option>
+          <option value="300">Até 5:00</option>
+          <option value="600">Até 10:00</option>
+        </select>
+        <button class="btn btn-sm btn-primary" onclick="addPecaModal()">+ Nova peça</button>
+        <button class="btn btn-sm" onclick="document.getElementById('file-banco-import').click()" title="Importar do arquivo XLSX ou JSON">↑ Importar</button>
+        <button class="btn btn-sm" onclick="exportBancoXLSX()" title="Exportar banco como planilha XLSX" style="border-color:var(--green);color:var(--green)">↓ XLSX</button>
+        <button class="btn btn-sm" onclick="exportBancoJSON()" title="Exportar banco como JSON" style="border-color:var(--cyan);color:var(--cyan)">↓ JSON</button>
+        <button class="btn btn-sm" onclick="if(confirm(&quot;Restaurar o banco de peças para o padrão original? Suas inclusões/edições serão perdidas.&quot;)){PartsStore.pecas.resetToSeed();toast(&quot;Banco restaurado ao padrão&quot;);}" title="Restaurar o banco de peças ao conteúdo original (data.js)" style="border-color:var(--pink);color:var(--pink)">↺ Padrão</button>
+        <input type="file" id="file-banco-import" accept=".xlsx,.json" style="display:none" onchange="importBanco(event)">
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px">
+        <div class="pecas-grid" id="pecas-panel-grid"></div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────────────────
+         PAINEL BANCO DE PROGRAMAS
+         Contém: busca + lista de programas cadastrados (RPRO)
+         Programas podem ser importados via Notion CSV
+         ─────────────────────────────────────────────────────── -->
+    <section class="panel" id="panel-programas">
+      <div class="section-header">
+        <h2>Programas</h2>
+        <div class="search"><input type="text" placeholder="Buscar programa..." id="prog-search" oninput="renderProgramas()"></div>
+        <button class="btn btn-sm btn-primary" onclick="addProgModal()">+ Novo programa</button>
+
+        <!-- Importar JSON de programas -->
+        <button class="btn btn-sm" onclick="document.getElementById('file-prog-import').click()"
+          title="Importar programas de arquivo XLSX ou JSON">↑ Importar</button>
+
+        <!-- Exportar como XLSX — chama exportProgramasXLSX() do banco-manager.js -->
+        <button class="btn btn-sm" onclick="exportProgramasXLSX()"
+          title="Exportar programas como planilha XLSX"
+          style="border-color:var(--green);color:var(--green)">↓ XLSX</button>
+
+        <!-- Exportar como JSON — chama exportProgramasJSON() do banco-manager.js -->
+        <button class="btn btn-sm" onclick="exportProgramasJSON()"
+          title="Exportar programas como JSON"
+          style="border-color:var(--cyan);color:var(--cyan)">↓ JSON</button>
+
+        <!-- Excluir em massa apenas os programas visíveis no filtro atual -->
+        <button class="btn btn-sm" onclick="deleteAllProgramasFiltrados()"
+          title="Excluir todos os programas visíveis no filtro atual"
+          style="border-color:var(--red);color:var(--red)">🗑 Excluir filtrados</button>
+
+        <!-- Restaurar banco ao conteúdo padrão (data.js) -->
+        <button class="btn btn-sm"
+          onclick="resetProgramasToDefault()"
+          title="Restaurar o banco de programas ao conteúdo original (data.js)"
+          style="border-color:var(--pink);color:var(--pink)">↺ Padrão</button>
+
+        <!-- Input oculto para seleção do arquivo de importação de programas -->
+        <input type="file" id="file-prog-import" accept=".xlsx,.json" style="display:none"
+          onchange="importProgramasManager(event)">
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:0 16px">
+        <div class="prog-list" id="prog-list"></div>
+      </div>
+    </section>
+
+    <!-- ───────────────────────────────────────────────────────
+         PAINEL PEÇAS DO DIA
+         Contém: peças importadas da planilha diária de inserção
+         Botões: Importar planilha, + Adicionar manual, ⚡ Inserir, 🗑 Limpar
+         Duplo-clique em uma peça insere no roteiro na posição selecionada
+         ─────────────────────────────────────────────────────── -->
+    <section class="panel" id="panel-pecas-dia">
+      <div class="section-header">
+        <h2>Peças do Dia</h2>
+        <div class="search"><input type="text" placeholder="Buscar..." id="pd-search" oninput="renderPecasDiaPanel()"></div>
+        <select id="pd-filter" onchange="renderPecasDiaPanel()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);outline:none">
+          <option value="">Todos os tipos</option>
+          <option value="ECHE">ECHE — Chamada quente</option>
+          <option value="ECHM">ECHM — Chamada manutenção</option>
+          <option value="RCOM">RCOM — Comercial</option>
+          <option value="RPOL">RPOL — Político</option>
+          <option value="EINT">EINT — Interprograma</option>
+          <option value="EVNH">EVNH — Vinheta</option>
+        </select>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-pecas-dia').click()">↑ Importar Planilha</button>
+        <button class="btn btn-sm" onclick="openAddPecaDiaModal()" style="border-color:var(--green);color:var(--green)" title="Adicionar peça manualmente">+ Adicionar</button>
+        <button class="btn btn-sm" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)">⚡ Inserir no roteiro</button>
+        <button class="btn btn-sm" onclick="clearPecasDia()" style="border-color:var(--red,#ef4444);color:var(--red,#ef4444)" title="Limpar peças do dia importadas">🗑 Limpar</button>
+      </div>
+      <div style="padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)">
+        Importe a planilha <strong style="color:var(--text)">PLANILHA_DE_PEÇAS_DE_INSERÇÃO_2026.xlsx</strong> — a aba correspondente à data selecionada é carregada automaticamente.
+        Duplo-clique numa peça para adicionar ao roteiro, ou use <strong style="color:var(--cyan)">⚡ Inserir no roteiro</strong> para distribuição automática inteligente.
+      </div>
+      <div style="flex:1;overflow-y:auto" id="pecas-dia-content">
+        <div class="empty"><div class="icon">📂</div><p>Nenhuma peça importada para este dia.</p></div>
+      </div>
+    </section>
+
+
+    <!-- ───────────────────────────────────────────────────────
+         PAINEL GRADE SEMANAL
+         CSS Grid real com 7 colunas (Seg→Dom) e linhas por horário
+         Dia atual destacado em azul. Indicadores ✓/laranja do roteiro
+         ─────────────────────────────────────────────────────── -->
+    <section class="panel" id="panel-grade-visual">
+      <div class="section-header">
+        <h2>Grade Semanal</h2>
+        <span style="font-size:11px;color:var(--muted);flex:1">Horários fixos da programação — dia atual destacado em azul · ✓ no horário · laranja = desvio</span>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);cursor:pointer" title="Escolha um programa e a cor, depois clique em ✅">
+          <span title="Cor do programa" style="font-size:14px">🎨</span>
+          <input type="color" id="grade-color-picker" value="#3b82f6"
+                 style="width:26px;height:22px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;padding:0;border-radius:4px" title="Selecione a cor">
+          <input type="text" id="grade-color-prog" placeholder="🎯" list="grade-prog-list" title="Nome do programa"
+                 style="padding:3px 6px;font-size:11px;background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:4px;width:110px">
+          <datalist id="grade-prog-list"></datalist>
+          <button class="btn btn-sm" title="Aplicar cor" style="padding:2px 6px;font-size:14px;line-height:1" onclick="(function(){var p=document.getElementById('grade-color-prog').value.trim();var c=document.getElementById('grade-color-picker').value;if(!p){alert('Informe o nome do programa');return;}setProgramColor(p,c);})()">✅</button>
+        </label>
+      </div>
+      <div style="flex:1;overflow:auto;padding:0;position:relative" id="grade-visual-container">
+        <div class="empty"><div class="icon">📅</div><p>Clique na aba para carregar a grade.</p></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAIS DO SISTEMA
+     Todos usam a classe .modal-overlay (fundo escuro)
+     Fechados via closeModal(id) → display:none
+     ═══════════════════════════════════════════════════════ -->
+
+<!-- MODAL ADICIONAR PEÇA AO ROTEIRO: busca com filtro de tipo e duração máxima -->
+<div id="modal-add" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:480px">
+    <h3 id="modal-add-title">Adicionar ao roteiro</h3>
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <input type="text" id="modal-search" placeholder="Buscar por nome ou code..." oninput="filterModalList()"
+        style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);outline:none">
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center">
+      <select id="modal-type-filter" onchange="filterModalList()"
+        style="padding:5px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;font-family:var(--sans);outline:none">
+        <option value="">Todos os tipos</option>
+        <option value="ECHM">ECHM — Chamada manut.</option>
+        <option value="ECHE">ECHE — Chamada quente</option>
+        <option value="EINT">EINT — Interprograma</option>
+        <option value="RCOM">RCOM — Comercial</option>
+        <option value="RPOL">RPOL — Político</option>
+        <option value="EVNH">EVNH — Vinheta</option>
+        <option value="RPRO">RPRO — Programa</option>
+      </select>
+      <select id="modal-dur-filter" onchange="filterModalList()"
+        style="padding:5px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;font-family:var(--sans);outline:none">
+        <option value="">Qualquer duração</option>
+        <option value="30">até 0:30</option>
+        <option value="60">até 1:00</option>
+        <option value="120">até 2:00</option>
+        <option value="180">até 3:00</option>
+        <option value="300">até 5:00</option>
+        <option value="600">até 10:00</option>
+        <option value="1800">até 30:00</option>
+      </select>
+      <span id="modal-count" style="font-size:10px;color:var(--muted);margin-left:auto;white-space:nowrap"></span>
+    </div>
+    <div id="modal-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-add')">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVA PEÇA: cadastro permanente no banco de peças -->
+<div id="modal-new-peca" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>Nova Peça</h3>
+    <div class="form-row"><label>Code</label><input type="text" id="np-code"></div>
+    <div class="form-row"><label>Descrição</label><input type="text" id="np-desc"></div>
+    <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="np-dur" placeholder="00:01:30"></div>
+    <div class="form-row"><label>Tipo</label>
+      <select id="np-type">
+        <option value="ECHM">ECHM — Chamada manutenção</option>
+        <option value="ECHE">ECHE — Chamada quente</option>
+        <option value="EINT">EINT — Interprograma gov</option>
+        <option value="RCOM">RCOM — Comercial gov</option>
+        <option value="RPOL">RPOL — Político</option>
+        <option value="EVNH">EVNH — Vinheta/ID</option>
+        <option value="RPRO">RPRO — Programa</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Validade</label><input type="text" id="np-val" placeholder="dd/mm/aa ou vazio"></div>
+    <div class="form-row"><label>Observação</label><input type="text" id="np-obs"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-new-peca')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveNewPeca()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR PEÇA DO BANCO: edição dos campos de uma peça existente -->
+<div id="modal-edit-peca" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>Editar Peça</h3>
+    <input type="hidden" id="ep-idx">
+    <div class="form-row"><label>Code</label><input type="text" id="ep-code"></div>
+    <div class="form-row"><label>Descrição</label><input type="text" id="ep-desc"></div>
+    <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="ep-dur" placeholder="00:01:30"></div>
+    <div class="form-row"><label>Tipo</label>
+      <select id="ep-type">
+        <option value="ECHM">ECHM — Chamada manutenção</option>
+        <option value="ECHE">ECHE — Chamada quente</option>
+        <option value="EINT">EINT — Interprograma gov</option>
+        <option value="RCOM">RCOM — Comercial gov</option>
+        <option value="RPOL">RPOL — Político</option>
+        <option value="EVNH">EVNH — Vinheta/ID</option>
+        <option value="RPRO">RPRO — Programa</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Validade</label><input type="text" id="ep-val" placeholder="dd/mm/aa ou vazio"></div>
+    <div class="form-row"><label>Observação</label><input type="text" id="ep-obs"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-edit-peca')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditPeca()">Salvar</button>
+    </div>
+  </div>
+</div>
+      <button class="btn btn-primary" onclick="saveNewPeca()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL NOVO PROGRAMA: cadastro de programa no banco permanente -->
+<div id="modal-new-prog" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <h3>Novo Programa</h3>
+    <div class="form-row"><label>Code</label><input type="text" id="npp-code"></div>
+    <div class="form-row"><label>Descrição</label><input type="text" id="npp-desc"></div>
+    <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="npp-dur" placeholder="00:25:00"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-new-prog')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveNewProg()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL GRADE SEMANAL: lista editável de horários por programa com drag-and-drop -->
+<div id="modal-grade" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:560px;max-width:95vw">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin:0" id="grade-modal-title">Grade Semanal — Horários de Entrada</h3>
+      <button class="btn btn-sm" onclick="fixGradeFromRoteiro()"
+        style="border-color:var(--green);color:var(--green);flex-shrink:0"
+        title="Copia os horários calculados do roteiro atual para fixar como referência deste dia da semana">
+        ⚙ Fixar do roteiro
+      </button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Defina o horário previsto de cada programa. Use <strong style="color:var(--green)">⚙ Fixar do roteiro</strong> para capturar automaticamente os horários calculados do roteiro atual como referência permanente para este dia da semana. Arraste pelo <span style="color:var(--muted)">⠿</span> para reordenar.
+    </p>
+    <!-- Add program row -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+      <input type="text" id="grade-new-name" placeholder="Nome do programa..."
+        style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);outline:none"
+        onkeydown="if(event.key==='Enter')addGradeEntry()">
+      <input type="time" step="1" id="grade-new-time"
+        style="width:110px;padding:6px 8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--mono);outline:none">
+      <button class="btn btn-sm btn-primary" onclick="addGradeEntry()" style="flex-shrink:0">+ Adicionar</button>
+    </div>
+    <!-- Sortable list -->
+    <div id="grade-rows" style="max-height:380px;overflow-y:auto;padding-right:4px"></div>
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn" onclick="closeModal('modal-grade')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveGradeFromModal()">Salvar grade</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL EDITAR ITEM DO ROTEIRO: edita code, descrição, duração, tipo e mídia de qualquer linha -->
+<div id="modal-edit-item" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:440px">
+    <h3>Editar item do roteiro</h3>
+    <input type="hidden" id="ei-idx">
+    <div class="form-row"><label>Code</label>
+      <input type="text" id="ei-code" placeholder="Código" style="font-family:var(--mono)"></div>
+    <div class="form-row"><label>Descrição</label>
+      <input type="text" id="ei-desc" placeholder="Descrição"></div>
+    <div class="form-row"><label>Duração</label>
+      <input type="text" id="ei-dur" placeholder="00:01:00" style="font-family:var(--mono)"></div>
+    <div class="form-row"><label>Tipo</label>
+      <select id="ei-type">
+        <option value="RPRO">RPRO — Programa</option>
+        <option value="ECHM">ECHM — Chamada manut.</option>
+        <option value="ECHE">ECHE — Chamada quente</option>
+        <option value="EINT">EINT — Interprograma</option>
+        <option value="RCOM">RCOM — Comercial</option>
+        <option value="RPOL">RPOL — Político</option>
+        <option value="EVNH">EVNH — Vinheta</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Mídia</label>
+      <input type="text" id="ei-midia" placeholder="0OMN" style="font-family:var(--mono)"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-edit-item')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEditItem()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADICIONAR PEÇA DO DIA MANUALMENTE: insere uma peça pontual sem precisar importar planilha -->
+<div id="modal-add-peca-dia" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:420px">
+    <h3>Adicionar peça ao dia</h3>
+    <div class="form-row">
+      <label>Code</label>
+      <input type="text" id="apd-code" placeholder="Ex: 89141" style="font-family:var(--mono)" onkeydown="if(event.key==='Enter')document.getElementById('apd-desc').focus()">
+    </div>
+    <div class="form-row">
+      <label>Descrição</label>
+      <input type="text" id="apd-desc" placeholder="Nome da peça" onkeydown="if(event.key==='Enter')document.getElementById('apd-dur').focus()">
+    </div>
+    <div class="form-row">
+      <label>Duração</label>
+      <input type="text" id="apd-dur" placeholder="00:01:00" style="font-family:var(--mono)" onkeydown="if(event.key==='Enter')document.getElementById('apd-type').focus()">
+    </div>
+    <div class="form-row">
+      <label>Tipo</label>
+      <select id="apd-type">
+        <option value="ECHM">ECHM — Chamada manutenção</option>
+        <option value="ECHE">ECHE — Chamada quente</option>
+        <option value="EINT">EINT — Interprograma</option>
+        <option value="RCOM">RCOM — Comercial</option>
+        <option value="RPOL">RPOL — Político</option>
+        <option value="EVNH">EVNH — Vinheta</option>
+        <option value="RPRO">RPRO — Programa</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Categoria</label>
+      <select id="apd-cat">
+        <option value="CHAMADA QUENTE">CHAMADA QUENTE</option>
+        <option value="RCOM">RCOM</option>
+        <option value="RPOL">RPOL</option>
+        <option value="INTERPROGRAMAS GOV">INTERPROGRAMAS GOV</option>
+      </select>
+    </div>
+    <div class="form-row">
+      <label>Qtd.</label>
+      <input type="number" id="apd-qtd" value="1" min="1" max="20" style="width:80px;font-family:var(--mono)" title="Quantidade máxima de exibições">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-add-peca-dia')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAddPecaDia()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PEÇAS FIXAS: peças que entram automaticamente em todo roteiro gerado -->
+<div id="modal-pecas-fixas" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:580px;max-width:95vw">
+    <h3>📌 Peças Fixas do Roteiro</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:12px">
+      Peças fixas são inseridas automaticamente em <strong>todo roteiro</strong> gerado via importação.
+      Você define a posição de cada peça. Desative sem remover usando o checkbox.
+    </p>
+    <!-- Lista de peças fixas cadastradas -->
+    <div id="pecas-fixas-list" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:16px"></div>
+    <!-- Formulário de adição -->
+    <div style="border-top:1px solid var(--border);padding-top:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Adicionar peça fixa</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="pf-code" placeholder="Code da peça (ex: 85283)"
+          style="flex:1;min-width:160px;padding:7px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--mono);outline:none"
+          onkeydown="if(event.key==='Enter')addPecaFixa()">
+        <select id="pf-posicao"
+          style="padding:7px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px;font-family:var(--sans);outline:none">
+          <option value="inicio">⬆ Início do roteiro</option>
+          <option value="fim">⬇ Fim do roteiro</option>
+          <option value="antes_programa">▶ Antes de cada programa</option>
+          <option value="apos_assinatura">✦ Após cada assinatura</option>
+        </select>
+        <button class="btn btn-sm btn-primary" onclick="addPecaFixa()">+ Fixar</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px">
+        A peça deve existir no banco de peças. Use a busca da sidebar para encontrar o code.
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="closePecasFixasModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ADMIN — configuração de regras de negócio pelo administrador -->
+<div id="modal-admin" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:520px;max-width:95vw">
+    <h3>⚙ Painel de Administração</h3>
+    <p style="font-size:11px;color:var(--muted);margin-bottom:16px">
+      Configure as regras de negócio do sistema. As alterações têm efeito imediato
+      no próximo roteiro gerado. Acesso restrito ao administrador do sistema.
+    </p>
+
+    <!-- Seção: Horários -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin-bottom:8px">Horários e Restrições</div>
+    <div class="form-row">
+      <label title="Horário mínimo para inserção de peças políticas (RPOL)">RPOL — início</label>
+      <input type="time" id="adm-rpol-inicio" value="19:30" style="font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Horário máximo para inserção de peças políticas (RPOL)">RPOL — fim</label>
+      <input type="time" id="adm-rpol-fim" value="22:30" style="font-family:var(--mono)">
+    </div>
+
+    <!-- Seção: Regras por Tipo de Peça -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Regras por Tipo de Peça</div>
+    <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
+      Para cada tipo, defina a <b>janela horária</b> permitida, o <b>intervalo mínimo</b> entre repetições da mesma peça
+      e quais tipos não podem ficar <b>adjacentes</b> (anterior ou posterior). Violações aparecem com ⚠ no roteiro.
+    </p>
+    <div id="adm-regras-tipos" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+
+    <!-- Seção: Grade -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Grade Semanal</div>
+    <div class="form-row">
+      <label title="Diferença em segundos abaixo da qual o horário é considerado 'no ar' (✓ verde)">Tolerância da grade (segundos)</label>
+      <input type="number" id="adm-grade-tol" min="0" max="300" value="8" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label>Exibir indicadores de grade no roteiro</label>
+      <input type="checkbox" id="adm-mostrar-grade" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+
+    <!-- Importar grade semanal a partir de planilha (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx) -->
+    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-top:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📥 Importar grade da planilha semanal</div>
+      <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
+        Carrega uma aba (ex.: <b>01 A 07 DE JUNHO</b>) com colunas Seg–Dom em slots de 5 min.
+        A grade base de cada dia da semana será substituída pelos programas detectados.
+      </p>
+      <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
+      <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)">📂 Selecionar planilha…</button>
+      <div id="grade-import-sheets" style="display:none;margin-top:8px">
+        <div class="form-row" style="margin:0 0 6px">
+          <label style="font-size:10px">Aba da semana</label>
+          <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
+        </div>
+        <div id="grade-import-preview" style="font-size:10px;color:var(--muted);margin-bottom:6px"></div>
+        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
+      </div>
+    </div>
+
+    <!-- Seção: Automação -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Automação</div>
+    <div class="form-row">
+      <label title="Quantos slots de break são criados entre cada bloco do mesmo programa">Slots de break por bloco</label>
+      <input type="number" id="adm-break-slots" min="1" max="10" value="2" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Injeta peças fixas automaticamente ao gerar o roteiro">Injetar peças fixas ao gerar roteiro</label>
+      <input type="checkbox" id="adm-injetar-fixas" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+    <div class="form-row">
+      <label title="Adiciona automaticamente ao banco permanente os itens de cada importação">Mesclar importações ao banco</label>
+      <input type="checkbox" id="adm-auto-banco" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+
+    <!-- Seção: Interface -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Interface e Performance</div>
+    <div class="form-row">
+      <label title="Limite de itens exibidos na sidebar antes de pedir refinamento da busca">Máx. itens na sidebar</label>
+      <input type="number" id="adm-sidebar-max" min="20" max="500" value="120" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Intervalo entre backups automáticos em minutos (requer pasta configurada)">Intervalo de backup (min)</label>
+      <input type="number" id="adm-backup-min" min="1" max="60" value="2" style="width:80px;font-family:var(--mono)">
+    </div>
+
+    <!-- Seção: Vinhetas -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Vinhetas (VH)</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)">
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="adm-vh-seguir" checked style="accent-color:var(--accent)">
+        VH A Seguir
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="adm-vh-assistindo" checked style="accent-color:var(--accent)">
+        VH Vc Está Assistindo
+      </label>
+      <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="adm-vh-daqui" checked style="accent-color:var(--accent)">
+        VH Daqui a Pouco
+      </label>
+    </div>
+
+    <!-- VH Classificação Indicativa -->
+    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="adm-vh-classif-ativo" checked style="accent-color:var(--accent)">
+        VH Classificação Indicativa Livre
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="form-row" style="margin:0;flex:1"><label style="font-size:10px">Code</label>
+          <input type="text" id="adm-vh-classif-code" value="85283" style="font-family:var(--mono);font-size:12px"></div>
+        <div class="form-row" style="margin:0;width:110px"><label style="font-size:10px">Duração</label>
+          <input type="text" id="adm-vh-classif-tempo" value="00:00:06" style="font-family:var(--mono);font-size:12px"></div>
+      </div>
+    </div>
+
+    <!-- VH Assinaturas -->
+    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:10px">VH Assinaturas</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <!-- INFANTIL -->
+        <div style="border:1px solid var(--border2);border-radius:6px;padding:8px">
+          <label style="font-size:10px;color:var(--green);font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <input type="checkbox" id="adm-vh-inf-ativo" checked style="accent-color:var(--green)"> INFANTIL
+          </label>
+          <div class="form-row" style="margin:0 0 4px"><label style="font-size:9px">Code</label>
+            <input type="text" id="adm-vh-inf-code" value="85331" style="font-family:var(--mono);font-size:11px"></div>
+          <div class="form-row" style="margin:0"><label style="font-size:9px">Duração</label>
+            <input type="text" id="adm-vh-inf-tempo" value="00:00:05" style="font-family:var(--mono);font-size:11px"></div>
+        </div>
+        <!-- JOVEM -->
+        <div style="border:1px solid var(--border2);border-radius:6px;padding:8px">
+          <label style="font-size:10px;color:var(--accent);font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <input type="checkbox" id="adm-vh-jov-ativo" checked style="accent-color:var(--accent)"> JOVEM
+          </label>
+          <div class="form-row" style="margin:0 0 4px"><label style="font-size:9px">Code</label>
+            <input type="text" id="adm-vh-jov-code" value="85330" style="font-family:var(--mono);font-size:11px"></div>
+          <div class="form-row" style="margin:0"><label style="font-size:9px">Duração</label>
+            <input type="text" id="adm-vh-jov-tempo" value="00:00:05" style="font-family:var(--mono);font-size:11px"></div>
+        </div>
+        <!-- ADULTO -->
+        <div style="border:1px solid var(--border2);border-radius:6px;padding:8px">
+          <label style="font-size:10px;color:var(--amber);font-weight:600;display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <input type="checkbox" id="adm-vh-adt-ativo" checked style="accent-color:var(--amber)"> ADULTO
+          </label>
+          <div class="form-row" style="margin:0 0 4px"><label style="font-size:9px">Code</label>
+            <input type="text" id="adm-vh-adt-code" value="85332" style="font-family:var(--mono);font-size:11px"></div>
+          <div class="form-row" style="margin:0"><label style="font-size:9px">Duração</label>
+            <input type="text" id="adm-vh-adt-tempo" value="00:00:05" style="font-family:var(--mono);font-size:11px"></div>
+        </div>
+      </div>
+      <!-- Keywords -->
+      <div class="form-row" style="margin-bottom:6px">
+        <label style="font-size:10px" title="Programas que contêm esses termos recebem ASSINATURA_INFANTIL. Separar por vírgula.">Keywords INFANTIL</label>
+        <input type="text" id="adm-vh-inf-kw" style="font-size:11px" placeholder="PALALOOS, PLANETA PALAVRA, ...">
+      </div>
+      <div class="form-row" style="margin:0">
+        <label style="font-size:10px" title="Programas que contêm esses termos recebem ASSINATURA_ADULTO. Demais recebem JOVEM.">Keywords ADULTO</label>
+        <input type="text" id="adm-vh-adt-kw" style="font-size:11px" placeholder="CAMINHOS DA REPORTAGEM, HUMANIDADES, ...">
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn" onclick="resetAdminRegras()" style="color:var(--red);border-color:var(--red)">↺ Restaurar padrões</button>
+      <button class="btn" onclick="closeModal('modal-admin')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveAdminRegras()">✓ Salvar regras</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-import" accept=".json,.csv" style="display:none" onchange="handleImport(event)">
+<input type="file" id="file-pecas-dia" accept=".xlsx" style="display:none" onchange="handlePecasDiaImport(event)">
+
+<!-- cloud-sync.js cuida do login e, após autenticar e baixar os dados da nuvem,
+     injeta dinamicamente os scripts abaixo na mesma ordem original. -->
+<script src="cloud-sync.js"></script>
+</body>
+</html>
