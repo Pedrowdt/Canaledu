@@ -24,7 +24,7 @@
 // =====================================================
 
 // ── 1) PREENCHA COM OS DADOS DO SEU PROJETO SUPABASE ──
-const SUPABASE_URL      = 'https://ewfewxrioxvnqfwhwbuj.supabase.co/rest/v1/';
+const SUPABASE_URL      = 'https://ewfewxrioxvnqfwhwbuj.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_BDDWYibO1f7lGuwL1934LA_JuOx-MT6';
 
 const WORKSPACE_ID = 'workspace'; // id fixo da linha compartilhada (não precisa mudar)
