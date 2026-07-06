@@ -22,8 +22,39 @@ const CATS = {
   INTGOV:{label:'Interprograma gov',short:'INTGOV',text:'#085041',bg:'#E1F5EE',border:'#1D9E75',dot:'#1D9E75'},
   MANUT:{label:'Manutenção',short:'MANUT',text:'#444441',bg:'#F1EFE8',border:'#888780',dot:'#888780'},
   BUSSOLA:{label:'Bússola',short:'BÜSS',text:'#72243E',bg:'#FBEAF0',border:'#D4537E',dot:'#D4537E'},
+  VINHETAS:{label:'Vinhetas',short:'EVNH',text:'#5B3A00',bg:'#FFF4D6',border:'#E0B341',dot:'#E0B341'},
 };
 const HAS_KILL = ['RCOM','RPOL','INTGOV'];
+
+// Mapeia TYPE -> categoria padrão (usado para redistribuir peças
+// importadas que ficaram todas na antiga categoria "IMPORTADO").
+const TYPE_TO_CAT = {
+  EVNH: 'VINHETAS',
+  RCOM: 'RCOM',
+  RPOL: 'RPOL',
+  EINT: 'INTGOV',
+  ECHM: 'MANUT',
+  ECHE: 'CHAMADA_QUENTE',
+};
+function categoriaFromType(type, fallback){
+  return TYPE_TO_CAT[String(type||'').toUpperCase()] || fallback || 'VINHETAS';
+}
+// Normaliza peças legadas: qualquer coisa em "IMPORTADO" (ou
+// categoria desconhecida) é redistribuída pelo TYPE. A antiga
+// categoria "IMPORTADO" vira "VINHETAS" (EVNH).
+function normalizePecas(list){
+  let changed = false;
+  const known = Object.keys(CATS);
+  const out = list.map(p => {
+    const cat = p.categoria;
+    if (!cat || cat === 'IMPORTADO' || !known.includes(cat)) {
+      const next = categoriaFromType(p.type, 'VINHETAS');
+      if (next !== cat) { changed = true; return { ...p, categoria: next }; }
+    }
+    return p;
+  });
+  return { list: out, changed };
+}
 const TODAY = new Date();
 
 let supabaseClient = null;
@@ -83,6 +114,9 @@ async function loadFromCloud() {
 
   pecas     = (shared?.pecas     || []).map(p => ({ id: p.id || uid(), ...p }));
   programas = (shared?.programas || []).map(p => ({ id: p.id || uid(), ...p }));
+  const norm = normalizePecas(pecas);
+  pecas = norm.list;
+  if (norm.changed) { scheduleSync(); }
   setSyncStatus('Sincronizado ✓');
 }
 
@@ -118,7 +152,7 @@ function setupRealtime() {
       { event: 'UPDATE', schema: 'public', table: 'shared_data', filter: `id=eq.${WORKSPACE_ID}` },
       (payload) => {
         if (!payload.new || payload.new.updated_by === currentUser.id) return; // ignora a própria escrita
-        pecas     = (payload.new.pecas     || []).map(p => ({ id: p.id || uid(), ...p }));
+        pecas     = normalizePecas((payload.new.pecas || []).map(p => ({ id: p.id || uid(), ...p }))).list;
         programas = (payload.new.programas || []).map(p => ({ id: p.id || uid(), ...p }));
         render();
         setSyncStatus('Atualizado por outro usuário ✓');
@@ -487,7 +521,12 @@ function processImportedRows(rows) {
         ...novo,
         validade: ci.val >= 0 ? String(r[ci.val] || '').trim() : '',
         obs:      ci.obs >= 0 ? String(r[ci.obs] || '').trim() : '',
-        categoria: ci.cat >= 0 ? String(r[ci.cat] || '').trim() : 'IMPORTADO',
+        categoria: (() => {
+          const raw = ci.cat >= 0 ? String(r[ci.cat] || '').trim() : '';
+          const known = Object.keys(CATS);
+          if (raw && raw !== 'IMPORTADO' && known.includes(raw)) return raw;
+          return categoriaFromType(novo.type, 'VINHETAS');
+        })(),
         dias: [], hIni: '', hFim: '', freq: '',
       };
     }
