@@ -5,10 +5,10 @@
 // =====================================================
 
 // Cole a "Project URL" (só até .supabase.co, SEM nada depois — nem /rest/v1)
-const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
+const SUPABASE_URL = 'https://ewfewxrioxvnqfwhwbuj.supabase.co';
 
 // Cole a "anon public key"
-const SUPABASE_ANON_KEY = 'SUA-CHAVE-ANON-PUBLICA';
+const SUPABASE_ANON_KEY = 'sb_publishable_BDDWYibO1f7lGuwL1934LA_JuOx-MT6';
 
 // id fixo da linha compartilhada do banco de peças/programas (não precisa mudar)
 const WORKSPACE_ID = 'workspace';
