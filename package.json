@@ -4,10 +4,12 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release": "standard-version"
   },
   "devDependencies": {
     "vitest": "^2.0.0",
-    "jsdom": "^24.0.0"
+    "jsdom": "^24.0.0",
+    "standard-version": "^9.5.0"
   }
 }

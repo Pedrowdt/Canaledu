@@ -1,5 +1,9 @@
 # Changelog
 
-Todas as mudanças relevantes deste projeto serão documentadas aqui.
-Este projeto segue [Semantic Versioning](https://semver.org/lang/pt-BR/) e
-os commits seguem [Conventional Commits](https://www.conventionalcommits.org/pt-br/).
+Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
+
+O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
+e este projeto segue [Versionamento Semântico](https://semver.org/lang/pt-BR/).
+
+Este arquivo é atualizado automaticamente por `npm run release` — não edite à mão
+(exceto para corrigir algo pontual).

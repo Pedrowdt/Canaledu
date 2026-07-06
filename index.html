@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <!-- Supabase JS client — usado para login e sincronização em nuvem -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="version.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -450,6 +451,13 @@
 #hub-overlay .hub-card-icon { font-size: 28px; margin-bottom: 10px; }
 #hub-overlay .hub-card-title { font-weight: 600; font-size: 14px; color: var(--text, #1a1d29); margin-bottom: 4px; }
 #hub-overlay .hub-card-sub { font-size: 12px; color: var(--muted, #5b6480); }
+
+/* ── Badge de versão (canto inferior esquerdo) ── */
+#version-badge {
+  position: fixed; bottom: 10px; left: 12px; z-index: 9998;
+  font-family: var(--mono, monospace); font-size: 11px;
+  color: var(--muted, #9aa3c2); opacity: .7;
+}
 </style>
 </head>
 <body>
@@ -470,6 +478,8 @@
 </div>
 
 <div id="cloud-sync-status"></div>
+<div id="version-badge"></div>
+<script>document.getElementById('version-badge').textContent = window.APP_VERSION ? 'v' + window.APP_VERSION : '';</script>
 
 <!-- ═══════════════════════════════════════════════════════
      HUB — aparece depois do login, antes de entrar no
