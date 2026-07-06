@@ -371,6 +371,139 @@ function confirmDel(){
 }
 
 // =====================================================
+// TOAST (feedback simples)
+// =====================================================
+let toastTimer = null;
+function showToast(msg, isError) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+  el.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 4500);
+}
+
+// =====================================================
+// IMPORTAÇÃO — XLSX e CSV (peças ou programas,
+// dependendo da aba ativa no momento da importação)
+// =====================================================
+function excelTimeToHMS(v, fallback){
+  fallback = fallback || '00:01:00';
+  if (v == null || v === '') return fallback;
+  if (typeof v === 'number') {
+    const secs = Math.round(v * 86400);
+    const hh = String(Math.floor(secs / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
+    const ss = String(secs % 60).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+  const s = String(v).trim();
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s;
+  if (/^\d{1,2}:\d{2}$/.test(s)) return s + ':00';
+  const n = parseFloat(s.replace(',', '.'));
+  if (!isNaN(n) && s.match(/^[\d.,]+$/)) return excelTimeToHMS(n, fallback);
+  return fallback;
+}
+
+function detectCols(headers){
+  const fi = (tests) => headers.findIndex(h => tests.some(t => h.includes(t)));
+  return {
+    code:  fi(['CODE', 'COD', 'CÓDIGO']),
+    desc:  fi(['DESC', 'NOME', 'ESPELHO', 'TITULO', 'TÍTULO']),
+    tempo: fi(['TEMPO', 'DUR', 'DURAÇÃO']),
+    type:  fi(['TYPE', 'TIPO']),
+    val:   fi(['VALID', 'VALIDADE', 'KILL']),
+    obs:   fi(['OBS', 'OBSERV']),
+    cat:   fi(['CAT', 'CATEG']),
+    midia: fi(['MIDIA', 'MÍDIA', 'MEDIA']),
+  };
+}
+
+function importFile(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = '';
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'csv') {
+    Papa.parse(file, {
+      complete: (res) => processImportedRows(res.data),
+      error: (err) => showToast('Erro ao ler o CSV: ' + err.message, true),
+      skipEmptyLines: true,
+    });
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    if (!window.XLSX) { showToast('Biblioteca XLSX não carregada', true); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const wb = window.XLSX.read(ev.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+        processImportedRows(rows);
+      } catch (err) {
+        showToast('Erro ao ler o XLSX: ' + err.message, true);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    showToast('Formato não suportado — use .xlsx, .xls ou .csv', true);
+  }
+}
+
+function processImportedRows(rows) {
+  const isPecas = activeTab === 'pecas';
+  if (!rows || rows.length < 2) { showToast('Planilha vazia ou sem dados', true); return; }
+
+  const headers = rows[0].map(h => String(h || '').trim().toUpperCase());
+  const ci = detectCols(headers);
+
+  if (ci.code < 0 || ci.desc < 0) {
+    showToast('Não encontrei as colunas CODE e DESCRIÇÃO na primeira linha', true);
+    return;
+  }
+
+  const list = items();
+  const existing = new Set(list.map(p => p.code));
+  let added = 0, skipped = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const code = String(r[ci.code] ?? '').trim();
+    const desc = String(r[ci.desc] ?? '').trim();
+    if (!code || !desc) continue;
+    if (existing.has(code)) { skipped++; continue; }
+
+    const tempo = excelTimeToHMS(ci.tempo >= 0 ? r[ci.tempo] : '', isPecas ? '00:01:00' : '00:30:00');
+
+    let novo = {
+      id: uid(),
+      code, descricao: desc, tempo,
+      midia: ci.midia >= 0 ? String(r[ci.midia] || '0OMN').trim() : '0OMN',
+      type:  ci.type  >= 0 ? String(r[ci.type]  || (isPecas ? 'EVNH' : 'RPRO')).trim() : (isPecas ? 'EVNH' : 'RPRO'),
+    };
+
+    if (isPecas) {
+      novo = {
+        ...novo,
+        validade: ci.val >= 0 ? String(r[ci.val] || '').trim() : '',
+        obs:      ci.obs >= 0 ? String(r[ci.obs] || '').trim() : '',
+        categoria: ci.cat >= 0 ? String(r[ci.cat] || '').trim() : 'IMPORTADO',
+        dias: [], hIni: '', hFim: '', freq: '',
+      };
+    }
+
+    list.push(novo);
+    existing.add(code);
+    added++;
+  }
+
+  setItems(list);
+  render();
+  scheduleSync();
+  showToast(`✓ ${added} ${isPecas ? 'peças' : 'programas'} importados (${skipped} ignorados — já existiam)`);
+}
+
+// =====================================================
 // EXPORTAR
 // =====================================================
 function exportJSON(){

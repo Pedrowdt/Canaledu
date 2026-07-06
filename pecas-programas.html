@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Peças e Programas — Canal Educação</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="supabase-config.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -124,11 +126,16 @@ tbody tr:hover{background:#f5f5f3}
 
 /* Loading / gate */
 #gate{position:fixed;inset:0;background:#F5F5F3;display:flex;align-items:center;justify-content:center;font-size:13px;color:#888;z-index:99999}
+
+/* Toast de feedback (importação, etc.) */
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#1a1a18;color:#fff;padding:10px 18px;border-radius:8px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:9999;display:none}
+#toast.error{background:#A32D2D}
 </style>
 </head>
 <body>
 
 <div id="gate">Carregando…</div>
+<div id="toast"></div>
 
 <div class="topnav">
   <a href="index.html">← Voltar ao Roteiro</a>
@@ -162,7 +169,11 @@ tbody tr:hover{background:#f5f5f3}
         <div class="header-title" id="header-title">Peças de inserção</div>
         <div class="header-sub" id="header-sub">0 peças</div>
       </div>
-      <button class="btn-primary" onclick="openModal(null)">+ <span id="new-btn-label">Nova peça</span></button>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline" style="width:auto" onclick="document.getElementById('import-file').click()">⭱ Importar XLSX/CSV</button>
+        <input type="file" id="import-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importFile(event)">
+        <button class="btn-primary" onclick="openModal(null)">+ <span id="new-btn-label">Nova peça</span></button>
+      </div>
     </div>
 
     <div class="search-bar">
