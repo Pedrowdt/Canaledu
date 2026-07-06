@@ -1,4 +1,4 @@
--- =====================================================
+  -- =====================================================
 -- Roteiro Canal Educação — Schema Supabase
 -- Cole este arquivo inteiro em: Supabase → SQL Editor → New query → Run
 -- =====================================================
