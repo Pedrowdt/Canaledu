@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Peças e Programas — Canal Educação</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+input,select{font-family:inherit}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+
+/* Topbar de navegação (voltar ao roteiro / logout) */
+.topnav{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#1a1d29;color:#fff;font-size:12px;flex-shrink:0}
+.topnav a{color:#fff;text-decoration:none;opacity:.85}
+.topnav a:hover{opacity:1}
+.topnav .right{display:flex;align-items:center;gap:14px}
+.topnav .sync{color:#9aa3c2;font-family:'SF Mono',Consolas,monospace;font-size:11px}
+
+/* Tabs Peças / Programas */
+.tabs{display:flex;gap:2px;padding:8px 22px 0;background:#fff;border-bottom:1px solid #e8e8e5;flex-shrink:0}
+.tab-btn{padding:8px 16px;border:none;background:transparent;font-size:12.5px;font-weight:500;color:#888;border-bottom:2px solid transparent;cursor:pointer}
+.tab-btn.active{color:#185FA5;border-color:#185FA5}
+
+/* Layout */
+.app{display:flex;flex:1;overflow:hidden}
+.sidebar{width:196px;background:#fff;border-right:1px solid #e8e8e5;display:flex;flex-direction:column;flex-shrink:0}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+
+/* Sidebar */
+.sidebar-title{font-size:10px;font-weight:600;color:#999;letter-spacing:.08em;text-transform:uppercase;padding:18px 14px 10px;border-bottom:1px solid #f0f0ec}
+.cat-btn{width:100%;display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:none;background:transparent;color:#666;font-size:12px;font-weight:400;cursor:pointer;border-radius:5px;margin:1px 0;text-align:left}
+.cat-btn:hover{background:#f5f5f3}
+.cat-btn.active{background:#f0f0ec;color:#1a1a18;font-weight:500}
+.cat-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;display:inline-block;margin-right:6px}
+.cat-count{font-size:10px;color:#bbb}
+.alert-box{margin:6px 10px;padding:8px 10px;background:#FCEBEB;border-radius:6px;border:1px solid #F09595;font-size:11px;font-weight:500;color:#A32D2D}
+.sidebar-footer{padding:12px;border-top:1px solid #e8e8e5;margin-top:auto}
+
+/* Header */
+.header{padding:13px 22px;background:#fff;border-bottom:1px solid #e8e8e5;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.header-title{font-size:14px;font-weight:500}
+.header-sub{font-size:11px;color:#999;margin-top:2px}
+.btn-primary{padding:7px 14px;border-radius:6px;border:none;background:#185FA5;color:#fff;font-size:12px;font-weight:500;display:flex;align-items:center;gap:5px}
+.btn-primary:hover{background:#0e4a8a}
+.btn-outline{padding:7px 13px;border-radius:6px;border:1px solid #d5d5d0;background:none;font-size:12px;color:#555;width:100%;justify-content:center;display:flex;align-items:center;gap:6px}
+.btn-outline:hover{background:#f5f5f3}
+.btn-danger{padding:7px 13px;border-radius:6px;border:none;background:#A32D2D;color:#fff;font-size:12px;font-weight:500}
+.btn-cancel{padding:7px 13px;border-radius:6px;border:1px solid #d5d5d0;background:none;font-size:12px;color:#555}
+
+/* Search */
+.search-bar{padding:9px 22px;background:#fff;border-bottom:1px solid #e8e8e5;flex-shrink:0}
+.search-wrap{position:relative;max-width:320px}
+.search-wrap svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:#aaa;pointer-events:none}
+.search-wrap input{width:100%;padding:6px 10px 6px 30px;border:1px solid #d5d5d0;border-radius:6px;font-size:12px;background:#fff;outline:none}
+.search-wrap input:focus{border-color:#378ADD}
+
+/* Table */
+.table-wrap{flex:1;overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead th{padding:8px 13px;text-align:left;font-size:10px;font-weight:600;color:#aaa;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #e8e8e5;white-space:nowrap;background:#fafaf8;position:sticky;top:0;z-index:5}
+tbody td{padding:9px 13px;vertical-align:middle;border-bottom:1px solid #f0f0ec}
+tbody tr:nth-child(even){background:#fafaf8}
+tbody tr:hover{background:#f5f5f3}
+.code-cell{font-family:'SF Mono',Consolas,monospace;font-size:11px;color:#666;white-space:nowrap}
+.desc-main{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px}
+.desc-obs{font-size:10px;color:#aaa;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:260px;margin-top:2px}
+.type-cell{font-size:10px;font-weight:600;color:#666;white-space:nowrap}
+.tempo-cell{font-family:'SF Mono',Consolas,monospace;font-size:11px;white-space:nowrap}
+.hor-cell{font-size:10px;color:#aaa;white-space:nowrap}
+.empty-row td{padding:48px;text-align:center;color:#bbb;font-size:13px}
+
+/* Badges */
+.badge{display:inline-block;font-size:10px;font-weight:500;padding:2px 7px;border-radius:4px;white-space:nowrap;border-width:1px;border-style:solid}
+.kbadge{display:inline-block;font-size:10px;white-space:nowrap}
+.kbadge.expired,.kbadge.soon{font-weight:500;padding:2px 6px;border-radius:4px;border:1px solid}
+.kbadge.expired{background:#FCEBEB;color:#A32D2D;border-color:#F09595}
+.kbadge.soon{background:#FAEEDA;color:#854F0B;border-color:#EF9F27}
+.kbadge.ok{color:#aaa;font-size:11px}
+.kbadge.none{color:#ccc;font-size:11px}
+
+/* Row actions */
+.row-actions{display:flex;gap:3px}
+.icon-btn{padding:4px 6px;border-radius:4px;border:1px solid #e8e8e5;background:none;cursor:pointer;line-height:1;font-size:12px}
+.icon-btn:hover{background:#f0f0ec}
+.icon-btn.del{color:#A32D2D}
+
+/* Modal overlay */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding-top:40px;z-index:100}
+.overlay.center{align-items:center;padding-top:0}
+.modal{background:#fff;border-radius:12px;width:520px;max-height:86vh;overflow-y:auto;box-shadow:0 10px 48px rgba(0,0,0,.22)}
+.modal-header{padding:16px 20px 13px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.modal-title{font-size:14px;font-weight:500}
+.modal-close{background:none;border:none;font-size:21px;color:#aaa;cursor:pointer;padding:0 4px;line-height:1}
+.modal-close:hover{color:#555}
+.modal-body{padding:20px;display:flex;flex-direction:column;gap:14px}
+.modal-footer{padding:13px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px}
+
+/* Form */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.field label{display:block;font-size:10px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+.field input,.field select{width:100%;padding:7px 10px;border:1px solid #d5d5d0;border-radius:6px;font-size:13px;color:#1a1a18;background:#fff;outline:none}
+.field input:focus,.field select:focus{border-color:#378ADD}
+.horario-box{border:1px solid #e8e8e5;border-radius:8px;padding:12px 14px}
+.horario-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0}
+.horario-toggle input[type=checkbox]{accent-color:#185FA5;cursor:pointer}
+.horario-toggle span{font-size:13px;color:#555}
+.dias-wrap{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+.dia-btn{padding:4px 9px;border-radius:5px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid #d5d5d0;background:transparent;color:#666}
+.dia-btn.active{border-color:#378ADD;background:#E6F1FB;color:#0C447C}
+.dia-btn:hover:not(.active){background:#f5f5f3}
+
+/* Delete modal */
+.del-modal{background:#fff;border-radius:10px;padding:22px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.del-title{font-size:14px;font-weight:500;margin-bottom:8px}
+.del-body{font-size:12px;color:#666;margin-bottom:18px;line-height:1.5}
+.del-code{font-weight:600;color:#1a1a18}
+.del-desc{color:#aaa;font-size:11px}
+
+/* Loading / gate */
+#gate{position:fixed;inset:0;background:#F5F5F3;display:flex;align-items:center;justify-content:center;font-size:13px;color:#888;z-index:99999}
+</style>
+</head>
+<body>
+
+<div id="gate">Carregando…</div>
+
+<div class="topnav">
+  <a href="index.html">← Voltar ao Roteiro</a>
+  <div class="right">
+    <span class="sync" id="sync-status"></span>
+    <span id="user-email"></span>
+    <a href="#" id="logout-link">Sair</a>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" id="tab-pecas" onclick="switchTab('pecas')">Peças</button>
+  <button class="tab-btn" id="tab-programas" onclick="switchTab('programas')">Programas</button>
+</div>
+
+<div class="app">
+  <!-- SIDEBAR (só aparece na aba Peças) -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-title">Categorias</div>
+    <div style="padding:8px 10px;flex:1" id="sidebar-cats"></div>
+    <div id="alert-box"></div>
+    <div class="sidebar-footer">
+      <button class="btn-outline" onclick="exportJSON()">⭳ Exportar JSON</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="header">
+      <div>
+        <div class="header-title" id="header-title">Peças de inserção</div>
+        <div class="header-sub" id="header-sub">0 peças</div>
+      </div>
+      <button class="btn-primary" onclick="openModal(null)">+ <span id="new-btn-label">Nova peça</span></button>
+    </div>
+
+    <div class="search-bar">
+      <div class="search-wrap">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="search" placeholder="Buscar código, descrição ou type…" oninput="render()">
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- PIECE MODAL -->
+<div class="overlay" id="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Nova peça</span>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="row2">
+        <div class="field"><label>Code *</label><input id="f-code" placeholder="ex: 89026"></div>
+        <div class="field"><label>Mídia</label><input id="f-midia" value="0OMN"></div>
+      </div>
+      <div class="field"><label>Descrição *</label><input id="f-desc" placeholder="Nome da peça/programa"></div>
+      <div class="row2">
+        <div class="field"><label>Tempo</label><input id="f-tempo" placeholder="00:00:00"></div>
+        <div class="field"><label>Type</label>
+          <select id="f-type">
+            <option>ECHE</option><option>ECHM</option><option>RCOM</option>
+            <option>RPOL</option><option>EINT</option><option>EVNH</option>
+            <option>RPRO</option>
+          </select>
+        </div>
+      </div>
+      <div id="pecas-only-fields">
+        <div class="field"><label>Categoria</label>
+          <select id="f-cat" onchange="onCatChange()">
+            <option value="CHAMADA_QUENTE">Chamada quente</option>
+            <option value="RCOM">Comercial</option>
+            <option value="RPOL">Político</option>
+            <option value="INTGOV">Interprograma gov</option>
+            <option value="MANUT">Manutenção</option>
+            <option value="BUSSOLA">Bússola</option>
+          </select>
+        </div>
+        <div class="field" id="kill-field" style="display:none">
+          <label>Validade (kill date)</label>
+          <input type="date" id="f-validade">
+        </div>
+        <div class="horario-box">
+          <label class="horario-toggle">
+            <input type="checkbox" id="f-showh" onchange="toggleHorario()">
+            <span>Restrição de horário</span>
+          </label>
+          <div id="horario-fields" style="display:none">
+            <div class="field" style="margin-top:12px"><label>Dias da semana</label>
+              <div class="dias-wrap" id="dias-wrap">
+                <button class="dia-btn" data-d="dom" onclick="toggleDia(this)">dom</button>
+                <button class="dia-btn" data-d="seg" onclick="toggleDia(this)">seg</button>
+                <button class="dia-btn" data-d="ter" onclick="toggleDia(this)">ter</button>
+                <button class="dia-btn" data-d="qua" onclick="toggleDia(this)">qua</button>
+                <button class="dia-btn" data-d="qui" onclick="toggleDia(this)">qui</button>
+                <button class="dia-btn" data-d="sex" onclick="toggleDia(this)">sex</button>
+                <button class="dia-btn" data-d="sáb" onclick="toggleDia(this)">sáb</button>
+              </div>
+            </div>
+            <div class="row3" style="margin-top:10px">
+              <div class="field"><label>Hora início</label><input type="time" id="f-hini"></div>
+              <div class="field"><label>Hora fim</label><input type="time" id="f-hfim"></div>
+              <div class="field"><label>Freq. máx/dia</label><input type="number" min="1" id="f-freq" placeholder="—"></div>
+            </div>
+          </div>
+        </div>
+        <div class="field"><label>Observações</label><input id="f-obs" placeholder="Notas adicionais"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button class="btn-primary" onclick="saveItem()" id="save-btn">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- DELETE MODAL -->
+<div class="overlay center" id="del-overlay" style="display:none" onclick="if(event.target===this)closeDel()">
+  <div class="del-modal">
+    <div class="del-title" id="del-title">Excluir peça</div>
+    <div class="del-body">
+      Tem certeza que deseja excluir <span class="del-code" id="del-code"></span>?<br>
+      <span class="del-desc" id="del-desc"></span>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn-cancel" onclick="closeDel()">Cancelar</button>
+      <button class="btn-danger" onclick="confirmDel()">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script src="pecas-programas.js"></script>
+</body>
+</html>

@@ -23,11 +23,9 @@
 // CONFIGURAÇÃO NECESSÁRIA: veja DEPLOY.md
 // =====================================================
 
-// ── 1) PREENCHA COM OS DADOS DO SEU PROJETO SUPABASE ──
-const SUPABASE_URL      = 'https://ewfewxrioxvnqfwhwbuj.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_BDDWYibO1f7lGuwL1934LA_JuOx-MT6';
-
-const WORKSPACE_ID = 'workspace'; // id fixo da linha compartilhada (não precisa mudar)
+// SUPABASE_URL, SUPABASE_ANON_KEY e WORKSPACE_ID vêm de supabase-config.js
+// (carregado antes deste arquivo no index.html) — preencha-os lá, uma vez só.
+const PECAS_PROGRAMAS_PAGE = 'pecas-programas.html';
 
 const SCRIPTS_TO_LOAD = [
   'api-sync.js',
@@ -43,10 +41,6 @@ let supabaseClient = null;
 let currentUser = null;
 let _origSetItem = null;
 let _pushTimer = null;
-
-function isConfigured() {
-  return !SUPABASE_URL.includes('SEU-PROJETO') && !SUPABASE_ANON_KEY.includes('SUA-CHAVE');
-}
 
 function setSyncStatus(msg, show = true) {
   const el = document.getElementById('cloud-sync-status');
@@ -304,25 +298,34 @@ function setupRealtime() {
 async function onAuthenticated(user) {
   currentUser = user;
   document.getElementById('login-overlay').style.display = 'none';
-  setSyncStatus('Carregando dados da equipe...');
+  addLogoutUI(user.email);
+  document.getElementById('hub-overlay').style.display = 'flex';
+}
 
+async function cloudSyncOpenRoteiro() {
+  document.getElementById('hub-overlay').style.display = 'none';
+  setSyncStatus('Carregando dados da equipe...');
   try {
-    await fetchAndMergeCloudData(user);
+    await fetchAndMergeCloudData(currentUser);
     await loadScriptsSequentially();
     document.querySelector('.app').style.display = '';
     patchLocalStorage();
     setupRealtime();
-    addLogoutUI(user.email);
+    setSyncStatus('Sincronizado ✓ · ' + currentUser.email);
   } catch (e) {
     console.error(e);
     setSyncStatus('Erro ao carregar dados. Recarregue a página.');
   }
 }
 
+function cloudSyncOpenPecasProgramas() {
+  location.href = PECAS_PROGRAMAS_PAGE;
+}
+
 (function boot() {
   _origSetItem = localStorage.setItem.bind(localStorage);
 
-  if (!isConfigured()) {
+  if (!isSupabaseConfigured()) {
     showLoginError('Configuração pendente: preencha SUPABASE_URL e SUPABASE_ANON_KEY em cloud-sync.js (veja DEPLOY.md).');
     return;
   }

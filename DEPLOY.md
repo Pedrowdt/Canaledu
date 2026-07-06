@@ -22,10 +22,12 @@ a equipe; **o roteiro do dia é isolado por usuário** (cada um só vê e edita 
 5. No menu lateral, vá em **Project Settings** → **API**. Copie:
    - **Project URL** (algo como `https://xxxxxxxx.supabase.co`)
    - **anon public key** (uma chave longa)
-6. Abra o arquivo `cloud-sync.js` do seu sistema e substitua as duas primeiras linhas:
+6. Abra o arquivo **`supabase-config.js`** do seu sistema (é o único lugar onde essas informações
+   precisam ser preenchidas — tanto o Roteiro quanto o Cadastro de Peças e Programas usam este
+   mesmo arquivo) e substitua:
    ```js
-   const SUPABASE_URL      = 'https://xxxxxxxx.supabase.co';   // cole a Project URL
-   const SUPABASE_ANON_KEY = 'ey....................';          // cole a anon public key
+   const SUPABASE_URL = 'https://xxxxxxxx.supabase.co';   // cole a Project URL (SEM /rest/v1 no final)
+   const SUPABASE_ANON_KEY = 'ey....................';     // cole a anon public key
    ```
    Salve o arquivo.
 
@@ -90,6 +92,18 @@ Siga as instruções na tela (login, nome do projeto). Ao final ele mostra a URL
    banco de peças/programas/regras, mas terá o próprio roteiro do dia, separado.
 
 ---
+
+## Tela de escolha (Roteiro x Peças e Programas)
+
+Depois do login, a equipe vê uma tela com duas opções:
+
+- **Roteiro** — o sistema de montagem do roteiro do dia (como já era antes)
+- **Peças e Programas** — um cadastro separado (`pecas-programas.html`), com abas para
+  Peças e Programas, que edita o **mesmo banco compartilhado** usado pelo Roteiro. Ou
+  seja: uma peça cadastrada ali já aparece automaticamente no banco de peças do Roteiro,
+  e vice-versa — não é preciso importar nada manualmente entre os dois.
+
+Ambas as telas usam o mesmo login — não é necessário logar duas vezes.
 
 ## O que acontece com os dados que já existiam no navegador?
 
