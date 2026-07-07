@@ -458,9 +458,24 @@
   font-family: var(--mono, monospace); font-size: 11px;
   color: var(--muted, #9aa3c2); opacity: .7;
 }
+
+
+/* ── Link fixo para trocar de sistema (Roteiro <-> Peças/Programas) ── */
+#switch-app-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 26px; padding: 0 10px;
+  font-family: var(--sans, sans-serif); font-size: 11.5px; font-weight: 500;
+  color: var(--muted, #5b6480); background: var(--bg, #fff);
+  border: 1px solid var(--border, #d5d9e6); border-radius: 6px;
+  text-decoration: none; white-space: nowrap;
+}
+#switch-app-link:hover { color: var(--accent, #2f6fe0); border-color: var(--accent, #2f6fe0); }
+
 </style>
 </head>
 <body>
+
+
 
 <!-- ═══════════════════════════════════════════════════════
      LOGIN — exibido até o usuário autenticar via Supabase.
@@ -509,6 +524,7 @@
        ═══════════════════════════════════════════════════════ -->
   <header class="topbar">
     <div class="logo">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
+    <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)">⇆ Peças e Programas</a>
     <nav class="tabs">
       <button class="tab active" onclick="showPanel('roteiro')">Roteiro do Dia</button>
       <button class="tab" onclick="showPanel('pecas')">Banco de Peças <span class="tab-badge" id="badge-pecas">0</span></button>
