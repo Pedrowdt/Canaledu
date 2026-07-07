@@ -39,6 +39,7 @@ const SCRIPTS_TO_LOAD = [
 
 let supabaseClient = null;
 let currentUser = null;
+let scriptsLoaded = false;
 let _origSetItem = null;
 let _pushTimer = null;
 
@@ -304,11 +305,21 @@ async function onAuthenticated(user) {
 
 async function cloudSyncOpenRoteiro() {
   document.getElementById('hub-overlay').style.display = 'none';
+
+  if (scriptsLoaded) {
+    // Já entramos no Roteiro antes nesta sessão — só reexibe, sem recarregar nada.
+    document.querySelector('.app').style.display = '';
+    document.getElementById('switch-app-link').style.display = 'inline-block';
+    return;
+  }
+
   setSyncStatus('Carregando dados da equipe...');
   try {
     await fetchAndMergeCloudData(currentUser);
     await loadScriptsSequentially();
+    scriptsLoaded = true;
     document.querySelector('.app').style.display = '';
+    document.getElementById('switch-app-link').style.display = 'inline-block';
     patchLocalStorage();
     setupRealtime();
     setSyncStatus('Sincronizado ✓ · ' + currentUser.email);
@@ -316,6 +327,13 @@ async function cloudSyncOpenRoteiro() {
     console.error(e);
     setSyncStatus('Erro ao carregar dados. Recarregue a página.');
   }
+}
+
+function cloudSyncBackToHub(e) {
+  if (e) e.preventDefault();
+  document.querySelector('.app').style.display = 'none';
+  document.getElementById('switch-app-link').style.display = 'none';
+  document.getElementById('hub-overlay').style.display = 'flex';
 }
 
 function cloudSyncOpenPecasProgramas() {
