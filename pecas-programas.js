@@ -139,6 +139,7 @@ function switchTab(tab) {
   document.getElementById('header-title').textContent = tab === 'pecas' ? 'Peças de inserção' : 'Programas';
   document.getElementById('new-btn-label').textContent = tab === 'pecas' ? 'Nova peça' : 'Novo programa';
   document.getElementById('pecas-only-fields').style.display = tab === 'pecas' ? 'block' : 'none';
+  document.getElementById('programa-only-fields').style.display = tab === 'programas' ? 'block' : 'none';
   render();
 }
 
@@ -175,6 +176,19 @@ function catBadgeHtml(cat){
   const c=catMeta(cat);
   return`<span class="badge" style="color:${c.text};background:${c.bg};border-color:${c.border}">${c.short}</span>`;
 }
+const ASSINATURA_META = {
+  infantil: { label: 'Infantil', text: '#0C447C', bg: '#E6F1FB', border: '#378ADD' },
+  jovem:    { label: 'Jovem',    text: '#085041', bg: '#E1F5EE', border: '#1D9E75' },
+  adulto:   { label: 'Adulto',  text: '#72243E', bg: '#FBEAF0', border: '#D4537E' },
+};
+function assinaturaBadgeHtml(list){
+  if(!list||!list.length)return'—';
+  return list.map(a=>{
+    const m=ASSINATURA_META[a]||{label:a,text:'#555',bg:'#eee',border:'#ccc'};
+    return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${m.label}</span>`;
+  }).join('');
+}
+
 function horLabel(p){
   const parts=[];
   if(p.hIni||p.hFim)parts.push((p.hIni||'–')+(p.hFim?'→'+p.hFim:''));
@@ -224,10 +238,10 @@ function render(){
   const thead = document.getElementById('thead');
   thead.innerHTML = isPecas
     ? `<tr><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
-    : `<tr><th>Code</th><th style="width:44%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th style="width:52px"></th></tr>`;
+    : `<tr><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
 
   if(filtered.length===0){
-    const colspan = isPecas ? 8 : 6;
+    const colspan = isPecas ? 8 : 7;
     document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.'}</td></tr>`;
     if (isPecas) renderSidebar();
     return;
@@ -258,6 +272,7 @@ function render(){
       <td class="tempo-cell">${p.tempo}</td>
       <td class="type-cell">${p.type}</td>
       <td class="hor-cell">${p.midia||''}</td>
+      <td>${assinaturaBadgeHtml(p.assinatura)}</td>
       <td>
         <div class="row-actions">
           <button class="icon-btn" onclick="openModal('${p.id}')" title="Editar">✏️</button>
@@ -298,8 +313,12 @@ function openModal(id){
     document.getElementById('f-showh').checked = hasH;
     document.getElementById('horario-fields').style.display = hasH ? 'block' : 'none';
 
-    document.querySelectorAll('.dia-btn').forEach(b=>{
+    document.querySelectorAll('#dias-wrap .dia-btn').forEach(b=>{
       b.classList.toggle('active', !!(p?.dias||[]).includes(b.dataset.d));
+    });
+  } else {
+    document.querySelectorAll('#assinatura-wrap .dia-btn').forEach(b=>{
+      b.classList.toggle('active', !!(p?.assinatura||[]).includes(b.dataset.a));
     });
   }
 
@@ -337,6 +356,11 @@ function saveItem(){
       hFim: showH?document.getElementById('f-hfim').value:'',
       freq: showH?document.getElementById('f-freq').value:'',
       obs: document.getElementById('f-obs').value,
+    };
+  } else {
+    p = {
+      ...p,
+      assinatura: [...document.querySelectorAll('#assinatura-wrap .dia-btn.active')].map(b=>b.dataset.a),
     };
   }
 
@@ -400,11 +424,28 @@ function excelTimeToHMS(v, fallback){
   return fallback;
 }
 
-function detectCols(headers){
-  const fi = (tests) => headers.findIndex(h => tests.some(t => h.includes(t)));
+function detectCols(headers, rows){
+  // Para cada campo, testa as palavras-chave EM ORDEM DE PRIORIDADE (não pela posição
+  // da coluna) e, entre as que baterem, prefere a que tiver mais linhas preenchidas —
+  // evita pegar por engano uma coluna com nome parecido só porque está mais à esquerda.
+  const dataRows = (rows || []).slice(1, 60); // amostra para checar preenchimento
+  const filledCount = (idx) => dataRows.filter(r => String(r[idx] ?? '').trim() !== '').length;
+
+  const fi = (tests) => {
+    let candidates = [];
+    for (const t of tests) {
+      headers.forEach((h, idx) => { if (h.includes(t)) candidates.push(idx); });
+      if (candidates.length) break; // já achou por essa palavra-chave, não desce pras próximas
+    }
+    if (!candidates.length) return -1;
+    if (candidates.length === 1) return candidates[0];
+    // várias colunas bateram com a mesma palavra-chave: escolhe a mais preenchida
+    return candidates.sort((a, b) => filledCount(b) - filledCount(a))[0];
+  };
+
   return {
     code:  fi(['CODE', 'COD', 'CÓDIGO']),
-    desc:  fi(['DESC', 'NOME', 'ESPELHO', 'TITULO', 'TÍTULO']),
+    desc:  fi(['PROGRAMA', 'DESC', 'ESPELHO', 'TITULO', 'TÍTULO', 'NOME']),
     tempo: fi(['TEMPO', 'DUR', 'DURAÇÃO']),
     type:  fi(['TYPE', 'TIPO']),
     val:   fi(['VALID', 'VALIDADE', 'KILL']),
@@ -450,7 +491,7 @@ function processImportedRows(rows) {
   if (!rows || rows.length < 2) { showToast('Planilha vazia ou sem dados', true); return; }
 
   const headers = rows[0].map(h => String(h || '').trim().toUpperCase());
-  const ci = detectCols(headers);
+  const ci = detectCols(headers, rows);
 
   if (ci.code < 0 || ci.desc < 0) {
     showToast('Não encontrei as colunas CODE e DESCRIÇÃO na primeira linha', true);
@@ -506,7 +547,7 @@ function exportJSON(){
   const list = items();
   const out = isPecas
     ? {version:'1.0',exportedAt:new Date().toISOString(),total:list.length,pecas:list.map(p=>({code:p.code,descricao:p.descricao,tempo:p.tempo,midia:p.midia,type:p.type,categoria:p.categoria,validade:p.validade||null,horario:{dias:p.dias?.length?p.dias:null,horaInicio:p.hIni||null,horaFim:p.hFim||null,frequenciaMax:p.freq?Number(p.freq):null,obs:p.obs||null}}))}
-    : {version:'1.0',exportedAt:new Date().toISOString(),total:list.length,programas:list.map(p=>({code:p.code,descricao:p.descricao,tempo:p.tempo,midia:p.midia,type:p.type}))};
+    : {version:'1.0',exportedAt:new Date().toISOString(),total:list.length,programas:list.map(p=>({code:p.code,descricao:p.descricao,tempo:p.tempo,midia:p.midia,type:p.type,assinatura:p.assinatura||[]}))};
   const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'})),download:isPecas?'pecas-insercao.json':'programas.json'});
   a.click();
 }
