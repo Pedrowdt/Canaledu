@@ -372,7 +372,7 @@ function saveItem(){
 }
 
 // =====================================================
-// EXCLUIR
+// EXCLUIR (item único ou TODOS os itens da aba ativa)
 // =====================================================
 function openDel(id){
   deleteId=id;
@@ -383,9 +383,32 @@ function openDel(id){
   document.getElementById('del-desc').textContent=(p.descricao||'').slice(0,60);
   document.getElementById('del-overlay').style.display='flex';
 }
+
+// [NOVO] Botão "Excluir todos" — usa o mesmo modal de confirmação,
+// mas marca deleteId com um sinalizador especial ('__ALL__') que o
+// confirmDel() abaixo reconhece para apagar a lista inteira da aba ativa.
+function openDeleteAll(){
+  const isPecas = activeTab === 'pecas';
+  const list = items();
+  if (!list.length) { showToast('Não há nada para excluir.'); return; }
+
+  deleteId = '__ALL__';
+  document.getElementById('del-title').textContent = `Excluir TODAS as ${isPecas?'peças':'programas'}`;
+  document.getElementById('del-code').textContent = `${list.length} ${isPecas?'peças':'programas'}`;
+  document.getElementById('del-desc').textContent = 'Essa ação não pode ser desfeita e afeta todo o banco compartilhado da equipe.';
+  document.getElementById('del-overlay').style.display='flex';
+}
+
 function closeDel(){document.getElementById('del-overlay').style.display='none';deleteId=null;}
+
 function confirmDel(){
-  setItems(items().filter(x=>x.id!==deleteId));
+  if (deleteId === '__ALL__') {
+    // [NOVO] Exclusão geral: zera a lista da aba ativa (Peças OU Programas,
+    // nunca as duas ao mesmo tempo) e sincroniza com a nuvem.
+    setItems([]);
+  } else {
+    setItems(items().filter(x=>x.id!==deleteId));
+  }
   render(); closeDel(); scheduleSync();
 }
 
@@ -515,6 +538,9 @@ function processImportedRows(rows) {
       id: uid(),
       code, descricao: desc, tempo,
       midia: ci.midia >= 0 ? String(r[ci.midia] || '0OMN').trim() : '0OMN',
+      // [OBS] Se o CSV/XLSX não tiver uma coluna TYPE/TIPO reconhecida (o que é o caso
+      // dos arquivos exportados atualmente), TODO programa importado recebe "RPRO" por
+      // padrão — é esse valor que a regra de negócio de assinatura (item 3) assume.
       type:  ci.type  >= 0 ? String(r[ci.type]  || (isPecas ? 'EVNH' : 'RPRO')).trim() : (isPecas ? 'EVNH' : 'RPRO'),
     };
 
