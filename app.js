@@ -68,12 +68,13 @@ const REGRAS_DEFAULT = {
   //   naoAdjacenteA:   tipos que NÃO podem ficar imediatamente antes/depois
   // O painel Admin lê e grava este objeto.
   regrasTipos: {
-    ECHM: { ativo: true, inicio: '06:00', fim: '23:59', intervaloMinMin: 0,  naoAdjacenteA: ['ECHM','ECHE'] },
-    ECHE: { ativo: true, inicio: '06:00', fim: '23:59', intervaloMinMin: 0,  naoAdjacenteA: ['ECHM','ECHE'] },
-    EINT: { ativo: true, inicio: '06:00', fim: '23:59', intervaloMinMin: 0,  naoAdjacenteA: [] },
-    RCOM: { ativo: true, inicio: '06:00', fim: '23:00', intervaloMinMin: 30, naoAdjacenteA: [] },
+    // Janelas com fim < inicio cobrem a madrugada (wraparound até 05:59 do dia seguinte)
+    ECHM: { ativo: true, inicio: '06:00', fim: '05:59', intervaloMinMin: 0,  naoAdjacenteA: ['ECHM','ECHE'] },
+    ECHE: { ativo: true, inicio: '06:00', fim: '05:59', intervaloMinMin: 0,  naoAdjacenteA: ['ECHM','ECHE'] },
+    EINT: { ativo: true, inicio: '06:00', fim: '05:59', intervaloMinMin: 0,  naoAdjacenteA: [] },
+    RCOM: { ativo: true, inicio: '06:00', fim: '05:59', intervaloMinMin: 30, naoAdjacenteA: [] },
     RPOL: { ativo: true, inicio: '19:30', fim: '22:30', intervaloMinMin: 0,  naoAdjacenteA: [] },
-    EVNH: { ativo: true, inicio: '06:00', fim: '23:59', intervaloMinMin: 0,  naoAdjacenteA: [] },
+    EVNH: { ativo: true, inicio: '06:00', fim: '05:59', intervaloMinMin: 0,  naoAdjacenteA: [] },
   },
 
 
@@ -3301,11 +3302,14 @@ function validateRoteiroRegras() {
     const sec = it.IN ? timeToSec(it.IN) : null;
     const msgs = [];
 
-    // Janela horária
+    // Janela horária — se fim < inicio, a janela cruza a meia-noite (cobre madrugada)
     if (sec != null) {
       const ini = _hhmmToSec(cfg.inicio);
       const fim = _hhmmToSec(cfg.fim);
-      if (sec < ini || sec > fim) {
+      const dentro = (fim >= ini)
+        ? (sec >= ini && sec <= fim)
+        : (sec >= ini || sec <= fim); // wraparound
+      if (!dentro) {
         msgs.push(`${it.type} fora da janela ${cfg.inicio}–${cfg.fim} (IN ${it.IN})`);
       }
     }
