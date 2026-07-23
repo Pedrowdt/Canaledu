@@ -1233,6 +1233,22 @@
       </div>
     </div>
 
+    <!-- Classificação por Programa (prioridade sobre keywords) -->
+    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:600;color:var(--text)">Classificação por Programa</div>
+        <span id="adm-classif-contador" style="font-size:10px;color:var(--muted)"></span>
+      </div>
+      <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
+        Marque diretamente por programa — tem <b>prioridade</b> sobre as keywords da seção abaixo.
+        Programas não marcados aqui continuam usando as keywords normalmente.
+      </p>
+      <input type="text" id="adm-classif-busca" placeholder="🔎 Buscar programa…"
+        oninput="filterClassificacaoProgramaUI(this.value)"
+        style="width:100%;margin-bottom:8px;font-size:11px;padding:5px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text)">
+      <div id="adm-classif-programas" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px"></div>
+    </div>
+
     <!-- VH Assinaturas -->
     <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:8px">
       <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:10px">VH Assinaturas</div>

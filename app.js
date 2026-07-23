@@ -113,6 +113,10 @@ const REGRAS_DEFAULT = {
 
   // Keywords para classificação de assinatura por faixa etária
   // Programas com esses termos recebem ASSINATURA_INFANTIL
+  // Classificação explícita por programa — tem prioridade sobre as keywords
+  // abaixo. Chave = nome-base do programa normalizado (sem acento, maiúsculo),
+  // valor = 'infantil' | 'jovem' | 'adulto'. Editado no painel Admin.
+  classificacaoPrograma: {},
   vhAssinaturaInfantilKeywords: 'PALALOOS,PLANETA PALAVRA,SONHOS E SAPATILHAS,SOL EM DO RE MI,IGARAPE MAGICO,TRILHINHA',
   // Programas com esses termos recebem ASSINATURA_ADULTO
   vhAssinaturaAdultoKeywords:   'CAMINHOS DA REPORTAGEM,ESCOLA QUE PROTEGE,HUMANIDADES,MANUAL DE SOBREVIVENCIA,LITERATURA BRASILEIRA,SAL A GOSTO,CINCO MULHERES,FAROIS DO BRASIL,FILHOS DA LIBERDADE,OLHARES DO NORTE,PASSADO DA HORA,SEMENTES DA EDUCACAO',
@@ -1492,7 +1496,19 @@ function getAssinatura(desc) {
   const cfgAdt = REGRAS.vhAssinaturaAdulto   || {};
 
   let cfg, defaultCode, defaultDesc;
-  if (infKw.some(k => u.includes(k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()))) {
+
+  // Prioridade 1: classificação explícita marcada no painel Admin (mais
+  // confiável que keywords, pois é por programa e não por texto solto).
+  const progKey = _normalizeProgKey(baseProgramTitle(desc));
+  const classifExplicita = (REGRAS.classificacaoPrograma || {})[progKey];
+
+  if (classifExplicita === 'infantil') {
+    cfg = cfgInf; defaultCode = '85331'; defaultDesc = 'ASSINATURA_INFANTIL';
+  } else if (classifExplicita === 'adulto') {
+    cfg = cfgAdt; defaultCode = '85332'; defaultDesc = 'ASSINATURA_ADULTO';
+  } else if (classifExplicita === 'jovem') {
+    cfg = cfgJov; defaultCode = '85330'; defaultDesc = 'ASSINATURA_JOVEM';
+  } else if (infKw.some(k => u.includes(k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()))) {
     cfg = cfgInf; defaultCode = '85331'; defaultDesc = 'ASSINATURA_INFANTIL';
   } else if (adKw.some(k => u.includes(k.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase()))) {
     cfg = cfgAdt; defaultCode = '85332'; defaultDesc = 'ASSINATURA_ADULTO';
@@ -3218,9 +3234,12 @@ function renderRegrasTiposUI(regras) {
   const rt = regras.regrasTipos || {};
   wrap.innerHTML = TIPOS_CONFIGURAVEIS.map(tipo => {
     const r = rt[tipo] || { ativo: true, inicio: '06:00', fim: '23:59', intervaloMinMin: 0, naoAdjacenteA: [] };
-    const adjOpts = TIPOS_CONFIGURAVEIS.filter(t => t !== tipo).map(t => {
-      const sel = (r.naoAdjacenteA || []).includes(t) ? 'selected' : '';
-      return `<option value="${t}" ${sel}>${t}</option>`;
+    const adjChips = TIPOS_CONFIGURAVEIS.filter(t => t !== tipo).map(t => {
+      const checked = (r.naoAdjacenteA || []).includes(t) ? 'checked' : '';
+      return `<label style="display:inline-flex;align-items:center;gap:3px;font-size:9px;font-family:var(--mono);
+        padding:2px 6px;border:1px solid var(--border2);border-radius:10px;background:var(--bg2);cursor:pointer;user-select:none">
+        <input type="checkbox" value="${t}" ${checked} style="width:11px;height:11px;margin:0;accent-color:var(--red)">${t}
+      </label>`;
     }).join('');
     return `<div class="adm-tipo-row" data-tipo="${tipo}"
       style="display:grid;grid-template-columns:18px 56px 78px 78px 70px 1fr;gap:6px;align-items:center;padding:6px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:6px">
@@ -3229,10 +3248,9 @@ function renderRegrasTiposUI(regras) {
       <input type="time" data-f="inicio" value="${r.inicio || '06:00'}" title="Janela permitida — início" style="font-family:var(--mono);font-size:11px;padding:3px 4px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:4px">
       <input type="time" data-f="fim"    value="${r.fim    || '23:59'}" title="Janela permitida — fim"    style="font-family:var(--mono);font-size:11px;padding:3px 4px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:4px">
       <input type="number" data-f="intervalo" min="0" max="600" value="${r.intervaloMinMin || 0}" title="Intervalo mínimo (min) entre repetições da MESMA peça" style="font-family:var(--mono);font-size:11px;padding:3px 4px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:4px">
-      <select data-f="adj" multiple size="1" title="Tipos que não podem aparecer imediatamente antes ou depois (Ctrl+clique p/ múltipla seleção)"
-        style="font-family:var(--mono);font-size:10px;padding:3px 4px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:4px;min-height:26px">
-        ${adjOpts}
-      </select>
+      <div data-f="adj" title="Tipos que não podem aparecer imediatamente antes ou depois deste" style="display:flex;flex-wrap:wrap;gap:4px">
+        ${adjChips}
+      </div>
     </div>`;
   }).join('');
   // Header
@@ -3247,8 +3265,7 @@ function readRegrasTiposFromUI() {
   const out = {};
   document.querySelectorAll('#adm-regras-tipos .adm-tipo-row').forEach(row => {
     const tipo = row.dataset.tipo;
-    const sel  = row.querySelector('[data-f="adj"]');
-    const naoAdj = Array.from(sel.selectedOptions).map(o => o.value);
+    const naoAdj = Array.from(row.querySelectorAll('[data-f="adj"] input[type="checkbox"]:checked')).map(cb => cb.value);
     out[tipo] = {
       ativo:          row.querySelector('[data-f="ativo"]').checked,
       inicio:         row.querySelector('[data-f="inicio"]').value || '06:00',
@@ -3283,6 +3300,92 @@ saveAdminRegras = function() {
   saveRegras(atual);
   REGRAS = loadRegras();
   renderRoteiro();
+};
+
+// =====================================================
+// CLASSIFICAÇÃO POR PROGRAMA — UI no Admin
+// Tem prioridade sobre as keywords de VH Assinaturas (ver getAssinatura()).
+// =====================================================
+
+/** Normaliza uma string para comparação estável (sem acento, maiúsculas, sem espaços nas pontas). */
+function _normalizeProgKey(s) {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+}
+
+/** Lista os nomes-base de programas únicos encontrados no banco (state.programas), ordenados A-Z. */
+function listarNomesDeProgramas() {
+  const nomes = new Map(); // chave normalizada -> nome de exibição (primeira ocorrência)
+  (state.programas || []).forEach(p => {
+    const base = baseProgramTitle(p.descricao || '');
+    if (!base) return;
+    const key = _normalizeProgKey(base);
+    if (!nomes.has(key)) nomes.set(key, base);
+  });
+  return [...nomes.entries()]
+    .map(([key, nome]) => ({ key, nome }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+/** Renderiza a lista de programas com seletor de classificação (Nenhuma/Infantil/Jovem/Adulto) no modal Admin. */
+function renderClassificacaoProgramaUI(regras) {
+  const wrap = document.getElementById('adm-classif-programas');
+  if (!wrap) return;
+  const mapa  = regras.classificacaoPrograma || {};
+  const lista = listarNomesDeProgramas();
+  const contador = document.getElementById('adm-classif-contador');
+  if (contador) contador.textContent = `${lista.length} programa(s)`;
+  wrap.innerHTML = lista.map(({ key, nome }) => {
+    const atual = mapa[key] || '';
+    const opt = (v, label) => `<option value="${v}" ${atual === v ? 'selected' : ''}>${label}</option>`;
+    return `<div class="adm-classif-row" data-key="${escHtml(key)}"
+      style="display:grid;grid-template-columns:1fr 100px;gap:6px;align-items:center;padding:4px 6px;border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--text)">${escHtml(nome)}</span>
+      <select data-f="classif" style="font-size:10px;padding:3px 4px;background:var(--bg2);border:1px solid var(--border2);color:var(--text);border-radius:4px">
+        ${opt('', 'Nenhuma')}
+        ${opt('infantil', '👶 Infantil')}
+        ${opt('jovem', '🧑 Jovem')}
+        ${opt('adulto', '👤 Adulto')}
+      </select>
+    </div>`;
+  }).join('');
+}
+
+/** Filtra (sem re-renderizar) a lista de programas exibida pelo texto digitado na busca. */
+function filterClassificacaoProgramaUI(texto) {
+  const q = _normalizeProgKey(texto);
+  document.querySelectorAll('#adm-classif-programas .adm-classif-row').forEach(row => {
+    const nome = _normalizeProgKey(row.querySelector('span').textContent);
+    row.style.display = !q || nome.includes(q) ? '' : 'none';
+  });
+}
+
+/** Lê os seletores da lista e devolve o objeto classificacaoPrograma (só grava entradas diferentes de "Nenhuma"). */
+function readClassificacaoProgramaFromUI() {
+  const out = {};
+  document.querySelectorAll('#adm-classif-programas .adm-classif-row').forEach(row => {
+    const key = row.dataset.key;
+    const v = row.querySelector('[data-f="classif"]').value;
+    if (v) out[key] = v;
+  });
+  return out;
+}
+
+// Patch (2): ao abrir o Admin, também popular a lista de classificação por programa
+const _origOpenAdminModal2 = openAdminModal;
+openAdminModal = function () {
+  _origOpenAdminModal2();
+  renderClassificacaoProgramaUI(loadRegras());
+};
+
+// Patch (2): ao salvar, também gravar o mapa de classificação por programa
+const _origSaveAdminRegras2 = saveAdminRegras;
+saveAdminRegras = function () {
+  const classificacaoPrograma = readClassificacaoProgramaFromUI();
+  _origSaveAdminRegras2();
+  const atual = loadRegras();
+  atual.classificacaoPrograma = classificacaoPrograma;
+  saveRegras(atual);
+  REGRAS = loadRegras();
 };
 
 /**
