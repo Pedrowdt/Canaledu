@@ -455,6 +455,7 @@ function renderRoteiro() {
 
   tbody.innerHTML = state.roteiro.map((item, i) => {
     const isProgram  = item.type === 'RPRO';
+    const isEvnh     = item.type === 'EVNH';
     const isSlot     = item.type === '__SLOT__';
 
     // Aviso de início no PRIMEIRO BLOCO de cada programa (inclui programas
@@ -535,7 +536,7 @@ function renderRoteiro() {
 
     const isSelected = state.selectedRow === i;
 
-    return `<tr class="${isProgram ? 'row-program' : ''} ${rowExtra} ${isSelected ? 'row-selected' : ''}"
+    return `<tr class="${isProgram ? 'row-program' : ''} ${isEvnh ? 'row-evnh' : ''} ${rowExtra} ${isSelected ? 'row-selected' : ''}"
       draggable="true"
       onclick="selectRow(${i}, event)"
       ondragstart="dragStart(event,${i})"
@@ -2502,7 +2503,7 @@ function sanitizeText(str) {
 
 // ── Sistema de Temas Visuais ────────────────────────────────────────────────
 const THEME_KEY = 'roteiroTheme';
-const THEMES    = ['day','night','sunset','cozy','hicontrast'];
+const THEMES    = ['day','night','sunset','cozy','hicontrast','destaque'];
 
 /** Aplica um tema ao <body>, persiste no localStorage e sincroniza o <select>. */
 function setTheme(themeName) {

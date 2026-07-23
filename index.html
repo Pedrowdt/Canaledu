@@ -100,6 +100,32 @@
     --cyan: #00ffff;
     --pink: #ff66cc;
   }
+  /* ── Tema Destaque (PGM e EVNH em fundo forte) ── */
+  body.theme-destaque {
+    --bg: #12141c;
+    --bg2: #1a1d29;
+    --bg3: #232838;
+    --border: #333a52;
+    --border2: #454e6e;
+    --text: #eef1f8;
+    --muted: #9aa3c2;
+    --accent: #5aa9ff;
+    --accent2: #ffb648;
+    --green: #33d17a;
+    --amber: #ffb648;
+    --red: #ff5c5c;
+    --cyan: #35d6e0;
+    --pink: #ff6fb0;
+  }
+  /* PGM (RPRO) e EVNH com fundo sólido, se destacando do resto da lista/tabela */
+  body.theme-destaque .badge-RPRO { background: var(--accent2); color: #241500; font-weight: 700; }
+  body.theme-destaque .badge-EVNH { background: var(--pink); color: #2c0018; font-weight: 700; }
+  body.theme-destaque .filter-btn[data-t="RPRO"].active { background: var(--accent2); color: #241500; border-color: var(--accent2); }
+  body.theme-destaque .filter-btn[data-t="EVNH"].active { background: var(--pink); color: #2c0018; border-color: var(--pink); }
+  body.theme-destaque .row-program { background: rgba(255,182,72,.25); border-left: 3px solid var(--accent2); }
+  body.theme-destaque .row-program td.col-desc { color: var(--text); font-weight: 600; }
+  body.theme-destaque .row-evnh { background: rgba(255,111,176,.25); border-left: 3px solid var(--pink); }
+  body.theme-destaque .row-evnh td.col-desc { color: var(--text); font-weight: 600; }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; }
@@ -541,6 +567,7 @@
         <option value="sunset">🌅 Pôr-do-Sol</option>
         <option value="cozy">☕ Cozy</option>
         <option value="hicontrast">◐ Alto Contraste</option>
+        <option value="destaque">★ Destaque</option>
       </select>
       <button class="btn btn-sm btn-icon" onclick="importData()" title="Importar — CSV do Notion ou JSON de backup">📥</button>
       <button class="btn btn-sm btn-icon" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)" title="Inserir Peças — distribuir peças do dia no roteiro automaticamente">⚡</button>
