@@ -1592,9 +1592,12 @@ const VH_ASSISTINDO_MAP = [
 /** Busca em VH_SEGUIR_MAP a vinheta "VH A SEGUIR" correspondente ao programa pela descrição. Retorna null se vhSeguirAtivo=false nas REGRAS. */
 function findVhSeguir(desc) {
   if (REGRAS.vhSeguirAtivo === false) return null;
-  const upper = desc.toUpperCase();
+  
+  const baseTitle = _normalizeProgKey(baseProgramTitle(desc));
+  if (!baseTitle) return null;
+
   for (const vh of VH_SEGUIR_MAP) {
-    if (vh.keywords.some(k => upper.includes(k.toUpperCase()))) return {...vh};
+    if (vh.keywords.some(k => _normalizeProgKey(k) === baseTitle)) return {...vh};
   }
   return null;
 }
@@ -1602,9 +1605,12 @@ function findVhSeguir(desc) {
 /** Busca em VH_ASSISTINDO_MAP a vinheta "VH VC ESTA ASSISTINDO" correspondente ao programa. Retorna null se vhAssistindoAtivo=false nas REGRAS. */
 function findVhAssistindo(desc) {
   if (REGRAS.vhAssistindoAtivo === false) return null;
-  const upper = desc.toUpperCase();
+  
+  const baseTitle = _normalizeProgKey(baseProgramTitle(desc));
+  if (!baseTitle) return null;
+
   for (const vh of VH_ASSISTINDO_MAP) {
-    if (vh.keywords.some(k => upper.includes(k.toUpperCase()))) return {...vh};
+    if (vh.keywords.some(k => _normalizeProgKey(k) === baseTitle)) return {...vh};
   }
   return null;
 }
@@ -1623,6 +1629,7 @@ function baseProgramTitle(desc) {
     .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')        // variante sem hífen antes de "T01 EP16"
     .replace(/\s*-\s*BL\s*\d+\s*$/i, '')   // remove " - BL 01"
     .replace(/\s*BL\s*\d+\s*$/i, '')          // remove " BL01" ou " BL 01"
+    .replace(/\s*\(.*?\)\s*$/, '')            // NOVO: remove parênteses no final (ex: "(reprise quarta 22h)")
     .replace(/\s*\d+'\s*$/, '')                // remove sufixo de minutagem da grade, ex: " 10'"
     .trim();
 }
@@ -1630,6 +1637,13 @@ function baseProgramTitle(desc) {
 // =====================================================
 // GENERATE ROTEIRO FROM PROGRAM LIST
 // =====================================================
+/** Extrai o identificador do episódio (ex: T01 EP01) para agrupar blocos corretos */
+function getEpisodeId(desc) {
+  if (!desc) return '';
+  const m = String(desc).toUpperCase().match(/T\s*\d+\s*EP\s*\d+|EP\s*\d+/);
+  return m ? m[0].replace(/\s+/g, '') : '';
+}
+
 /** Função central de geração automática. Recebe o array de programas do Notion e constrói o roteiro completo com VHs A SEGUIR, CLASSIFICAÇÃO INDICATIVA, breaks com __SLOT__, VH VC ESTA ASSISTINDO e ASSINATURAS. */
 function buildRoteiroFromPrograms(programs) {
   // A Grade Semanal (importada do XLSX) é a régua mestre: cada início de programa
@@ -1701,11 +1715,23 @@ function buildRoteiroFromPrograms(programs) {
 
       const isLastBlock = bIdx === blocks.length - 1;
       if (!isLastBlock) {
-        const vhAss = findVhAssistindo(block.descricao);
-        if (vhAss) { roteiro.push({...vhAss}); cumSec += timeToSec(vhAss.tempo); }
-        roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — chamada ]',      tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
-        roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
-        if (vhAss) { roteiro.push({...vhAss}); cumSec += timeToSec(vhAss.tempo); }
+        const nextBlock = blocks[bIdx + 1];
+        
+        // REGRA: Verifica se o próximo bloco é do MESMO episódio (ex: T01 EP01)
+        const sameEpisode = getEpisodeId(block.descricao) === getEpisodeId(nextBlock.descricao);
+
+        if (sameEpisode) {
+          // É o mesmo episódio (ex: indo do BL01 pro BL02 do EP01) -> Coloca a vinheta
+          const vhAss = findVhAssistindo(block.descricao);
+          if (vhAss) { roteiro.push({...vhAss}); cumSec += timeToSec(vhAss.tempo); }
+          roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — chamada ]',      tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
+          roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
+          if (vhAss) { roteiro.push({...vhAss}); cumSec += timeToSec(vhAss.tempo); }
+        } else {
+          // Mudou de episódio (ex: fim do BL02 do EP01 indo pro BL01 do EP02) -> NÃO coloca a vinheta
+          roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — chamada ]',      tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
+          roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
+        }
       } else {
         const ass = pickAssinatura(block.descricao);
         if (ass) { roteiro.push(ass); cumSec += timeToSec(ass.tempo); }
@@ -3345,8 +3371,8 @@ function _normalizeProgKey(s) {
   return String(s)
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove acentos
     .toUpperCase()
-    .replace(/[^\w\s]/g, '') // Remove pontuação
-    .replace(/\s+/g, ' ')
+    .replace(/[^\w\s]/g, '') // Remove pontuação e caracteres especiais (ex: !, -, (, ))
+    .replace(/\s+/g, ' ')   // Transforma múltiplos espaços em um só
     .trim();
 }
 
@@ -3921,5 +3947,3 @@ function applyGradeSemanalImport() {
 // START
 // =====================================================
 init();
-
-
