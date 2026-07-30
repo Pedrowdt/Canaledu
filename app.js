@@ -252,7 +252,16 @@ function saveState() {
 /** Converte string de tempo "HH:MM:SS" ou "H:MM:SS" em número total de segundos. Ex: "06:30:00" → 23400. */
 function timeToSec(t) {
   if (!t) return 0;
-  const parts = String(t).split(':').map(Number);
+  // Usa só os 3 primeiros segmentos numéricos separados por ":" ou ";"
+  // (descarta sufixo extra, ex.: timecode de quadros "HH:MM:SS:FF" ou
+  // drop-frame "HH:MM:SS;FF"), em vez de deixá-lo virar parte do parsing.
+  const raw = String(t).trim();
+  const parts = raw.split(/[:;]/).slice(0, 3).map(p => parseInt(p, 10));
+  // Se qualquer segmento não for um número válido, o valor está malformado.
+  // Retorna 0 em vez de propagar NaN, que envenenaria totalDuration() e
+  // toda a barra de horários do roteiro (total e horário de fim viravam
+  // "NaN:NaN:NaN" mesmo com a contagem de itens correta).
+  if (parts.some(p => !Number.isFinite(p))) return 0;
   if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
   if (parts.length === 2) return parts[0]*60 + parts[1];
   return 0;
@@ -260,6 +269,7 @@ function timeToSec(t) {
 
 /** Converta segundos em string "HH:MM:SS" aplicando wrap de 24h (25:30 → 01:30). Usado na exibição dos horários IN/OUT no roteiro. */
 function secToTime(s) {
+  if (!Number.isFinite(s)) s = 0; // defesa extra: nunca renderizar NaN:NaN:NaN
   s = Math.max(0, Math.floor(s));
   // Wrap: roteiro runs 06:00:00 → 05:59:59 next day (30 hours window)
   // Display times past midnight as 00:xx:xx, 01:xx:xx, etc.
@@ -1749,6 +1759,7 @@ function importNotionCSV(text, sep) {
   sep = sep || ',';
   const lines    = text.split(/\r?\n/);
   const imported = [];
+  const tempoInvalido = []; // codes cuja duração veio malformada na origem
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
@@ -1757,8 +1768,17 @@ function importNotionCSV(text, sep) {
     const unquote = s => s ? s.trim().replace(/^"(.*)"$/, '$1').trim() : s;
     const code  = unquote(cols[0]);
     const desc  = sanitizeText(unquote(cols[1])?.replace(/\s+/g, ' '));
-    const tempo = unquote(cols[2]);
+    let tempo = unquote(cols[2]);
     if (!code || !desc || !tempo) continue;
+    // Normaliza a duração: aceita "HH:MM:SS", "MM:SS" e descarta sufixos de
+    // timecode (":FF"/";FF"). Se não der pra interpretar como tempo válido,
+    // cai para 00:01:00 e avisa — em vez de deixar um valor tipo
+    // "45;12" (drop-frame) ou texto solto envenenar totalDuration() com NaN
+    // e derrubar o horário de fim do roteiro inteiro.
+    if (!/^\d{1,2}:\d{2}(:\d{2})?$/.test(tempo)) {
+      tempoInvalido.push(code);
+      tempo = '00:01:00';
+    }
     const prog = { code, descricao: desc, tempo, midia: '0OMN', type: 'RPRO' };
     imported.push(prog);
     // Upsert into programas bank
@@ -1834,6 +1854,9 @@ function importNotionCSV(text, sep) {
   renderAll();
   renderWeekSelector();
   toast(`Roteiro gerado: ${imported.length} programas → ${state.roteiro.filter(i=>i.type!=='__SLOT__').length} itens | Sincronizado com a Grade Semanal XLSX`, 'success');
+  if (tempoInvalido.length) {
+    toast(`⚠ ${tempoInvalido.length} programa(s) com duração inválida na origem (usei 00:01:00): ${tempoInvalido.slice(0,5).join(', ')}${tempoInvalido.length>5?'…':''}`, 'error');
+  }
   try { scheduleBlockAlerts(); } catch (_) {}
 }
 
