@@ -3341,7 +3341,13 @@ saveAdminRegras = function() {
 
 /** Normaliza uma string para comparação estável (sem acento, maiúsculas, sem espaços nas pontas). */
 function _normalizeProgKey(s) {
-  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  if (!s) return '';
+  return String(s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .toUpperCase()
+    .replace(/[^\w\s]/g, '') // Remove pontuação
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Lista os nomes-base de programas únicos encontrados no banco (state.programas), ordenados A-Z. */
