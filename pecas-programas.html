@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="supabase-config.js"></script>
 <script src="version.js"></script>
+<script src="pecas-repo.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -127,6 +128,15 @@ tbody tr:hover{background:#f5f5f3}
 
 /* Loading / gate */
 #gate{position:fixed;inset:0;background:#F5F5F3;display:flex;align-items:center;justify-content:center;font-size:13px;color:#888;z-index:99999}
+#gate-box{width:320px;text-align:center}
+#gate-msg{font-size:13px;color:#888;line-height:1.5}
+#gate-login{display:none;margin-top:16px;background:#fff;border-radius:10px;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.10);text-align:left}
+#gate-login h3{font-size:14px;font-weight:500;margin:0 0 4px;color:#1a1a18}
+#gate-login p{font-size:11.5px;color:#888;margin:0 0 14px;line-height:1.5}
+#gate-login input{width:100%;box-sizing:border-box;padding:8px 10px;margin-bottom:8px;border:1px solid #ddd;border-radius:6px;font-size:12.5px;font-family:inherit;outline:none}
+#gate-login input:focus{border-color:#1a1a18}
+#gate-login button{width:100%;padding:9px;border:0;border-radius:6px;background:#1a1a18;color:#fff;font-size:12.5px;cursor:pointer}
+#gate-error{color:#A32D2D;font-size:11.5px;margin-top:8px;min-height:14px}
 #version-badge{position:fixed;bottom:8px;left:10px;z-index:9998;font-family:'SF Mono',Consolas,monospace;font-size:11px;color:#aaa}
 
 /* Toast de feedback (importação, etc.) */
@@ -136,7 +146,20 @@ tbody tr:hover{background:#f5f5f3}
 </head>
 <body>
 
-<div id="gate">Carregando…</div>
+<div id="gate">
+  <div id="gate-box">
+    <div id="gate-msg">Carregando…</div>
+    <div id="gate-login">
+      <h3>Entrar</h3>
+      <p>Sua sessão não foi encontrada neste navegador. Faça login para abrir o cadastro de Peças e Programas.</p>
+      <input type="email" id="gate-email" placeholder="e-mail" autocomplete="username">
+      <input type="password" id="gate-password" placeholder="senha" autocomplete="current-password">
+      <button type="button" id="gate-submit">Entrar</button>
+      <div id="gate-error"></div>
+      <p style="margin:12px 0 0"><a href="index.html" style="color:#888">← Voltar ao Roteiro</a></p>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="version-badge"></div>
 <script>document.getElementById('version-badge').textContent = window.APP_VERSION ? 'v' + window.APP_VERSION : '';</script>

@@ -25,7 +25,7 @@ describe('validateRoteiroRegras', () => {
   it('reporta erro se RPOL fora da janela', () => {
     const roteiro = [{ type: 'RPOL', IN: '18:00:00', code: 'x' }];
     const result = validateRoteiroRegras(roteiro, regrasMock);
-    expect(result[0]).toContain('RPOL fora da janela 19:30–22:30');
+    expect(result[0][0]).toContain('RPOL fora da janela 19:30–22:30');
   });
 
   it('não reporta erro se RPOL dentro da janela', () => {

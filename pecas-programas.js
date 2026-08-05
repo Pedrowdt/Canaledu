@@ -35,6 +35,7 @@ let activeCat = 'ALL';
 let editingId = null;
 let deleteId = null;
 let pushTimer = null;
+let lastPushAt = 0;
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
@@ -43,23 +44,94 @@ function setItems(arr){ if (activeTab === 'pecas') pecas = arr; else programas =
 
 function setSyncStatus(msg){ document.getElementById('sync-status').textContent = msg || ''; }
 
+function setGateMessage(msg){
+  const el = document.getElementById('gate-msg');
+  if (el) el.textContent = msg;
+}
+
+function showGateLogin(errorMsg){
+  setGateMessage('Cadastro de Peças e Programas');
+  const box = document.getElementById('gate-login');
+  if (box) box.style.display = 'block';
+  const err = document.getElementById('gate-error');
+  if (err) err.textContent = errorMsg || '';
+  const email = document.getElementById('gate-email');
+  if (email) email.focus();
+}
+
 // =====================================================
 // GATE DE LOGIN — reaproveita a sessão do Supabase Auth
 // =====================================================
 (async function boot() {
   if (!isSupabaseConfigured()) {
-    document.getElementById('gate').textContent = 'Configuração pendente (supabase-config.js). Veja DEPLOY.md.';
+    setGateMessage('Configuração pendente (supabase-config.js). Veja DEPLOY.md.');
+    return;
+  }
+
+  if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+    setGateMessage('Não foi possível carregar a biblioteca do Supabase (verifique sua conexão) e por isso o cadastro não abre.');
     return;
   }
 
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const { data } = await supabaseClient.auth.getSession();
-  if (!data?.session?.user) {
-    location.href = 'index.html';
+  const user = await resolveUser();
+  if (!user) {
+    // Antes isto redirecionava para index.html em silêncio — a página "não
+    // entrava" e o console não mostrava nada. Agora mostramos o login aqui.
+    showGateLogin();
+    wireGateLogin();
     return;
   }
-  currentUser = data.session.user;
+  await startApp(user);
+})();
+
+// getSession() pode responder antes de o Supabase terminar de restaurar/renovar
+// a sessão do localStorage. Tenta de novo por até ~2s antes de desistir.
+async function resolveUser() {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const { data } = await supabaseClient.auth.getSession();
+      if (data?.session?.user) return data.session.user;
+    } catch (e) {
+      console.error('getSession falhou', e);
+    }
+    await new Promise(r => setTimeout(r, 400));
+  }
+  return null;
+}
+
+function wireGateLogin() {
+  const btn = document.getElementById('gate-submit');
+  const email = document.getElementById('gate-email');
+  const pass = document.getElementById('gate-password');
+  const err = document.getElementById('gate-error');
+  const submit = async () => {
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Entrando...';
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
+        email: (email.value || '').trim(),
+        password: pass.value || '',
+      });
+      if (error) throw error;
+      document.getElementById('gate-login').style.display = 'none';
+      await startApp(data.user);
+    } catch (e) {
+      console.error('falha no login', e);
+      err.textContent = e.message || String(e);
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+    }
+  };
+  btn.addEventListener('click', submit);
+  [email, pass].forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
+}
+
+async function startApp(user) {
+  currentUser = user;
+  setGateMessage('Carregando cadastro...');
   document.getElementById('user-email').textContent = currentUser.email;
   document.getElementById('logout-link').addEventListener('click', async (e) => {
     e.preventDefault();
@@ -67,41 +139,48 @@ function setSyncStatus(msg){ document.getElementById('sync-status').textContent 
     location.href = 'index.html';
   });
 
-  await loadFromCloud();
-  setupRealtime();
+  try {
+    // Banco relacional (public.pecas / public.programas) com fallback
+    // automático para o formato antigo (shared_data JSONB).
+    const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
+    console.info('[Peças e Programas] modo de banco:', modo);
+    await loadFromCloud();
+    setupRealtime();
+  } catch (e) {
+    // Nunca deixar a tela travada no gate por causa de uma falha de rede/banco.
+    console.error('falha ao inicializar o cadastro', e);
+    setSyncStatus('Falha ao carregar');
+    showToast('Falha ao carregar o cadastro: ' + (e.message || e), true);
+  }
+
   document.getElementById('gate').style.display = 'none';
   render();
-})();
+}
 
 async function loadFromCloud() {
   setSyncStatus('Carregando...');
-  const { data: shared } = await supabaseClient
-    .from('shared_data')
-    .select('pecas, programas')
-    .eq('id', WORKSPACE_ID)
-    .maybeSingle();
-
-  pecas     = (shared?.pecas     || []).map(p => ({ id: p.id || uid(), ...p }));
-  programas = (shared?.programas || []).map(p => ({ id: p.id || uid(), ...p }));
-  setSyncStatus('Sincronizado ✓');
+  try {
+    const data = await PecasRepo.loadAll();
+    pecas     = (data.pecas     || []).map(p => ({ id: p.id || uid(), ...p }));
+    programas = (data.programas || []).map(p => ({ id: p.id || uid(), ...p }));
+    setSyncStatus('Sincronizado ✓');
+  } catch (e) {
+    console.error('falha ao carregar cadastro', e);
+    setSyncStatus('Falha ao carregar');
+    showToast('Não foi possível carregar o cadastro: ' + (e.message || e), true);
+  }
 }
 
 async function pushToCloud() {
   setSyncStatus('Sincronizando...');
   try {
-    await supabaseClient
-      .from('shared_data')
-      .update({
-        pecas: pecas,
-        programas: programas,
-        updated_by: currentUser.id,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', WORKSPACE_ID);
+    await PecasRepo.saveAll({ pecas, programas, userId: currentUser.id });
+    lastPushAt = Date.now();
     setSyncStatus('Sincronizado ✓');
   } catch (e) {
-    console.warn('falha ao sincronizar', e);
+    console.error('falha ao sincronizar', e);
     setSyncStatus('Falha ao sincronizar');
+    showToast('Falha ao salvar no banco: ' + (e.message || e), true);
   }
 }
 
@@ -111,20 +190,14 @@ function scheduleSync() {
 }
 
 function setupRealtime() {
-  supabaseClient
-    .channel('pecas_programas_changes')
-    .on(
-      'postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'shared_data', filter: `id=eq.${WORKSPACE_ID}` },
-      (payload) => {
-        if (!payload.new || payload.new.updated_by === currentUser.id) return; // ignora a própria escrita
-        pecas     = (payload.new.pecas     || []).map(p => ({ id: p.id || uid(), ...p }));
-        programas = (payload.new.programas || []).map(p => ({ id: p.id || uid(), ...p }));
-        render();
-        setSyncStatus('Atualizado por outro usuário ✓');
-      }
-    )
-    .subscribe();
+  // Recarrega quando outra pessoa da equipe edita o cadastro.
+  // Ignora eco da própria escrita (janela de 1,5s após o último push).
+  PecasRepo.onRemoteChange(async () => {
+    if (Date.now() - lastPushAt < 1500) return;
+    await loadFromCloud();
+    render();
+    setSyncStatus('Atualizado por outro usuário ✓');
+  });
 }
 
 // =====================================================

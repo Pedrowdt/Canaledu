@@ -4,12 +4,14 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:db": "node db/testar-schema.mjs",
     "test:watch": "vitest",
     "release": "standard-version"
   },
   "devDependencies": {
-    "vitest": "^2.0.0",
+    "@electric-sql/pglite": "^0.5.4",
     "jsdom": "^24.0.0",
-    "standard-version": "^9.5.0"
+    "standard-version": "^9.5.0",
+    "vitest": "^2.0.0"
   }
 }
