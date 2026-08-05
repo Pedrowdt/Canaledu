@@ -80,20 +80,24 @@ describe('PecasRepo', () => {
     expect(programas[0].assinatura).toEqual(['infantil']);
   });
 
-  it('saveAll faz upsert por code e apaga os removidos', async () => {
+  it('saveAll grava via RPC de delta, normalizando os campos', async () => {
     const c = fakeClient();
     await Repo.init(c);
+    await Repo.loadAll();
     await Repo.saveAll({
       pecas: [{ code: '1', descricao: 'x', tempo: '00:00:05', dias: ['seg', 'xx'], hIni: '9', validade: '' }],
       programas: [{ code: 'P1', descricao: 'y', assinatura: ['jovem'] }],
       userId: 'u1',
     });
-    const peca = c.calls.upserts.find((u) => u.table === 'pecas').payload[0];
+    const chamada = c.calls.rpc.find((r) => r.fn === 'fn_salvar_pecas');
+    const peca = chamada.args.p_upserts[0];
     expect(peca.dias).toEqual(['seg']);          // dia inválido descartado
     expect(peca.h_ini).toBeNull();               // "9" não é HH:MM
     expect(peca.validade).toBeNull();            // string vazia -> null
-    expect(c.calls.deletes.map((d) => d.table).sort()).toEqual(['pecas', 'programas']);
-    expect(c.calls.deletes[0].val).toContain('"1"');
+    expect(peca.row_version).toBeNull();         // linha nova
+    // Nada é apagado: o banco carregado por este cliente estava vazio.
+    expect(chamada.args.p_deletes).toEqual([]);
+    expect(c.calls.deletes).toEqual([]);
   });
 
   it('modo legado grava o JSONB em shared_data', async () => {

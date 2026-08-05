@@ -227,8 +227,10 @@ async function pushToCloud() {
     await supabaseClient
       .from('shared_data')
       .update({
-        pecas: app.pecas || [],
-        programas: app.programas || [],
+        // pecas/programas NÃO vão mais daqui: o cadastro relacional
+        // (tela Peças e Programas) é a fonte da verdade e chega em
+        // shared_data pelo espelho no banco. Enviar o snapshot do
+        // localStorage apagava o que outro usuário havia cadastrado.
         grade: app.grade || {},
         grade_by_day: app.gradeByDay || {},
         grade_order: app.gradeOrder || {},

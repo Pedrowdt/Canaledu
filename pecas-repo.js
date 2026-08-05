@@ -48,6 +48,7 @@
       posicao: r.posicao || '',
       ordem: r.ordem ?? 0,
       ativo: r.ativo !== false,
+      rowVersion: r.row_version ?? null,
     };
   }
 
@@ -68,6 +69,7 @@
       posicao: p.posicao || null,
       ordem: Number(p.ordem) || 0,
       ativo: p.ativo !== false,
+      row_version: p.rowVersion ?? null,
     };
   }
 
@@ -81,6 +83,7 @@
       type: r.type || 'RPRO',
       assinatura: r.assinatura ? [r.assinatura] : [],
       ativo: r.ativo !== false,
+      rowVersion: r.row_version ?? null,
     };
   }
 
@@ -94,10 +97,43 @@
       type: p.type || 'RPRO',
       assinatura: FAIXAS.includes(faixa) ? faixa : null,
       ativo: p.ativo !== false,
+      row_version: p.rowVersion ?? null,
     };
   }
 
   /* ---------- init ---------- */
+  // baseline = último estado conhecido do banco (por code) — base do DELTA.
+  const baseline = { pecas: new Map(), programas: new Map() };
+
+  /** Identidade do conteúdo de uma linha, ignorando row_version. */
+  function fingerprint(row) {
+    const { row_version, ...rest } = row;
+    return JSON.stringify(Object.keys(rest).sort().map((k) => [k, rest[k]]));
+  }
+
+  function setBaseline(kind, rows, toRow) {
+    const map = new Map();
+    rows.forEach((r) => {
+      const row = toRow(r);
+      map.set(row.code, { fp: fingerprint(row), row_version: r.rowVersion ?? null });
+    });
+    baseline[kind] = map;
+  }
+
+  /** Linhas alteradas/novas em relação ao baseline (nunca a lista inteira). */
+  function diff(kind, items, toRow) {
+    const base = baseline[kind];
+    const upserts = [];
+    (items || []).filter((r) => r && r.code).forEach((item) => {
+      const row = toRow(item);
+      const prev = base.get(row.code);
+      if (prev && prev.fp === fingerprint(row)) return; // nada mudou
+      row.row_version = prev ? prev.row_version : null; // null = linha nova
+      upserts.push(row);
+    });
+    return upserts;
+  }
+
   async function init(supabaseClient, wsId) {
     client = supabaseClient;
     if (wsId) workspaceId = wsId;
@@ -115,7 +151,11 @@
         client.from('programas').select('*').order('code'),
       ]);
       if (e1 || e2) throw e1 || e2;
-      return { pecas: (rp || []).map(pecaFromRow), programas: (rg || []).map(programaFromRow) };
+      const pecas = (rp || []).map(pecaFromRow);
+      const programas = (rg || []).map(programaFromRow);
+      setBaseline('pecas', pecas, pecaToRow);
+      setBaseline('programas', programas, programaToRow);
+      return { pecas, programas };
     }
     const { data, error } = await client
       .from('shared_data')
@@ -123,49 +163,120 @@
       .eq('id', workspaceId)
       .maybeSingle();
     if (error) throw error;
-    return {
-      pecas: (data?.pecas || []).map((p) => ({ id: p.id || uid(), ...p })),
-      programas: (data?.programas || []).map((p) => ({ id: p.id || uid(), ...p })),
-    };
+    const pecas = (data?.pecas || []).map((p) => ({ id: p.id || uid(), ...p }));
+    const programas = (data?.programas || []).map((p) => ({ id: p.id || uid(), ...p }));
+    setBaseline('pecas', pecas, pecaToRow);
+    setBaseline('programas', programas, programaToRow);
+    return { pecas, programas };
   }
 
-  /* ---------- escrita ---------- */
-  async function saveCollection(table, rows, toRow) {
-    const payload = rows.filter((r) => r && r.code).map(toRow);
-    const codes = payload.map((r) => r.code);
+  /* ---------- escrita (DELTA) ---------- */
+  function rpcAusente(error) {
+    const msg = ((error && (error.message || error.details)) || '').toLowerCase();
+    return msg.includes('does not exist') || msg.includes('could not find the function') || error?.code === 'PGRST202';
+  }
 
-    if (payload.length) {
+  /** Fallback sem RPC: upsert linha a linha + delete SÓ dos codes informados. */
+  async function salvarSemRpc(table, upserts, deletes) {
+    if (upserts.length) {
+      const payload = upserts.map(({ row_version, ...rest }) => rest);
       const { error } = await client.from(table).upsert(payload, { onConflict: 'code' });
       if (error) throw error;
     }
-    // Remove o que saiu da tela (exclusões e "excluir todos").
-    let del = client.from(table).delete();
-    del = codes.length ? del.not('code', 'in', `(${codes.map((c) => `"${c}"`).join(',')})`) : del.neq('code', '__none__');
-    const { error: delError } = await del;
-    if (delError) throw delError;
+    if (deletes.length) {
+      const { error } = await client.from(table).delete().in('code', deletes);
+      if (error) throw error;
+    }
+    return { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
+  }
+
+  async function salvarTabela(kind, rpcName, upserts, deletes) {
+    if (!upserts.length && !deletes.length) return { aplicados: 0, removidos: 0, conflitos: [] };
+    const table = kind;
+    const { data, error } = await client.rpc(rpcName, { p_upserts: upserts, p_deletes: deletes });
+    if (error) {
+      if (!rpcAusente(error)) throw error;
+      return await salvarSemRpc(table, upserts, deletes);
+    }
+    return data || { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
   }
 
   /**
-   * Persiste o estado completo do cadastro.
-   * Em modo relacional grava nas tabelas (o trigger espelha em shared_data);
-   * em modo legado grava o JSONB como antes.
+   * Grava APENAS o que mudou desde o último loadAll/saveDelta:
+   *   - upserts: linhas novas ou editadas nesta tela
+   *   - deletes: codes que o usuário excluiu explicitamente
+   * Linhas criadas por outros usuários nunca são tocadas, e uma edição sobre
+   * uma versão antiga volta como conflito em vez de sobrescrever.
    */
-  async function saveAll({ pecas, programas, userId }) {
-    if (mode === 'relational') {
-      await saveCollection('pecas', pecas || [], pecaToRow);
-      await saveCollection('programas', programas || [], programaToRow);
-      return;
+  async function saveDelta({ pecas, programas, deletedPecas = [], deletedProgramas = [], userId } = {}) {
+    if (mode !== 'relational') {
+      return await saveLegacy({ pecas, programas, deletedPecas, deletedProgramas, userId });
     }
+
+    const upPecas = diff('pecas', pecas, pecaToRow);
+    const upProgs = diff('programas', programas, programaToRow);
+    const delPecas = [...new Set(deletedPecas.filter(Boolean))];
+    const delProgs = [...new Set(deletedProgramas.filter(Boolean))];
+
+    const [rp, rg] = [
+      await salvarTabela('pecas', 'fn_salvar_pecas', upPecas, delPecas),
+      await salvarTabela('programas', 'fn_salvar_programas', upProgs, delProgs),
+    ];
+
+    const conflitos = [...(rp.conflitos || []), ...(rg.conflitos || [])];
+    return { conflitos, aplicados: (rp.aplicados || 0) + (rg.aplicados || 0), removidos: (rp.removidos || 0) + (rg.removidos || 0) };
+  }
+
+  /**
+   * Modo legado (sem as tabelas relacionais): mescla o delta local com o que
+   * está na nuvem AGORA, para não apagar o que outro usuário acabou de gravar.
+   */
+  async function saveLegacy({ pecas, programas, deletedPecas, deletedProgramas, userId }) {
+    const remoto = await loadAllRemotoLegacy();
+    const mescla = (remotos, locais, excluidos) => {
+      const map = new Map((remotos || []).map((r) => [r.code, r]));
+      (excluidos || []).forEach((code) => map.delete(code));
+      (locais || []).filter((l) => l && l.code).forEach((l) => map.set(l.code, l));
+      return [...map.values()];
+    };
     const { error } = await client
       .from('shared_data')
       .update({
-        pecas: pecas || [],
-        programas: programas || [],
+        pecas: mescla(remoto.pecas, pecas, deletedPecas),
+        programas: mescla(remoto.programas, programas, deletedProgramas),
         updated_by: userId || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', workspaceId);
     if (error) throw error;
+    return { conflitos: [], aplicados: (pecas || []).length, removidos: (deletedPecas || []).length };
+  }
+
+  async function loadAllRemotoLegacy() {
+    const { data, error } = await client
+      .from('shared_data')
+      .select('pecas, programas')
+      .eq('id', workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    return { pecas: data?.pecas || [], programas: data?.programas || [] };
+  }
+
+  /**
+   * Compatibilidade: deriva as exclusões comparando com o baseline DESTE
+   * cliente (nunca apaga codes que este cliente nunca viu) e delega ao delta.
+   */
+  async function saveAll({ pecas, programas, userId }) {
+    const presentes = (arr) => new Set((arr || []).filter((r) => r && r.code).map((r) => String(r.code)));
+    const codesPecas = presentes(pecas);
+    const codesProgs = presentes(programas);
+    return await saveDelta({
+      pecas,
+      programas,
+      deletedPecas: [...baseline.pecas.keys()].filter((c) => !codesPecas.has(c)),
+      deletedProgramas: [...baseline.programas.keys()].filter((c) => !codesProgs.has(c)),
+      userId,
+    });
   }
 
   /** Peças elegíveis para um dia/horário — usado pela confecção de roteiros. */
@@ -197,11 +308,13 @@
     init,
     loadAll,
     saveAll,
+    saveDelta,
     pecasElegiveis,
     onRemoteChange,
     get mode() {
       return mode;
     },
     _map: { pecaFromRow, pecaToRow, programaFromRow, programaToRow },
+    _diff: { diff, fingerprint, setBaseline, baseline },
   };
 })(typeof window !== 'undefined' ? window : globalThis);

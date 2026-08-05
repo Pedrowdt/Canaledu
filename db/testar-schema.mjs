@@ -32,6 +32,9 @@ await q(`update public.shared_data set
 await q(readFileSync(new URL('./002_migrar_shared_data.sql', import.meta.url), 'utf8'));
 console.log('002 aplicado ✓');
 
+await q(readFileSync(new URL('./003_consistencia.sql', import.meta.url), 'utf8'));
+console.log('003 aplicado ✓');
+
 const show = async (label, sql) => {
   const r = await db.query(sql);
   console.log(label, JSON.stringify(r.rows));
@@ -64,3 +67,40 @@ try { await q(`insert into public.pecas (code, descricao) values ('90001','dup')
 catch (e) { console.log('unique code barrou ✓'); }
 
 console.log('SQL validado.');
+
+
+// =====================================================
+// 003 — CONSISTÊNCIA MULTIUSUÁRIO
+// =====================================================
+const call = (fn, ups, dels = []) =>
+  db.query(`select public.${fn}($1::jsonb, $2::text[]) as res`, [JSON.stringify(ups), dels]);
+
+// Usuário A cadastra duas peças
+await call('fn_salvar_pecas', [
+  { code: 'A1', descricao: 'PECA A1', tempo: '00:00:30', categoria: 'CHAMADA_QUENTE', dias: ['seg'] },
+  { code: 'A2', descricao: 'PECA A2', tempo: '00:00:10', categoria: 'CATEGORIA_INVENTADA' },
+]);
+await show('após usuário A:', `select code, categoria, row_version from public.pecas where code like 'A%' order by code`);
+
+// Usuário B, com snapshot antigo (sem A2), salva só a peça dele -> A2 sobrevive
+await call('fn_salvar_pecas', [{ code: 'B1', descricao: 'PECA B1' }]);
+await show('A2 sobreviveu ao save do usuário B:', `select count(*) from public.pecas where code = 'A2'`);
+
+// Conflito: B edita A1 com row_version desatualizada
+await call('fn_salvar_pecas', [{ code: 'A1', descricao: 'EDITADA POR A', row_version: 1 }]);
+const conf = await call('fn_salvar_pecas', [{ code: 'A1', descricao: 'EDICAO VELHA DE B', row_version: 1 }]);
+console.log('conflito detectado (não sobrescreveu):', JSON.stringify(conf.rows[0].res));
+await show('A1 mantém a versão vencedora:', `select descricao, row_version from public.pecas where code = 'A1'`);
+
+// Exclusão só acontece quando o code é enviado explicitamente
+await call('fn_salvar_pecas', [], ['A2']);
+await show('após exclusão explícita de A2:', `select code from public.pecas where code like any (array['A%','B%']) order by code`);
+
+// Guarda do espelho: snapshot velho da tela de roteiro não apaga o cadastro
+const antes = await db.query(`select jsonb_array_length(pecas) as n from public.shared_data where id='workspace'`);
+await q(`update public.shared_data set pecas = '[]'::jsonb, programas = '[]'::jsonb, grade = '{"x":1}' where id='workspace'`);
+const depois = await db.query(`select jsonb_array_length(pecas) as n, grade from public.shared_data where id='workspace'`);
+console.log('espelho protegido:', JSON.stringify({ antes: antes.rows[0], depois: depois.rows[0] }),
+  antes.rows[0].n === depois.rows[0].n ? '✓' : 'ERRO');
+
+console.log('\nTodos os cenários executados.');

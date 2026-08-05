@@ -171,11 +171,43 @@ async function loadFromCloud() {
   }
 }
 
+// Codes excluídos explicitamente nesta tela (a única coisa que autoriza um
+// DELETE no banco compartilhado). Sem isso, um snapshot velho apagaria o que
+// outro usuário acabou de cadastrar.
+let deletedPecas = [];
+let deletedProgramas = [];
+
+function marcarExcluidos(codes) {
+  const alvo = activeTab === 'pecas' ? deletedPecas : deletedProgramas;
+  codes.filter(Boolean).forEach((c) => { if (!alvo.includes(c)) alvo.push(c); });
+}
+
 async function pushToCloud() {
   setSyncStatus('Sincronizando...');
+  const delP = deletedPecas.slice();
+  const delG = deletedProgramas.slice();
   try {
-    await PecasRepo.saveAll({ pecas, programas, userId: currentUser.id });
+    const res = await PecasRepo.saveDelta({
+      pecas, programas,
+      deletedPecas: delP,
+      deletedProgramas: delG,
+      userId: currentUser.id,
+    });
+    deletedPecas = deletedPecas.filter((c) => !delP.includes(c));
+    deletedProgramas = deletedProgramas.filter((c) => !delG.includes(c));
     lastPushAt = Date.now();
+
+    const conflitos = (res && res.conflitos) || [];
+    // Recarrega para trazer as versões atuais (inclui edições de outros usuários).
+    await loadFromCloud();
+    render();
+
+    if (conflitos.length) {
+      showToast('Alguns itens foram editados por outra pessoa e não foram sobrescritos: ' +
+        conflitos.map((c) => c.code).join(', ') + '. A tela foi atualizada com a versão do banco.', true);
+      setSyncStatus('Conflito resolvido — tela atualizada');
+      return;
+    }
     setSyncStatus('Sincronizado ✓');
   } catch (e) {
     console.error('falha ao sincronizar', e);
@@ -476,10 +508,13 @@ function closeDel(){document.getElementById('del-overlay').style.display='none';
 
 function confirmDel(){
   if (deleteId === '__ALL__') {
+    marcarExcluidos(items().map(x => x.code));
     // [NOVO] Exclusão geral: zera a lista da aba ativa (Peças OU Programas,
     // nunca as duas ao mesmo tempo) e sincroniza com a nuvem.
     setItems([]);
   } else {
+    const alvo = items().find(x => x.id === deleteId);
+    if (alvo) marcarExcluidos([alvo.code]);
     setItems(items().filter(x=>x.id!==deleteId));
   }
   render(); closeDel(); scheduleSync();

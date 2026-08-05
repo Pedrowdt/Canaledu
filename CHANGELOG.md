@@ -1,3 +1,14 @@
+## [1.2.0] — Consistência multiusuário
+
+- `db/003_consistencia.sql`: `row_version` (optimistic locking), RPCs
+  `fn_salvar_pecas`/`fn_salvar_programas` com gravação por delta e detecção de
+  conflito, guarda em `shared_data` contra snapshots antigos.
+- `pecas-repo.js`: gravação incremental por baseline; fim do `delete not in`.
+- `pecas-programas.js`: exclusões explícitas + aviso de conflito.
+- `cloud-sync.js`: a tela de roteiro não sobrescreve mais o cadastro.
+- +7 testes unitários e novos cenários em `npm run test:db`.
+- Detalhes: CONSISTENCIA.md
+
 # Changelog
 
 Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
