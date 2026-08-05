@@ -1407,6 +1407,18 @@ function handleImport(e) {
     }
 
     const textFromHeader = lines.slice(headerIdx).join('\n');
+
+    // CSV com APENAS a coluna CODE (header = só "CODE", sem TITLE/DURATION/TYPE)
+    // → busca os demais campos no banco de programas já cadastrado (state.programas)
+    const headerColsCheck = parseCSVLine(headerLine, sep)
+      .map(c => c.trim().replace(/^"(.*)"$/, '$1').trim().toUpperCase());
+    const isCodeOnly = headerColsCheck.length === 1 && headerColsCheck[0] === 'CODE';
+
+    if (isCodeOnly) {
+      importCodesFromBank(textFromHeader, sep);
+      return;
+    }
+
     importNotionCSV(textFromHeader, sep);
   };
 
@@ -1819,36 +1831,7 @@ function importNotionCSV(text, sep) {
 
 
   // ── Injetar peças fixas ────────────────────────────────────────────────────
-  const fixas = (state.pecasFixas || []).filter(f => f.ativo !== false);
-  if (fixas.length) {
-    const makeFixed = f => ({ code:f.code, descricao:f.descricao, tempo:f.tempo,
-                               midia:f.midia||'0OMN', type:f.type, _fixa:true });
-    const fInicio    = fixas.filter(f => f.posicao === 'inicio');
-    const fFim       = fixas.filter(f => f.posicao === 'fim');
-    const fAntesProg = fixas.filter(f => f.posicao === 'antes_programa');
-    const fAposAssin = fixas.filter(f => f.posicao === 'apos_assinatura');
-
-    fInicio.slice().reverse().forEach(f => state.roteiro.unshift(makeFixed(f)));
-    if (fAntesProg.length) {
-      const out = [];
-      state.roteiro.forEach(item => {
-        if (item.type === 'RPRO') fAntesProg.forEach(f => out.push(makeFixed(f)));
-        out.push(item);
-      });
-      state.roteiro = out;
-    }
-    if (fAposAssin.length) {
-      const out = [];
-      state.roteiro.forEach(item => {
-        out.push(item);
-        if (item.descricao && item.descricao.startsWith('ASSINATURA_')) {
-          fAposAssin.forEach(f => out.push(makeFixed(f)));
-        }
-      });
-      state.roteiro = out;
-    }
-    fFim.forEach(f => state.roteiro.push(makeFixed(f)));
-  }
+  injectPecasFixas();
 
   saveState();
   renderAll();
@@ -1856,6 +1839,107 @@ function importNotionCSV(text, sep) {
   toast(`Roteiro gerado: ${imported.length} programas → ${state.roteiro.filter(i=>i.type!=='__SLOT__').length} itens | Sincronizado com a Grade Semanal XLSX`, 'success');
   if (tempoInvalido.length) {
     toast(`⚠ ${tempoInvalido.length} programa(s) com duração inválida na origem (usei 00:01:00): ${tempoInvalido.slice(0,5).join(', ')}${tempoInvalido.length>5?'…':''}`, 'error');
+  }
+  try { scheduleBlockAlerts(); } catch (_) {}
+}
+
+/** Injeta as peças fixas ativas (state.pecasFixas) no state.roteiro atual, nas
+ *  posições configuradas: início, fim, antes de cada programa RPRO e após cada
+ *  assinatura. Compartilhada por todos os fluxos de geração automática de roteiro
+ *  (importNotionCSV, importCodesFromBank). */
+function injectPecasFixas() {
+  const fixas = (state.pecasFixas || []).filter(f => f.ativo !== false);
+  if (!fixas.length) return;
+  const makeFixed = f => ({ code:f.code, descricao:f.descricao, tempo:f.tempo,
+                             midia:f.midia||'0OMN', type:f.type, _fixa:true });
+  const fInicio    = fixas.filter(f => f.posicao === 'inicio');
+  const fFim       = fixas.filter(f => f.posicao === 'fim');
+  const fAntesProg = fixas.filter(f => f.posicao === 'antes_programa');
+  const fAposAssin = fixas.filter(f => f.posicao === 'apos_assinatura');
+
+  fInicio.slice().reverse().forEach(f => state.roteiro.unshift(makeFixed(f)));
+  if (fAntesProg.length) {
+    const out = [];
+    state.roteiro.forEach(item => {
+      if (item.type === 'RPRO') fAntesProg.forEach(f => out.push(makeFixed(f)));
+      out.push(item);
+    });
+    state.roteiro = out;
+  }
+  if (fAposAssin.length) {
+    const out = [];
+    state.roteiro.forEach(item => {
+      out.push(item);
+      if (item.descricao && item.descricao.startsWith('ASSINATURA_')) {
+        fAposAssin.forEach(f => out.push(makeFixed(f)));
+      }
+    });
+    state.roteiro = out;
+  }
+  fFim.forEach(f => state.roteiro.push(makeFixed(f)));
+}
+
+/** Importa um CSV que contém APENAS a coluna CODE (header = "CODE", uma coluna só).
+ *  Para cada código, busca o programa completo (descricao/tempo/type) no banco
+ *  já cadastrado em state.programas — não exige que title/duration/type venham
+ *  no arquivo importado. Monta os programas encontrados e chama
+ *  buildRoteiroFromPrograms() para gerar o roteiro do dia, igual ao fluxo do
+ *  CSV completo do Notion. Códigos não encontrados no banco são reportados ao
+ *  usuário via toast e ficam de fora do roteiro gerado. */
+function importCodesFromBank(text, sep) {
+  sep = sep || ';';
+  const lines = text.split(/\r?\n/);
+  const unquote = s => s ? s.trim().replace(/^"(.*)"$/, '$1').trim() : s;
+
+  const imported = [];
+  const naoEncontrados = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = parseCSVLine(line, sep);
+    const code = unquote(cols[0]);
+    if (!code) continue;
+
+    const prog = state.programas.find(p => p.code === code);
+    if (!prog) {
+      naoEncontrados.push(code);
+      continue;
+    }
+    imported.push({ ...prog });
+  }
+
+  if (imported.length === 0) {
+    toast('Nenhum dos códigos foi encontrado no banco de programas', 'error');
+    if (naoEncontrados.length) {
+      toast(`Códigos não encontrados: ${naoEncontrados.slice(0,8).join(', ')}${naoEncontrados.length>8?'…':''}`, 'error');
+    }
+    return;
+  }
+
+  // Build roteiro automatically with VHs, igual ao fluxo do CSV completo
+  const generated = buildRoteiroFromPrograms(imported);
+
+  // If roteiro already has content, ask before overwriting
+  if (state.roteiro.length > 0) {
+    const ok = confirm(
+      `Roteiro atual tem ${state.roteiro.length} itens.\n` +
+      `Substituir pelo roteiro gerado (${generated.length} itens) a partir dos ${imported.length} códigos encontrados no banco?`
+    );
+    if (!ok) return;
+  }
+
+  state.roteiro = generated;
+
+  // ── Injetar peças fixas ────────────────────────────────────────────────────
+  injectPecasFixas();
+
+  saveState();
+  renderAll();
+  renderWeekSelector();
+  toast(`Roteiro gerado: ${imported.length} código(s) encontrados no banco → ${state.roteiro.filter(i=>i.type!=='__SLOT__').length} itens`, 'success');
+  if (naoEncontrados.length) {
+    toast(`⚠ ${naoEncontrados.length} código(s) não encontrado(s) no banco de programas: ${naoEncontrados.slice(0,5).join(', ')}${naoEncontrados.length>5?'…':''}`, 'error');
   }
   try { scheduleBlockAlerts(); } catch (_) {}
 }
