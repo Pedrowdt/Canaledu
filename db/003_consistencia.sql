@@ -1,19 +1,8 @@
 -- =====================================================
--- CONSISTÊNCIA MULTIUSUÁRIO — PEÇAS E PROGRAMAS
--- Roteiro Canal Educação
---
--- Cole no Supabase → SQL Editor → New query → Run
--- (depois de 001 e 002). Idempotente.
---
--- Resolve a perda de dados quando dois usuários editam:
---   1) row_version por linha  -> detecção de conflito (optimistic locking)
---   2) fn_salvar_pecas/programas -> gravação por DELTA (só o que mudou),
---      nunca "apaga tudo e regrava"
---   3) guarda em shared_data -> a tela de roteiro não pode mais sobrescrever
---      o cadastro com um snapshot velho do localStorage
+-- CONSISTÊNCIA MULTIUSUÁRIO — PEÇAS E PROGRAMAS (CORRIGIDO PARA SUPABASE)
 -- =====================================================
 
--- ── 1. Versão por linha ─────────────────────────────────────
+-- 1. Versão por linha
 alter table public.pecas     add column if not exists row_version integer not null default 1;
 alter table public.programas add column if not exists row_version integer not null default 1;
 
@@ -25,7 +14,7 @@ begin
   return new;
 end $$;
 
--- ── 2. Helpers tolerantes (nunca derrubam a gravação) ───────
+-- 2. Helpers tolerantes
 create or replace function public.fn_uid() returns uuid
 language plpgsql stable as $$
 begin return auth.uid(); exception when others then return null; end $$;
@@ -45,10 +34,7 @@ language plpgsql immutable as $$
 begin return nullif(lower(t), '')::faixa_assinatura;
 exception when others then return null; end $$;
 
--- ── 3. Gravação por DELTA com detecção de conflito ──────────
--- p_upserts: array de objetos (chaves do banco) com row_version opcional
--- p_deletes: codes explicitamente excluídos na tela
--- retorna { aplicados, removidos, conflitos:[{code,esperado,atual}] }
+-- 3. Gravação por DELTA com detecção de conflito
 create or replace function public.fn_salvar_pecas(
   p_upserts jsonb default '[]'::jsonb,
   p_deletes text[] default '{}'
@@ -96,21 +82,10 @@ begin
       public.fn_uid(), public.fn_uid()
     )
     on conflict (code) do update set
-      descricao = excluded.descricao,
-      tempo     = excluded.tempo,
-      midia     = excluded.midia,
-      type      = excluded.type,
-      categoria = excluded.categoria,
-      validade  = excluded.validade,
-      dias      = excluded.dias,
-      h_ini     = excluded.h_ini,
-      h_fim     = excluded.h_fim,
-      freq      = excluded.freq,
-      obs       = excluded.obs,
-      posicao   = excluded.posicao,
-      ordem     = excluded.ordem,
-      ativo     = excluded.ativo,
-      updated_by = public.fn_uid();
+      descricao = excluded.descricao, tempo = excluded.tempo, midia = excluded.midia, type = excluded.type,
+      categoria = excluded.categoria, validade = excluded.validade, dias = excluded.dias,
+      h_ini = excluded.h_ini, h_fim = excluded.h_fim, freq = excluded.freq, obs = excluded.obs,
+      posicao = excluded.posicao, ordem = excluded.ordem, ativo = excluded.ativo, updated_by = public.fn_uid();
 
     aplicados := aplicados + 1;
   end loop;
@@ -161,13 +136,8 @@ begin
       public.fn_uid(), public.fn_uid()
     )
     on conflict (code) do update set
-      descricao  = excluded.descricao,
-      tempo      = excluded.tempo,
-      midia      = excluded.midia,
-      type       = excluded.type,
-      assinatura = excluded.assinatura,
-      ativo      = excluded.ativo,
-      updated_by = public.fn_uid();
+      descricao = excluded.descricao, tempo = excluded.tempo, midia = excluded.midia, type = excluded.type,
+      assinatura = excluded.assinatura, ativo = excluded.ativo, updated_by = public.fn_uid();
 
     aplicados := aplicados + 1;
   end loop;
@@ -184,30 +154,31 @@ grant execute on function public.fn_salvar_pecas(jsonb, text[])     to authentic
 grant execute on function public.fn_salvar_programas(jsonb, text[]) to authenticated;
 grant execute on function public.fn_uid() to authenticated;
 
--- ── 4. Espelho: só o espelho pode escrever pecas/programas ──
--- As funções de espelho declaram app.mirror='on'; qualquer outro UPDATE em
--- shared_data (ex.: snapshot velho do localStorage da tela de roteiro) tem
--- essas duas colunas preservadas.
+-- 4. Espelho: CORRIGIDO para usar set_config (PL/pgSQL) em vez de SET na declaração.
 create or replace function public.fn_sync_shared_pecas()
-returns void language sql security definer
-set search_path = public set "app.mirror" = 'on' as $$
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('app.mirror', 'on', true);
   insert into public.shared_data (id) values ('workspace') on conflict (id) do nothing;
   update public.shared_data set
     pecas = coalesce((select jsonb_agg(to_jsonb(v) - 'ativo' order by v.categoria, v.code)
                         from public.v_pecas_roteiro v), '[]'::jsonb),
     updated_at = now()
   where id = 'workspace';
+end;
 $$;
 
 create or replace function public.fn_sync_shared_programas()
-returns void language sql security definer
-set search_path = public set "app.mirror" = 'on' as $$
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform set_config('app.mirror', 'on', true);
   insert into public.shared_data (id) values ('workspace') on conflict (id) do nothing;
   update public.shared_data set
     programas = coalesce((select jsonb_agg(to_jsonb(v) - 'ativo' order by v.code)
                             from public.v_programas_roteiro v), '[]'::jsonb),
     updated_at = now()
   where id = 'workspace';
+end;
 $$;
 
 create or replace function public.tg_shared_data_guard()
@@ -230,5 +201,4 @@ drop trigger if exists shared_data_guard on public.shared_data;
 create trigger shared_data_guard before update on public.shared_data
   for each row execute function public.tg_shared_data_guard();
 
--- Reespelha uma vez ao aplicar, para garantir shared_data em dia.
 select public.fn_sync_shared_data();
