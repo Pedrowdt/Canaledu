@@ -60,25 +60,33 @@ function showGateLogin(errorMsg){
 }
 
 // =====================================================
-// GATE DE LOGIN — reaproveita a sessão do Supabase Auth
+// GATE DE LOGIN — sessão única via auth.js (CanalAuth)
+//
+// Regra de acesso: NINGUÉM abre o cadastro sem sessão
+// válida. Se não houver sessão, mostramos o formulário de
+// login aqui mesmo (login inline) — nunca um redirect
+// silencioso, que fazia a página "não entrar" sem erro.
 // =====================================================
 (async function boot() {
-  if (!isSupabaseConfigured()) {
-    setGateMessage('Configuração pendente (supabase-config.js). Veja DEPLOY.md.');
+  try {
+    // Cliente Supabase singleton: mesma sessão da tela do Roteiro.
+    supabaseClient = CanalAuth.getClient();
+  } catch (e) {
+    // Config ausente ou CDN do Supabase bloqueada.
+    setGateMessage(e.message);
     return;
   }
 
-  if (!window.supabase || typeof window.supabase.createClient !== 'function') {
-    setGateMessage('Não foi possível carregar a biblioteca do Supabase (verifique sua conexão) e por isso o cadastro não abre.');
-    return;
-  }
+  // Guarda para onde voltar depois do login (esta própria página).
+  CanalAuth.rememberReturnTo('pecas-programas.html');
 
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Sessão expirada/logout em outra aba -> recarrega e cai no gate.
+  CanalAuth.onAuthChange((event) => {
+    if (event === 'SIGNED_OUT') location.reload();
+  });
 
-  const user = await resolveUser();
+  const user = await CanalAuth.requireUser();
   if (!user) {
-    // Antes isto redirecionava para index.html em silêncio — a página "não
-    // entrava" e o console não mostrava nada. Agora mostramos o login aqui.
     showGateLogin();
     wireGateLogin();
     return;
@@ -86,47 +94,32 @@ function showGateLogin(errorMsg){
   await startApp(user);
 })();
 
-// getSession() pode responder antes de o Supabase terminar de restaurar/renovar
-// a sessão do localStorage. Tenta de novo por até ~2s antes de desistir.
-async function resolveUser() {
-  for (let i = 0; i < 5; i++) {
-    try {
-      const { data } = await supabaseClient.auth.getSession();
-      if (data?.session?.user) return data.session.user;
-    } catch (e) {
-      console.error('getSession falhou', e);
-    }
-    await new Promise(r => setTimeout(r, 400));
-  }
-  return null;
-}
-
+// Login inline do gate. Reaproveita CanalAuth.signIn, que valida o
+// formulário e traduz o erro do Supabase para linguagem da equipe.
 function wireGateLogin() {
   const btn = document.getElementById('gate-submit');
   const email = document.getElementById('gate-email');
   const pass = document.getElementById('gate-password');
   const err = document.getElementById('gate-error');
+
   const submit = async () => {
     err.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Entrando...';
     try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: (email.value || '').trim(),
-        password: pass.value || '',
-      });
-      if (error) throw error;
+      const { user } = await CanalAuth.signIn(email.value, pass.value);
       document.getElementById('gate-login').style.display = 'none';
-      await startApp(data.user);
+      await startApp(user);
     } catch (e) {
       console.error('falha no login', e);
-      err.textContent = e.message || String(e);
+      err.textContent = e.message;
       btn.disabled = false;
       btn.textContent = 'Entrar';
     }
   };
+
   btn.addEventListener('click', submit);
-  [email, pass].forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
+  [email, pass].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
 }
 
 async function startApp(user) {
@@ -135,8 +128,8 @@ async function startApp(user) {
   document.getElementById('user-email').textContent = currentUser.email;
   document.getElementById('logout-link').addEventListener('click', async (e) => {
     e.preventDefault();
-    await supabaseClient.auth.signOut();
-    location.href = 'index.html';
+    // Logout único: encerra a sessão e volta ao ponto de entrada.
+    await CanalAuth.signOut('index.html');
   });
 
   try {

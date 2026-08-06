@@ -31,3 +31,24 @@ feat!: nova estrutura de peças fixas (breaking change)
 Settings → Actions → General → Workflow permissions:
 - [x] Read and write permissions
 - [x] Allow GitHub Actions to create and approve pull requests
+
+## v2.2.0 — Autenticação única + persistência do cadastro no roteiro
+
+```
+feat(auth): sessão única (CanalAuth) e acesso protegido a Peças e Programas
+
+- auth.js: cliente Supabase singleton, restauração de sessão com retentativas,
+  login/logout compartilhados, tradução de erros e returnTo sanitizado
+- pecas-programas.js: gate de acesso com login inline (sem redirect silencioso)
+- cloud-sync.js: passa a usar CanalAuth; fim dos dois clientes concorrentes
+- db/004_autenticacao.sql: revoga acesso anônimo ao cadastro + created_by/updated_by
+
+feat(roteiro): cadastro relacional como fonte da verdade do banco de peças
+
+- roteiro-pecas-bridge.js: carrega pecas/programas das tabelas relacionais e
+  aplica no localStorage antes de app.js, sem tocar em roteiros/pecasDia/grade
+- tempo real nas tabelas pecas/programas atualiza o roteiro aberto
+
+test: +23 testes (auth.test.mjs, roteiroPersistencia.test.mjs); 004 no test:db
+docs: AUTENTICACAO.md, CHANGELOG
+```

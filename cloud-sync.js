@@ -59,29 +59,26 @@ function showLoginError(msg) {
 // LOGIN
 // =====================================================
 async function cloudSyncLogin() {
-  const email    = document.getElementById('login-email').value.trim();
+  const email    = document.getElementById('login-email').value;
   const password = document.getElementById('login-password').value;
   const btn      = document.getElementById('login-submit');
   showLoginError('');
 
-  if (!email || !password) {
-    showLoginError('Informe e-mail e senha.');
-    return;
-  }
-
   btn.disabled = true;
   btn.textContent = 'Entrando...';
 
-  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    showLoginError('E-mail ou senha inválidos.');
+  try {
+    // Toda a autenticação passa por CanalAuth (auth.js): validação do
+    // formulário, tradução das mensagens de erro e sessão compartilhada
+    // com a tela de Peças e Programas.
+    const { user } = await CanalAuth.signIn(email, password);
+    await onAuthenticated(user);
+  } catch (e) {
+    console.error('[login]', e);
+    showLoginError(e.message);
     btn.disabled = false;
     btn.textContent = 'Entrar';
-    return;
   }
-
-  await onAuthenticated(data.user);
 }
 
 function addLogoutUI(email) {
@@ -99,7 +96,9 @@ function addLogoutUI(email) {
   link.style.color = 'inherit';
   link.onclick = async (e) => {
     e.preventDefault();
-    await supabaseClient.auth.signOut();
+    // Encerra a sessão única (vale para as duas telas) e recarrega,
+    // garantindo que nenhum dado da equipe fique em tela após o logout.
+    await CanalAuth.signOut();
     location.reload();
   };
 
@@ -138,6 +137,17 @@ async function fetchAndMergeCloudData(user) {
     .eq('id', WORKSPACE_ID)
     .maybeSingle();
 
+  // FONTE DA VERDADE do banco de peças/programas: as tabelas relacionais
+  // preenchidas pela tela "Peças e Programas". A ponte cai para o espelho
+  // shared_data automaticamente se a migração ainda não foi aplicada.
+  const cadastro = await RoteiroPecasBridge.carregarCadastro({
+    client: supabaseClient,
+    sharedRow: shared,
+    workspaceId: WORKSPACE_ID,
+  });
+  console.info('[cloud-sync] cadastro carregado de:', cadastro.origem,
+    '· peças:', cadastro.pecas.length, '· programas:', cadastro.programas.length);
+
   const { data: userRow } = await supabaseClient
     .from('user_data')
     .select('*')
@@ -147,7 +157,7 @@ async function fetchAndMergeCloudData(user) {
   const localRaw    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   const localRegras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
-  const sharedEmpty  = !shared || (!(shared.pecas || []).length && !(shared.programas || []).length);
+  const sharedEmpty  = !cadastro.pecas.length && !cadastro.programas.length;
   const localHasData = (localRaw.pecas && localRaw.pecas.length) || (localRaw.programas && localRaw.programas.length);
 
   const merged = {};
@@ -178,8 +188,10 @@ async function fetchAndMergeCloudData(user) {
 
     localStorage.setItem('roteiroRegras', JSON.stringify(localRegras));
   } else {
-    merged.pecas           = shared?.pecas || [];
-    merged.programas       = shared?.programas || [];
+    // Cadastro manda: o que veio das tabelas relacionais substitui o
+    // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
+    merged.pecas           = cadastro.pecas;
+    merged.programas       = cadastro.programas;
     merged.grade           = shared?.grade || {};
     merged.gradeByDay      = shared?.grade_by_day || {};
     merged.gradeOrder      = shared?.grade_order || {};
@@ -293,6 +305,30 @@ function setupRealtime() {
       }
     )
     .subscribe();
+
+  // Tempo real do CADASTRO (tabelas relacionais). Sem isto, uma peça
+  // cadastrada por outro usuário só apareceria no roteiro após recarregar.
+  try {
+    if (window.PecasRepo && typeof PecasRepo.onRemoteChange === 'function') {
+      PecasRepo.onRemoteChange(async () => {
+        const cadastro = await RoteiroPecasBridge.carregarCadastro({
+          client: supabaseClient,
+          workspaceId: WORKSPACE_ID,
+        });
+        const app = RoteiroPecasBridge.mergeCadastro(
+          JSON.parse(localStorage.getItem('roteiroApp') || '{}'),
+          cadastro
+        );
+        _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
+        if (typeof state !== 'undefined' && RoteiroPecasBridge.aplicarNoEstado(state, cadastro)) {
+          if (typeof renderAll === 'function') renderAll();
+          setSyncStatus('Cadastro atualizado ✓');
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('cloud-sync: tempo real do cadastro indisponível', e);
+  }
 }
 
 // =====================================================
@@ -345,20 +381,27 @@ function cloudSyncOpenPecasProgramas() {
 (function boot() {
   _origSetItem = localStorage.setItem.bind(localStorage);
 
-  if (!isSupabaseConfigured()) {
-    showLoginError('Configuração pendente: preencha SUPABASE_URL e SUPABASE_ANON_KEY em cloud-sync.js (veja DEPLOY.md).');
+  try {
+    // Cliente Supabase singleton (auth.js). Uma única instância evita
+    // sessões concorrentes entre esta tela e o cadastro.
+    supabaseClient = CanalAuth.getClient();
+  } catch (e) {
+    showLoginError(e.message);
     return;
   }
-
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   document.getElementById('login-password').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') cloudSyncLogin();
   });
 
-  supabaseClient.auth.getSession().then(({ data }) => {
-    if (data?.session?.user) {
-      onAuthenticated(data.session.user);
-    }
+  // Se a sessão sumir (logout em outra aba, token revogado), volta ao login
+  // em vez de deixar a tela aberta com dados da equipe.
+  CanalAuth.onAuthChange((event) => {
+    if (event === 'SIGNED_OUT') location.reload();
+  });
+
+  // Restaura a sessão persistida (com retentativas) e entra direto.
+  CanalAuth.resolveSession().then((session) => {
+    if (session) onAuthenticated(session.user);
   });
 })();

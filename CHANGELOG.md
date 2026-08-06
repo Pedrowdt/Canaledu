@@ -1,3 +1,24 @@
+# Changelog
+
+## [2.2.0] — Autenticação única e persistência garantida no roteiro
+
+### Adicionado
+- `auth.js` — módulo único de autenticação (`window.CanalAuth`): cliente
+  Supabase singleton, restauração de sessão com retentativas, login/logout,
+  tradução de erros, `returnTo` protegido contra open redirect.
+- `roteiro-pecas-bridge.js` — ponte que faz o cadastro de Peças e Programas
+  ser a fonte da verdade do banco de peças usado na confecção do roteiro.
+- `db/004_autenticacao.sql` — revoga acesso do papel anônimo ao cadastro e
+  registra `created_by` / `updated_by` por linha.
+- Testes: `tests/unit/auth.test.mjs` (16) e
+  `tests/unit/roteiroPersistencia.test.mjs` (7).
+- `AUTENTICACAO.md` — documentação do fluxo de acesso e de persistência.
+
+### Alterado
+- `cloud-sync.js` e `pecas-programas.js` passam a usar `CanalAuth` (fim dos
+  dois clientes Supabase concorrentes) e o cadastro relacional como fonte.
+- Tempo real também escuta as tabelas `pecas`/`programas`.
+
 ## [1.2.0] — Consistência multiusuário
 
 - `db/003_consistencia.sql`: `row_version` (optimistic locking), RPCs
