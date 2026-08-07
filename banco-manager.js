@@ -467,6 +467,8 @@ function deletePecaByCode(code) {
 
   // Remove a peça do array pelo code
   state.pecas = state.pecas.filter(p => p.code !== code);
+  // Exclusão explícita -> autoriza o DELETE no cadastro compartilhado.
+  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [code]);
   if (typeof saveState === 'function') saveState();
   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
   if (typeof renderPecasPanel === 'function') renderPecasPanel();
@@ -507,6 +509,7 @@ function deleteAllPecasFiltradas() {
   // Mantém somente as peças que não estão no conjunto a excluir
   const alvoCodes = new Set(alvo.map(p => p.code));
   state.pecas = state.pecas.filter(p => !alvoCodes.has(p.code));
+  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [...alvoCodes]);
   if (typeof saveState === 'function') saveState();
   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
   if (typeof renderPecasPanel === 'function') renderPecasPanel();
@@ -532,6 +535,7 @@ function deletePrograma(code) {
   if (!confirm(msg)) return;
 
   state.programas = state.programas.filter(p => p.code !== code);
+  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [code]);
   if (typeof saveState === 'function') saveState();
   if (typeof renderProgramas === 'function') renderProgramas();
   if (typeof toast === 'function') toast(`🗑 Programa ${code} excluído`, 'success');
@@ -564,6 +568,7 @@ function deleteAllProgramasFiltrados() {
 
   const alvoCodes = new Set(alvo.map(p => p.code));
   state.programas = state.programas.filter(p => !alvoCodes.has(p.code));
+  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [...alvoCodes]);
   if (typeof saveState === 'function') saveState();
   if (typeof renderProgramas === 'function') renderProgramas();
   if (typeof toast === 'function') toast(`🗑 ${alvo.length} programas excluídos`, 'success');

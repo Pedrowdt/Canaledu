@@ -240,6 +240,10 @@ function saveState() {
   saved.pecas     = state.pecas;
   saved.programas = state.programas;
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  // Envia para o cadastro compartilhado o que foi criado/editado aqui.
+  // Sem isso a peça existia só neste navegador e desaparecia da tela na
+  // primeira atualização vinda de outro usuário.
+  if (typeof CadastroSync !== 'undefined') CadastroSync.sincronizarEstado(state);
   // Aciona backup automático silenciosamente se pasta estiver configurada
   if (typeof runAutoBackup === 'function' && _backupDirHandle) {
     runAutoBackup();
@@ -1144,6 +1148,8 @@ function deletePeca(idx) {
   if (!item) return;
   if (!confirm(`Excluir "${item.descricao.substring(0,50)}" do banco de peças?\n\nEsta ação não pode ser desfeita.`)) return;
   state.pecas.splice(idx, 1);
+  // Exclusão explícita: autoriza o DELETE no cadastro compartilhado.
+  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [item.code]);
   saveState();
   renderPecasSidebar();
   renderPecasPanel();

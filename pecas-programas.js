@@ -135,6 +135,10 @@ async function startApp(user) {
   try {
     // Banco relacional (public.pecas / public.programas) com fallback
     // automático para o formato antigo (shared_data JSONB).
+    if (window.CanalLog) {
+      CanalLog.init({ client: supabaseClient, user: currentUser, tela: 'cadastro', workspaceId: WORKSPACE_ID });
+      CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
+    }
     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
     console.info('[Peças e Programas] modo de banco:', modo);
     await loadFromCloud();
@@ -173,6 +177,9 @@ let deletedProgramas = [];
 function marcarExcluidos(codes) {
   const alvo = activeTab === 'pecas' ? deletedPecas : deletedProgramas;
   codes.filter(Boolean).forEach((c) => { if (!alvo.includes(c)) alvo.push(c); });
+  if (window.CanalLog) {
+    CanalLog.registrar('cadastro_exclusao_marcada', { aba: activeTab }, { codes: codes.filter(Boolean), nivel: 'warn' });
+  }
 }
 
 async function pushToCloud() {
@@ -188,6 +195,13 @@ async function pushToCloud() {
     });
     deletedPecas = deletedPecas.filter((c) => !delP.includes(c));
     deletedProgramas = deletedProgramas.filter((c) => !delG.includes(c));
+    if (window.CanalLog) {
+      CanalLog.registrar('cadastro_salvo', {
+        aplicados: res && res.aplicados,
+        removidos: res && res.removidos,
+        conflitos: ((res && res.conflitos) || []).map((c) => c.code),
+      }, { codes: [...delP, ...delG], nivel: ((res && res.conflitos) || []).length ? 'warn' : 'info' });
+    }
     lastPushAt = Date.now();
 
     const conflitos = (res && res.conflitos) || [];
@@ -204,6 +218,7 @@ async function pushToCloud() {
     setSyncStatus('Sincronizado ✓');
   } catch (e) {
     console.error('falha ao sincronizar', e);
+    if (window.CanalLog) CanalLog.registrar('cadastro_salvo_falhou', { mensagem: e.message || String(e) }, { nivel: 'error' });
     setSyncStatus('Falha ao sincronizar');
     showToast('Falha ao salvar no banco: ' + (e.message || e), true);
   }

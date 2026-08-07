@@ -190,8 +190,14 @@ async function fetchAndMergeCloudData(user) {
   } else {
     // Cadastro manda: o que veio das tabelas relacionais substitui o
     // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
-    merged.pecas           = cadastro.pecas;
-    merged.programas       = cadastro.programas;
+    // Cadastro manda, MAS o que este usuário criou/editou e ainda não
+    // sincronizou continua em tela (fila do CadastroSync).
+    const unidoInicial = RoteiroPecasBridge.mergeCadastro(
+      { pecas: localRaw.pecas || [], programas: localRaw.programas || [] },
+      cadastro
+    );
+    merged.pecas           = unidoInicial.pecas;
+    merged.programas       = unidoInicial.programas;
     merged.grade           = shared?.grade || {};
     merged.gradeByDay      = shared?.grade_by_day || {};
     merged.gradeOrder      = shared?.grade_order || {};
@@ -262,9 +268,12 @@ async function pushToCloud() {
       })
       .eq('user_id', currentUser.id);
 
+    if (window.CadastroSync) await CadastroSync.flush().catch(() => {});
+    if (window.CanalLog) CanalLog.registrar('roteiro_sincronizado', { grade: Object.keys(app.grade || {}).length });
     setSyncStatus('Sincronizado ✓ · ' + currentUser.email);
   } catch (e) {
     console.warn('cloud-sync: falha ao sincronizar', e);
+    if (window.CanalLog) CanalLog.registrar('roteiro_sync_falhou', { mensagem: e.message || String(e) }, { nivel: 'error' });
     setSyncStatus('Falha ao sincronizar (verifique a internet)');
   }
 }
@@ -283,8 +292,14 @@ function setupRealtime() {
         if (!payload.new || payload.new.updated_by === currentUser.id) return; // ignora a própria escrita
 
         const app = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
-        app.pecas           = payload.new.pecas || [];
-        app.programas       = payload.new.programas || [];
+        // Peças/programas passam SEMPRE pela ponte: ela une o que veio da
+        // nuvem com o que este usuário ainda não sincronizou. Atribuir
+        // payload.new.pecas direto apagava da tela peças locais (e as do
+        // outro usuário, quando o espelho JSONB estava atrasado).
+        const cadastroEspelho = { pecas: payload.new.pecas || [], programas: payload.new.programas || [] };
+        const unido = RoteiroPecasBridge.mergeCadastro(app, cadastroEspelho);
+        app.pecas           = unido.pecas;
+        app.programas       = unido.programas;
         app.grade           = payload.new.grade || {};
         app.gradeByDay      = payload.new.grade_by_day || {};
         app.gradeOrder      = payload.new.grade_order || {};
@@ -295,6 +310,13 @@ function setupRealtime() {
         if (typeof state !== 'undefined') {
           state.pecas     = app.pecas;
           state.programas = app.programas;
+        }
+        if (window.CanalLog) {
+          CanalLog.registrar('roteiro_atualizado_por_outro_usuario', {
+            por: payload.new.updated_by || null,
+            pecas: app.pecas.length,
+            programas: app.programas.length,
+          });
         }
         if (typeof REGRAS !== 'undefined') {
           Object.assign(REGRAS, payload.new.regras || {});
@@ -336,6 +358,10 @@ function setupRealtime() {
 // =====================================================
 async function onAuthenticated(user) {
   currentUser = user;
+  if (window.CanalLog) {
+    CanalLog.init({ client: supabaseClient, user, tela: 'roteiro', workspaceId: WORKSPACE_ID });
+    CanalLog.registrar('login', { email: user.email });
+  }
   document.getElementById('login-overlay').style.display = 'none';
   addLogoutUI(user.email);
   document.getElementById('hub-overlay').style.display = 'flex';
@@ -359,6 +385,11 @@ async function cloudSyncOpenRoteiro() {
     document.querySelector('.app').style.display = '';
     document.getElementById('switch-app-link').style.display = 'inline-block';
     patchLocalStorage();
+    if (window.CadastroSync) {
+      // Fila de pendências do cadastro: sobe o que foi criado/editado no
+      // Roteiro e reenvia o que ficou pendente de sessões anteriores.
+      CadastroSync.init({ client: supabaseClient, user: currentUser, workspaceId: WORKSPACE_ID });
+    }
     setupRealtime();
     setSyncStatus('Sincronizado ✓ · ' + currentUser.email);
   } catch (e) {

@@ -38,16 +38,49 @@
    * mas NUNCA toca em roteiros/pecasDia/grade — esses são do
    * roteiro e pertencem a cada usuário.
    */
-  function mergeCadastro(app, cadastro) {
+  function mergeCadastro(app, cadastro, pendentes) {
     const base = app && typeof app === 'object' ? app : {};
-    const pecas = apenasAtivos(cadastro && cadastro.pecas);
-    const programas = apenasAtivos(cadastro && cadastro.programas);
+    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), base.pecas, pendentes, 'pecas');
+    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), base.programas, pendentes, 'programas');
     return Object.assign({}, base, {
       // Se o cadastro voltar vazio por falha de leitura, preservamos o
       // que já estava local para não zerar a tela do usuário.
       pecas: pecas.length ? pecas : base.pecas || [],
       programas: programas.length ? programas : base.programas || [],
     });
+  }
+
+  /** Pendências locais (fila do CadastroSync) — o que ainda não subiu. */
+  function lerPendentes(pendentes) {
+    const p = pendentes || (global.CadastroSync && global.CadastroSync.pendentes()) || {};
+    return {
+      pecas: p.pecas || [],
+      programas: p.programas || [],
+      excluidos: {
+        pecas: (p.excluidos && p.excluidos.pecas) || [],
+        programas: (p.excluidos && p.excluidos.programas) || [],
+      },
+    };
+  }
+
+  /**
+   * Une o cadastro da nuvem com o que este usuário ainda não sincronizou.
+   * Regras (nesta ordem):
+   *   1) a nuvem manda em tudo que já está sincronizado;
+   *   2) itens pendentes deste usuário (criados/editados aqui e ainda não
+   *      confirmados) permanecem em tela, sobrepondo a versão da nuvem;
+   *   3) itens que este usuário excluiu explicitamente saem, mesmo que a
+   *      nuvem ainda os traga (a exclusão está na fila de envio).
+   * Sem isso, uma atualização feita por outro usuário apagava da tela peças
+   * que só existiam localmente.
+   */
+  function combinar(remotos, locais, pendentes, kind) {
+    const pend = lerPendentes(pendentes);
+    const mapa = new Map();
+    (remotos || []).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
+    apenasAtivos(pend[kind]).forEach((item) => mapa.set(String(item.code), item));
+    pend.excluidos[kind].forEach((code) => mapa.delete(String(code)));
+    return [...mapa.values()];
   }
 
   /**
@@ -83,10 +116,10 @@
    * (usado pelo tempo real). Retorna true se algo mudou, para
    * evitar re-render desnecessário.
    */
-  function aplicarNoEstado(state, cadastro) {
+  function aplicarNoEstado(state, cadastro, pendentes) {
     if (!state) return false;
-    const pecas = apenasAtivos(cadastro && cadastro.pecas);
-    const programas = apenasAtivos(cadastro && cadastro.programas);
+    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), state.pecas, pendentes, 'pecas');
+    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), state.programas, pendentes, 'programas');
     const mudou =
       JSON.stringify(state.pecas || []) !== JSON.stringify(pecas) ||
       JSON.stringify(state.programas || []) !== JSON.stringify(programas);
@@ -96,7 +129,7 @@
     return true;
   }
 
-  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos };
+  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos, combinar };
   global.RoteiroPecasBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
