@@ -70,3 +70,35 @@
 - `npm run test:db` → aplica 001+002+003 em um Postgres real (PGlite) e
   reproduz os cenários multiusuário: peça de outro usuário sobrevive,
   conflito detectado, exclusão só do code enviado, espelho protegido.
+
+## Segunda e terceira causas — "peças somem" mesmo com o banco corrigido acima
+
+O banco (`003_consistencia.sql`) resolveu a perda de dados **no servidor**. Mesmo
+assim, o sintoma "peças somem" continuou aparecendo, por dois motivos só no
+front-end, corrigidos separadamente. Explicação completa em `DOCUMENTACAO.md` §6 —
+resumo aqui:
+
+1. **O editor de peças embutido na tela de Roteiro nunca sincronizava.** Criar uma
+   peça por ali só gravava no `localStorage`; uma atualização de tempo real do
+   cadastro sobrescrevia `state.pecas` inteiro e apagava a peça que nunca tinha ido
+   para o banco. Corrigido por `cadastro-sync.js` (`CadastroSync`, fila de
+   pendências) + `roteiro-pecas-bridge.js` (`combinar`, funde pendências com o
+   remoto em vez de sobrescrever).
+
+2. **Corrida entre o debounce de envio e o tempo real**, na tela de Cadastro
+   (`pecas-programas.js`) e na grade do Roteiro (`cloud-sync.js`): o envio para a
+   nuvem é adiado ~700–900ms; se uma atualização remota chegasse nesse intervalo,
+   a tela recarregava e sobrescrevia o que ainda não tinha sido enviado. Corrigido
+   com `temAlteracoesPendentes()` — o listener de tempo real não recarrega
+   enquanto houver uma gravação local agendada ou em andamento.
+
+### Roteiro de teste manual (2 navegadores/abas anônimas, 2 contas)
+
+1. Aba A e Aba B, ambas logadas, abrem `pecas-programas.html`.
+2. Na Aba A, crie uma peça nova e, **no meio do primeiro segundo** (antes do
+   "Sincronizado ✓" aparecer), vá na Aba B e salve qualquer edição.
+3. Espere as duas telas terminarem de sincronizar. Recarregue as duas.
+4. A peça criada na Aba A deve estar lá — em ambas as abas.
+5. Repita o mesmo teste na tela de Roteiro (`index.html`), editando a grade em vez
+   de uma peça, e depois usando o editor de peças embutido (banco) em vez da tela
+   de Cadastro.

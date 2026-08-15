@@ -1,5 +1,51 @@
 # Changelog
 
+## [2.4.1] — Reconciliação: corrida de tempo real na tela de Cadastro/grade + consolidação do log
+
+O commit anterior (`patch resolução de bug`) já havia corrigido uma causa raiz das
+"peças sumindo" (o editor de peças embutido no Roteiro nunca sincronizava — ver
+`CadastroSync`/`canal-log.js`/`roteiro-pecas-bridge.js`). Esta versão corrige uma
+**segunda causa raiz, diferente e complementar**, e consolida o sistema de log que
+tinha sido desenvolvido em paralelo por duas frentes de trabalho. Detalhes completos em
+`DOCUMENTACAO.md` §6.
+
+### Corrigido
+- **Tela de Cadastro (`pecas-programas.js`):** ao salvar uma peça, o envio à nuvem é
+  adiado (~700ms de debounce). Se, nesse intervalo, chegasse uma atualização de tempo
+  real de outro usuário, a tela recarregava o cadastro inteiro e sobrescrevia
+  `pecas`/`programas` — apagando a edição que ainda não tinha sido enviada. Agora o
+  listener de tempo real verifica se há uma gravação local pendente
+  (`temAlteracoesPendentes()`) antes de recarregar.
+- **Grade do Roteiro (`cloud-sync.js`):** mesmo padrão de corrida, mas para
+  `app.grade`/`gradeByDay`/`gradeOrder`/`gradeOrderByDay` — o patch anterior já protegia
+  `pecas`/`programas` (via `RoteiroPecasBridge.combinar`), mas não a grade. Mesma
+  correção aplicada.
+- `src/core/roteiroBuilder.js` estava **vazio** (só existia o teste) — implementado
+  como função pura, com a mesma lógica de negócio de `app.js#buildRoteiroFromPrograms`.
+- `src/core/validator.test.js` tinha uma asserção que comparava um array com
+  `.toContain(string)` (checa item exato, não substring) — corrigida.
+- `tests/unit/multiusuario.test.mjs` tinha sido commitado na raiz do repositório em vez
+  de `tests/unit/` — o padrão de include do `vitest.config.js` não o coletava, então
+  esses 4 testes nunca rodavam. Movido para o lugar certo.
+
+### Adicionado
+- `db/004_activity_log.sql` — a migração da tabela `public.activity_log`, referenciada
+  em `canal-log.js` desde que o módulo foi criado, mas nunca commitada.
+- `canal-log.js`: captura automática de erros não tratados (`window.onerror`,
+  `unhandledrejection`) e `CanalLog.onNovaEntrada()` (assinatura de tempo real).
+- **Modal "Log de atividades"** em `pecas-programas.html` (botão 🕘 Log): lista as
+  últimas entradas de `CanalLog`, com filtro por tela/nível e atualização ao vivo.
+- `.gitignore` (faltava — `node_modules/` não era ignorado).
+
+### Removido
+- `bun.lock` — lockfile de uma ferramenta não usada pelo projeto (que usa `npm`);
+  tê-lo junto com `package-lock.json` arriscava os dois divergirem.
+
+> Este changelog documenta uma reconciliação: as mudanças de "Corrigido"/"Adicionado"
+> desta versão foram desenvolvidas sem visibilidade do patch anterior (que chegou ao
+> `main` enquanto este trabalho estava em andamento). Nenhuma sobrescreve a outra — são
+> complementares, ver `DOCUMENTACAO.md` §6 para a explicação completa.
+
 ## [2.2.0] — Autenticação única e persistência garantida no roteiro
 
 ### Adicionado

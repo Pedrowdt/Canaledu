@@ -1,7 +1,12 @@
 # Roteiro Canal Educação — Documentação Técnica
 
-> Sistema web para montagem, validação e exportação do **roteiro diário** do Canal Educação (MEC).
-> Aplicação **client-side pura** (HTML + JavaScript vanilla), roda em `file://` ou servida por HTTP, com persistência em `localStorage` e sincronização opcional com API REST.
+> Sistema web para cadastro de peças/programas e montagem, validação e exportação do
+> **roteiro diário** do Canal Educação (MEC), usado por uma equipe pequena (1-5 pessoas)
+> que trabalha **simultaneamente**, em navegadores diferentes.
+>
+> Duas telas HTML + JavaScript vanilla (sem bundler, sem framework), persistência em
+> `localStorage` por usuário e um backend **Supabase** (Postgres + Auth + Realtime)
+> compartilhado por toda a equipe.
 >
 > Licença: **GNU GPL v3** — Canal Educação / MEC · 2026
 
@@ -11,384 +16,510 @@
 
 1. [Visão geral](#1-visão-geral)
 2. [Arquitetura de arquivos](#2-arquitetura-de-arquivos)
-3. [Estado global (`state`)](#3-estado-global-state)
-4. [Regras de negócio (`REGRAS_DEFAULT`)](#4-regras-de-negócio-regras_default)
-5. [Módulos](#5-módulos)
-   - [5.1 `index.html`](#51-indexhtml)
-   - [5.2 `app.js`](#52-appjs)
-   - [5.3 `banco-manager.js`](#53-banco-managerjs)
-   - [5.4 `pecas_dia.js`](#54-pecas_diajs)
-   - [5.5 `grade_base.js`](#55-grade_basejs)
-   - [5.6 `parts-store.js`](#56-parts-storejs)
-   - [5.7 `api-sync.js`](#57-api-syncjs)
-   - [5.8 `data.js`](#58-datajs)
-6. [Fluxos principais](#6-fluxos-principais)
-7. [Persistência e sincronização](#7-persistência-e-sincronização)
-8. [Convenções de código](#8-convenções-de-código)
-9. [Guia de manutenção](#9-guia-de-manutenção)
-10. [Riscos conhecidos / TODO](#10-riscos-conhecidos--todo)
+3. [Autenticação (`auth.js`)](#3-autenticação-authjs)
+4. [Banco de dados (Supabase)](#4-banco-de-dados-supabase)
+5. [Cadastro de Peças e Programas](#5-cadastro-de-peças-e-programas)
+6. [O problema "peças somem" e como as duas frentes de correção se encaixam](#6-o-problema-peças-somem)
+7. [`CadastroSync` — fila de pendências do editor de peças do Roteiro](#7-cadastrosync)
+8. [Ponte Cadastro → Roteiro (`roteiro-pecas-bridge.js`)](#8-ponte-cadastro--roteiro)
+9. [Log de atividades (`canal-log.js`)](#9-log-de-atividades-canal-logjs)
+10. [Confecção do Roteiro (`app.js` e módulos auxiliares)](#10-confecção-do-roteiro)
+11. [Estado global e regras de negócio](#11-estado-global-e-regras-de-negócio)
+12. [Módulos utilitários (`src/core`)](#12-módulos-utilitários-srccore)
+13. [Fluxos principais](#13-fluxos-principais)
+14. [Persistência — mapa completo](#14-persistência--mapa-completo)
+15. [Testes](#15-testes)
+16. [Deploy](#16-deploy)
+17. [Guia de manutenção](#17-guia-de-manutenção)
+18. [Riscos conhecidos / lacunas encontradas](#18-riscos-conhecidos--lacunas-encontradas)
+19. [Histórico de versões](#19-histórico-de-versões)
 
 ---
 
 ## 1. Visão geral
 
-O sistema auxilia a equipe de programação do **Canal Educação** a montar o roteiro de exibição de um dia específico, combinando:
+O sistema tem duas responsabilidades separadas, em duas páginas HTML:
 
-- **Grade fixa** de programas por dia da semana (arquivo `grade_base.js`).
-- **Peças de inserção do dia** (chamadas, RCOM, RPOL, interprogramas, VH etc.) importadas de planilhas XLSX.
-- **Banco permanente** de peças e programas (persistido em `localStorage`).
-- **Regras de negócio configuráveis** (janela RPOL, tolerância de grade, breaks por bloco, adjacência de chamadas, VH de assinatura, etc.).
+| Tela | Arquivo | Para que serve |
+|---|---|---|
+| **Cadastro de Peças e Programas** | `pecas-programas.html` | Manter o banco compartilhado de peças de inserção e programas. É a **fonte da verdade** do sistema. |
+| **Confecção do Roteiro** | `index.html` | Montar o roteiro de exibição de um dia, a partir da grade fixa + peças elegíveis do cadastro + peças importadas de planilha, com validação de regras e exportação (XLSX/PDF/JSON). A própria tela também tem um editor de peças/programas embutido (o "banco" — ver §7). |
 
-Saídas principais:
-
-- **Roteiro na tela** com validação em tempo real (aderência à grade, avisos BL01, alertas de bloco).
-- **Exportações**: XLSX estilizado (via `xlsx-js-style`), PDF (via `jspdf` + `jspdf-autotable`), JSON e CSV.
-- **Backup automático** no `localStorage` e opcionalmente em pasta local (File System Access API).
+As duas telas compartilham a **mesma sessão de login** (`auth.js`), leem/gravam no
+**mesmo banco Postgres** (Supabase), com Realtime para refletir o que outro usuário
+fez sem precisar recarregar a página, e usam o **mesmo módulo de log** (`canal-log.js`).
 
 ### Stack
 
 | Camada | Tecnologia |
 |---|---|
-| UI | HTML5 + CSS custom properties (5 temas) |
-| Lógica | JavaScript ES2020 vanilla, sem bundler |
-| Planilhas | [`xlsx-js-style`](https://www.npmjs.com/package/xlsx-js-style) 1.2.0 |
-| PDF | `jspdf` 2.5.1 + `jspdf-autotable` 3.8.2 |
-| Persistência | `localStorage` (chave `roteiroApp`) + File System Access API |
-| Sync (opcional) | Fetch → API REST via `api-sync.js` |
+| UI | HTML5 + CSS custom properties (5 temas no Roteiro) |
+| Lógica | JavaScript ES2020 vanilla, sem bundler, `<script>` clássico |
+| Backend | [Supabase](https://supabase.com) — Postgres + Auth (GoTrue) + Realtime + RLS |
+| Planilhas | [`xlsx-js-style`](https://www.npmjs.com/package/xlsx-js-style) |
+| PDF | `jspdf` + `jspdf-autotable` |
+| Persistência local | `localStorage` (por navegador/usuário) |
+| Testes | `vitest` (unitários) + `@electric-sql/pglite` (Postgres real em memória, para as migrações SQL) |
 
 ---
 
 ## 2. Arquitetura de arquivos
 
 ```text
-index.html               ← shell da UI, CDNs, temas, includes dos .js
-│
-├─ data.js               ← seeds iniciais (INITIAL_PECAS, INITIAL_PROGRAMAS)
-├─ grade_base.js         ← GRADE_BASE por dia da semana
-├─ parts-store.js        ← PartsStore: API CRUD + subscribe sobre o state
-├─ api-sync.js           ← API: stub local / cliente REST (servidor)
-├─ banco-manager.js      ← import/export XLSX/JSON de peças e programas
-├─ pecas_dia.js          ← importPecasDiaExcel + inserção inteligente
-└─ app.js                ← núcleo: state, render, roteiro, regras, exportações
+index.html                 ← shell da tela de Roteiro
+pecas-programas.html       ← shell da tela de Cadastro
+
+supabase-config.js         ← SUPABASE_URL / SUPABASE_ANON_KEY (único lugar a preencher)
+auth.js                    ← CanalAuth: cliente Supabase único, login/logout, guard de página
+canal-log.js               ← CanalLog: log de atividades (console + localStorage + tabela + captura de erros)
+pecas-repo.js               ← PecasRepo: CRUD de peças/programas (delta + optimistic locking)
+cadastro-sync.js            ← CadastroSync: fila de pendências do editor de peças embutido no Roteiro (§7)
+roteiro-pecas-bridge.js     ← RoteiroPecasBridge: cadastro → localStorage do Roteiro, fundindo com pendências
+cloud-sync.js               ← sincroniza grade/regras/roteiro do usuário com a nuvem (tela Roteiro)
+pecas-programas.js          ← lógica da tela de Cadastro (CRUD, import/export, log, tempo real, modal de log)
+
+data.js                     ← seeds iniciais (INITIAL_PECAS / INITIAL_PROGRAMAS)
+grade_base.js                ← GRADE_BASE por dia da semana (grade fixa de referência)
+parts-store.js               ← PartsStore: API CRUD + subscribe sobre state (Roteiro)
+api-sync.js                  ← stub de API REST opcional (não usado pelo fluxo Supabase atual)
+banco-manager.js             ← import/export XLSX/JSON de peças e programas (Roteiro) + fila via CadastroSync
+pecas_dia.js                  ← importPecasDiaExcel + inserção inteligente (Roteiro)
+app.js                        ← núcleo da tela de Roteiro (state, render, regras, exportações, editor de peças embutido)
+
+src/core/                   ← módulos ES puros, testáveis em Node (sem DOM)
+  normalize.js                ← normalização de texto/tempo
+  time.js                     ← timeToSec e afins
+  pecasCatalog.js              ← ponte cadastro → peças elegíveis/vinhetas
+  validator.js                  ← validateRoteiroRegras
+  roteiroBuilder.js              ← buildRoteiroFromPrograms
+
+db/                          ← migrações SQL (Supabase → SQL Editor), ver §4 e db/README.md
+tests/unit/                  ← testes de integração (consistência, pecas-repo, multiusuário)
 ```
 
-**Ordem de carga (em `index.html`):** libs CDN → `data.js` → `grade_base.js` → `parts-store.js` → `api-sync.js` → `banco-manager.js` → `pecas_dia.js` → `app.js`.
+**Ordem de carga em `pecas-programas.html`:** `supabase-config.js` → `version.js` →
+`auth.js` → `canal-log.js` → `pecas-repo.js` → `pecas-programas.js`.
 
-Todos os módulos compartilham **globais no `window`** (não há módulos ES). O `app.js` orquestra e expõe funções chamadas via `onclick=` nos handlers do HTML.
+**Ordem de carga em `index.html`:** libs CDN → `supabase-config.js` → `auth.js` →
+`canal-log.js` → `pecas-repo.js` → `cadastro-sync.js` → `roteiro-pecas-bridge.js` →
+`cloud-sync.js` → (após autenticar) `data.js` → `grade_base.js` → `parts-store.js` →
+`api-sync.js` → `banco-manager.js` → `pecas_dia.js` → `app.js`.
 
----
-
-## 3. Estado global (`state`)
-
-Definido em `app.js:4`. Serializado em `localStorage['roteiroApp']` por `saveState()`.
-
-| Campo | Tipo | Descrição |
-|---|---|---|
-| `roteiro` | `Item[]` | Itens do roteiro do dia selecionado, na ordem de exibição |
-| `pecas` | `Peca[]` | Banco permanente de peças |
-| `programas` | `Programa[]` | Banco permanente de programas |
-| `currentDate` | `Date` | Dia atualmente selecionado |
-| `weekOffset` | `number` | 0 = semana atual, ±N = semanas relativas |
-| `pecasDia` | `Peca[]` | Peças importadas da planilha do dia |
-| `selectedRow` | `number \| null` | Índice da linha focada no roteiro |
-| `sidebarFilters` | `Set<string>` | Filtros ativos na sidebar (por tipo) |
-| `panelFilters` | `Set<string>` | Filtros ativos no painel de peças do dia |
-| `pecasFixas` | `PecaFixa[]` | Peças fixas injetadas em todo roteiro (`code`, `posicao`, `ativo`) |
-| `gradeAcked` | `Set<string>` | Avisos de divergência BL01 já assumidos pelo usuário |
-
-`saveState()` grava o objeto inteiro; `PartsStore` também escuta mudanças e notifica assinantes.
+Todos os módulos compartilham **globais no `window`** (não há módulos ES no HTML,
+exceto dentro de `src/core`, que roda isolado nos testes e não é importado pelo app
+real — ver §18).
 
 ---
 
-## 4. Regras de negócio (`REGRAS_DEFAULT`)
+## 3. Autenticação (`auth.js`)
 
-Definidas em `app.js:40`. Carregadas por `loadRegras()` com merge sobre customizações em `localStorage['roteiroRegras']`. Editáveis pelo painel **Admin** (`openAdminModal`).
+Publicado como `window.CanalAuth`. Único ponto de verdade usado pelas duas telas —
+evita duas instâncias de `GoTrueClient` no mesmo navegador.
 
-| Chave | Padrão | Significado / uso |
-|---|---|---|
-| `inicioRoteiro` | `06:00:00` (21600s) | Segundo inicial do roteiro |
-| `rpolInicio` / `rpolFim` | `19:30` – `22:30` | Janela para inserção de peças RPOL |
-| `gradeTolerancia` | `10` s | ± tolerância para marcar aderência à grade como ✓ verde |
-| `breakSlotsPorBloco` | `2` | Slots de break gerados por bloco de programa |
-| `tiposChamada` | `['ECHM','ECHE']` | Tipos que **não podem** ficar adjacentes entre si |
-| `sidebarMaxItens` | `120` | Limite antes de pedir refinamento na busca |
-| `backupIntervaloMin` | `2` | Intervalo do auto-backup (min) |
-| `mostrarGrade` | `true` | Exibe indicadores de aderência à grade |
-| `autoBanco` | `true` | Mescla itens importados no banco permanente |
-| `injetarFixas` | `true` | Injeta `pecasFixas` ao gerar roteiro |
-| `regrasTipos.<TIPO>` | ver abaixo | Regras por tipo de peça |
-
-### `regrasTipos` — por tipo
-
-Cada entrada tem: `ativo`, `inicio` (`HH:MM`), `fim`, `intervaloMinMin` (min), `naoAdjacenteA` (lista de tipos).
-
-| Tipo | Janela | Intervalo mín. | Não adjacente a |
-|---|---|---|---|
-| `ECHM` | 06:00–23:59 | 0 | `ECHM`, `ECHE` |
-| `ECHE` | 06:00–23:59 | 0 | `ECHM`, `ECHE` |
-| `EINT` | 06:00–23:59 | 0 | — |
-| `RCOM` | 06:00–23:00 | 30 | — |
-| `RPOL` | 19:30–22:30 | 0 | — |
-| `EVNH` | 06:00–23:59 | 0 | — |
-
-### VH (vinhetas)
-
-| Chave | Padrão | Uso |
-|---|---|---|
-| `vhClassificacao` | code 85283 | Inserida antes do 1º bloco |
-| `vhAssinaturaInfantil` | code 85331 | Após último bloco de programas infantis |
-| `vhAssinaturaJovem` | code 85330 | Após último bloco de programas juvenis |
-| `vhAssinaturaAdulto` | code 85332 | Após último bloco de programas adultos |
-| `vhAssinaturaInfantilKeywords` | lista CSV | Palavras que classificam o programa como infantil |
-| `vhAssinaturaAdultoKeywords` | lista CSV | Palavras que classificam como adulto |
-| `vhSeguirAtivo` | `true` | Habilita inserção de "VH A SEGUIR" |
-| `vhAssistindoAtivo` | `true` | Habilita "VH VC ESTA ASSISTINDO" |
-| `vhDaquiAPouco` | `true` | Habilita "VH DAQUI A POUCO" como separador |
-
----
-
-## 5. Módulos
-
-### 5.1 `index.html`
-
-Shell da aplicação. Responsabilidades:
-
-- Carrega CDNs: `xlsx-js-style`, `jspdf`, `jspdf-autotable`, fontes IBM Plex (Sans + Mono).
-- Define **5 temas** via CSS custom properties no `body`:
-  - `theme-day` (claro — padrão)
-  - `theme-night` (escuro)
-  - `theme-sunset` (pôr-do-sol)
-  - `theme-cozy` (bege)
-  - `theme-hicontrast` (alto contraste)
-- Estrutura de layout: **sidebar de peças** (esquerda), **painel do roteiro** (centro), **painel de peças do dia** (direita).
-- Modais: editar item, adicionar peça, adicionar programa, peças fixas, admin (regras), grade, importação, backup, atalhos.
-- Referências aos scripts na ordem indicada em §2.
-
-### 5.2 `app.js`
-
-Núcleo. Aproximadamente **3.720 linhas**. Áreas principais (ver o mapa completo abaixo):
-
-| Área | Funções chave | Linhas |
-|---|---|---|
-| Estado + regras | `state`, `REGRAS_DEFAULT`, `loadRegras`, `saveRegras`, `saveState` | 4–246 |
-| Utilitários de tempo | `timeToSec`, `secToTime`, `secToTimeRaw`, `recalcTimes`, `totalDuration` | 248–296 |
-| Navegação de datas | `renderWeekSelector`, `changeWeek`, `selectDate`, `updateDateDisplay` | 309–394 |
-| Render principal | `renderAll`, `renderRoteiro`, `renderStats`, `renderPecasSidebar`, `renderPecasPanel`, `renderProgramas` | 396–781 |
-| Drag & drop | `dragStart`, `dragOver`, `dragDrop`, `dragFromSidebar`, `addToRoteiro` | 783–860 |
-| Edição de itens | `editItemModal`, `saveEditItem`, `addItemModal`, `removeItem`, `injectBreakSummaries` | 862–950 |
-| Banco (peças/programas) | `addPecaModal`, `saveNewPeca`, `editPecaModal`, `deletePeca`, `importBanco`, `exportBancoXLSX/JSON`, `addProgModal` | 1058–1318 |
-| Import geral | `importData`, `handleImport`, `handlePecasDiaImport`, `importJSON`, `mergeBancoFromRoteiro` | 1320–1466 |
-| Classificação VH | `getVhClassificacao`, `getAssinatura`, `VH_SEGUIR_MAP`, `VH_ASSISTINDO_MAP`, `findVhSeguir`, `findVhAssistindo`, `pickAssinatura`, `baseProgramTitle` | 1468–1580 |
-| Geração de roteiro | `buildRoteiroFromPrograms` | 1581–1663 |
-| Import Notion / CSV | `importNotionCSV`, `parseCSVLine` | 1665–1775 |
-| Exportações | `exportExcel`, `exportXLSX`, `exportPDF`, `exportJSON` | 1777–2163 |
-| Peças fixas | `openPecasFixasModal`, `addPecaFixa`, `togglePecaFixa`, `movePecaFixa`, `deletePecaFixa` | 2165–2289 |
-| Admin | `openAdminModal`, `saveAdminRegras`, `resetAdminRegras`, `renderRegrasTiposUI`, `readRegrasTiposFromUI` | 2291–3208 |
-| Backup | `setupAutoBackup`, `runAutoBackup` | 2432–2488 |
-| Tema | `setTheme`, `loadTheme`, `loadProgramColors`, `setProgramColor` | 2496–2552 |
-| Alertas de bloco | `scheduleBlockAlerts`, `fireBlockAlert`, `clearBlockAlerts` | 2585–2704 |
-| Grade | `loadGrade`, `saveGrade`, `loadGradeOrder`, `saveGradeOrder`, `openGradeModal`, `renderGrade`, `assumeGradeTime`, `fixGradeFromRoteiro`, `_gradeExpandMerges`, `_gradePreviewSelectedSheet`, `applyGradeSemanalImport` | 2759–3728 |
-| Validação de regras | `validateRoteiroRegras`, `applyRegraWarningsToDom` | 3238–3327 |
-| Buscar/substituir | `findInRoteiro`, `findStepRoteiro`, `replaceCurrentInRoteiro`, `replaceAllInRoteiro` | 3330–3487 |
-| Import grade semanal | `handleGradeSemanalImport`, `_gradeCellToTime`, `_gradeDowFromHeader`, `_gradeProgTitle`, `_gradeEpisodeId` | 3488–3728 |
-
-**Ponto de entrada:** `init()` em `app.js:196` — chamado no `DOMContentLoaded`.
-
-### 5.3 `banco-manager.js`
-
-Gerenciador de importação/exportação do banco permanente. **590 linhas**.
-
-- `_bmTodayStr()` — data no formato `YYYY-MM-DD` para nomes de arquivo.
-- `_bmExcelTimeToHMS(v)` — converte fração decimal Excel → `HH:MM:SS`.
-- `_bmDetectCols(headers)` — detecta índices de colunas por palavra-chave (case-insensitive).
-- Funções públicas invocadas pelo HTML: importar/exportar **peças** e **programas** em JSON e XLSX, exclusão individual e em massa, com confirmação antes de operações destrutivas.
-
-### 5.4 `pecas_dia.js`
-
-Motor de importação das planilhas de peças do dia. **648 linhas**.
-
-- `importPecasDiaExcel(file)` — abre XLSX, localiza a aba do dia:
-  1. Match exato do nome (`22 MAR 26`).
-  2. Fuzzy por `DD` + abreviação do mês.
-  3. Fallback: dia-da-semana na célula `A3`.
-- Parseia seções, extrai `code`, `descricao`, `tempo`, `qtd` e alimenta `state.pecasDia`.
-- Contém a **lógica de inserção inteligente** que popula o roteiro com peças respeitando as regras de tipo/adjacência/janela.
-
-### 5.5 `grade_base.js`
-
-Base de dados **estática** com a grade de referência: `GRADE_BASE = { gradeByDay, gradeOrderByDay }`.
-
-- Chaves numéricas em string: `"0"` Dom … `"6"` Sáb.
-- Programas com múltiplas exibições recebem sufixos: `[2ª]`, `[3ª]`, etc.
-- Base para validação de aderência à grade e para geração do roteiro.
-
-### 5.6 `parts-store.js`
-
-Camada `PartsStore` (IIFE em `window.PartsStore`). Fornece:
-
-- **API estável** de CRUD (`list`, `get`, `add`, `update`, `remove`) sobre `state.pecas`, `state.programas` e peças do dia.
-- **Persistência consistente** via `saveState()` (com fallback direto para `localStorage`).
-- **Pub/Sub** (`subscribe`) — pronto para futuras telas reativas.
-- **Ponto único de migração** para nuvem: basta trocar a implementação interna mantendo a assinatura.
-
-### 5.7 `api-sync.js`
-
-Camada opcional `API` (IIFE em `window.API`).
-
-- **Modo local** (`file://`): todas as operações são **no-op** — o app roda 100% no cliente.
-- **Modo servidor** (`http://` / `https://`): cliente REST simples com header `X-Usuario`, endpoints:
-  - `GET /api/roteiro/:k`, `PUT /api/roteiro/:k`
-  - `GET /api/roteiros`
-  - `GET/PUT /api/pecas-dia/:k`
-  - `GET/PUT /api/grade/:dow`
-  - `GET/PUT /api/banco/pecas`
-  - `GET/PUT /api/banco/programas`
-
-Este arquivo é um **stub** — a implementação completa vive no pacote SERVIDOR.
-
-### 5.8 `data.js`
-
-Seed inicial. Exporta `INITIAL_PECAS` (e provavelmente `INITIAL_PROGRAMAS`) — array grande em uma única linha com objetos `{code, descricao, tempo, midia, type, validade, obs, categoria}`. Usado quando `localStorage` está vazio.
-
----
-
-## 6. Fluxos principais
-
-### 6.1 Importar peças do dia (XLSX)
-
-```text
-usuário seleciona .xlsx
-  → handlePecasDiaImport (app.js)
-  → importPecasDiaExcel (pecas_dia.js)
-      → localiza aba do dia
-      → parseia seções
-      → state.pecasDia = [...]
-  → renderPecasPanel()
-  → (opcional) mergeBancoFromRoteiro se autoBanco
-```
-
-### 6.2 Gerar roteiro
-
-```text
-loadGrade(dow) + loadGradeOrder(dow) (grade do dia)
-  → buildRoteiroFromPrograms(programs)
-       - insere VH classificação (se ativo)
-       - para cada programa: blocos + break slots + VH a seguir/assistindo/daqui a pouco
-       - injeta pecasFixas nas posições configuradas
-  → recalcTimes()
-  → renderRoteiro()
-  → validateRoteiroRegras() → applyRegraWarningsToDom()
-```
-
-### 6.3 Validação de grade (BL01)
-
-- Para cada bloco `BL01` de programa, compara horário calculado com `GRADE_BASE`.
-- Diferença ≤ `gradeTolerancia` → ✓ verde.
-- Diferença > tolerância → aviso; usuário pode `ackGradeAviso(key)` para ocultar até a chave mudar (`state.gradeAcked`).
-- `fixGradeFromRoteiro()` sobrescreve a grade do dia com os horários atuais.
-
-### 6.4 Exportações
-
-| Formato | Função | Biblioteca |
-|---|---|---|
-| XLSX estilizado | `exportXLSX()` | `xlsx-js-style` (cores, bordas, fontes) |
-| XLSX simples | `exportExcel()` | idem, sem estilos |
-| PDF | `exportPDF()` | `jspdf` + `autotable` |
-| JSON | `exportJSON()` | nativo |
-
-### 6.5 Banco permanente (peças/programas)
-
-- Modal com listas filtráveis (`filterModalList`).
-- Import via `importBanco` (JSON/XLSX) ou `banco-manager.js`.
-- Export via `exportBancoXLSX` / `exportBancoJSON`.
-- Exclusão com confirmação.
-
-### 6.6 Backup automático
-
-- `setupAutoBackup()` pede pasta via **File System Access API**.
-- `runAutoBackup()` a cada `REGRAS.backupIntervaloMin` minutos grava um JSON com timestamp.
-
----
-
-## 7. Persistência e sincronização
-
-Camadas, do mais baixo ao mais alto:
-
-```text
-localStorage[roteiroApp]     ← saveState()
-localStorage[roteiroRegras]  ← saveRegras()
-localStorage[roteiroTheme]   ← setTheme()
-localStorage[roteiroProgramColors]
-localStorage[roteiroUsuario] ← identificação p/ API
-File System Access API        ← auto-backup (opcional, escrita)
-PartsStore                    ← wrapper CRUD + subscribe sobre state
-API (api-sync.js)             ← REST opcional (servidor de intranet)
-```
-
-**Migração local → servidor:** substituir `api-sync.js` pela versão do pacote SERVIDOR. Todos os pontos que hoje chamam `API.saveXxx/loadXxx` continuarão funcionando sem alterações no `app.js`.
-
----
-
-## 8. Convenções de código
-
-### Tipos de peça
-
-| Tipo | Significado |
+| Função | Para que serve |
 |---|---|
-| `ECHM` | Chamada de manutenção |
-| `ECHE` | Chamada especial |
-| `EINT` | Interprograma governamental |
-| `RCOM` | Rede — comunicação (MEC) |
-| `RPOL` | Rede — política (janela 19:30–22:30) |
-| `EVNH` | Vinheta especial |
-| VH `*` | Vinhetas de identificação / classificação / assinatura |
+| `CanalAuth.getClient()` | cliente Supabase **singleton** |
+| `CanalAuth.resolveSession()` | restaura a sessão persistida, com retentativas |
+| `CanalAuth.requireUser()` | devolve o usuário logado ou `null` — guard de página |
+| `CanalAuth.signIn(email, senha)` | login, com erro traduzido para PT-BR |
+| `CanalAuth.signOut(destino)` | encerra a sessão nas duas telas |
+| `CanalAuth.onAuthChange(cb)` | reage a logout/expiração, inclusive em outra aba |
 
-### Sufixos de grade
+Sem sessão válida, a página não abre — mostra login inline. Sem autocadastro — os
+logins são criados manualmente em **Authentication → Users** no Supabase.
 
-Programas com múltiplas exibições no mesmo dia recebem sufixo `[2ª]`, `[3ª]`… nas chaves de `GRADE_BASE`.
-
-### Tempo
-
-- Formato canônico: string `HH:MM:SS`.
-- Excel: fração decimal do dia (`0.5 = 12:00:00`), convertida por `_bmExcelTimeToHMS`.
-- Internamente sempre em **segundos** (`timeToSec` / `secToTime`).
-
-### Datas
-
-- `dateKey(d)` → string `YYYY-MM-DD` (chave em `localStorage` e API).
-- `_currentDow()` → 0 (Dom) … 6 (Sáb), usado para indexar `GRADE_BASE`.
+> ⚠️ Ver §18 — a revogação formal do acesso anônimo às tabelas de cadastro
+> (`db/004_autenticacao.sql`, mencionada em `AUTENTICACAO.md`) **não existe neste
+> repositório**.
 
 ---
 
-## 9. Guia de manutenção
+## 4. Banco de dados (Supabase)
+
+### 4.1 Tabelas
+
+| Tabela | Escopo | Conteúdo |
+|---|---|---|
+| `public.pecas` | compartilhado | cadastro de peças de inserção — fonte da verdade |
+| `public.programas` | compartilhado | cadastro de programas — fonte da verdade |
+| `public.shared_data` | compartilhado (linha única) | `grade`, `regras`, e um **espelho JSONB** de `pecas`/`programas` (legado, mantido por trigger) |
+| `public.user_data` | por usuário | `roteiros` e `pecas_dia` — nunca compartilhado |
+| `public.activity_log` | compartilhado | histórico de ações da equipe, usado por `canal-log.js` (ver §9) |
+
+### 4.2 Migrações (`db/`)
+
+Aplicar **em ordem**, no SQL Editor do Supabase:
+
+| Arquivo | O que faz |
+|---|---|
+| `001_pecas_programas.sql` | cria `pecas`/`programas`, tipos, RLS, `fn_pecas_elegiveis`, triggers de espelho. |
+| `002_migrar_shared_data.sql` | importa o que já existia em `shared_data` para as tabelas relacionais. |
+| `003_consistencia.sql` | `row_version` (optimistic locking) + RPCs de gravação por delta com detecção de conflito. |
+| `004_activity_log.sql` | cria `public.activity_log`, usada por `canal-log.js`. Opcional — sem ela o log funciona só em console + `localStorage`. |
+
+`shared_data` nunca é apagada: continua existindo como espelho de leitura para código legado.
+
+> ⚠️ Existe um **segundo gap de numeração "004"**, sem relação com este: `AUTENTICACAO.md`
+> referencia um `db/004_autenticacao.sql` (revogação de acesso anônimo) que também nunca
+> foi commitado. Como esse arquivo nunca existiu no repositório, não houve colisão real
+> de número — mas os dois "004" mencionados em documentações diferentes **não são a
+> mesma coisa**. Ver §18.
+
+### 4.3 Regras de elegibilidade
+
+`fn_pecas_elegiveis(dow, hora, data_ref)` — mesma regra implementada em
+`src/core/pecasCatalog.js`: validade não expirada, dia da semana permitido, janela
+horária (inclusive cruzando a meia-noite).
+
+---
+
+## 5. Cadastro de Peças e Programas
+
+### `pecas-repo.js` — `window.PecasRepo`
+
+- **`init(client, workspaceId)`** — detecta se as tabelas relacionais existem;
+  `mode = 'relational'` ou `'legacy'` (usa `shared_data`).
+- **`loadAll()`** — lê `pecas`/`programas`, grava um **baseline** local (fingerprint +
+  `row_version` por `code`).
+- **`saveDelta({ pecas, programas, deletedPecas, deletedProgramas, userId })`** — envia
+  **só o que mudou** desde o baseline. Se o `row_version` não bater (outra pessoa editou
+  no meio do caminho), a RPC devolve um **conflito** em vez de sobrescrever.
+- **`onRemoteChange(handler)`** — assina `postgres_changes` nas tabelas relevantes.
+
+### `pecas-programas.js`
+
+Abas Peças/Programas, busca, filtros, modal de criar/editar, exclusão individual/geral,
+import XLSX/CSV, export JSON, e o **modal de log** (§9).
+
+Cada ação (`saveItem`, `confirmDel`, `importFile`) mexe nos arrays locais
+`pecas`/`programas` e chama `scheduleSync()` — que agenda `pushToCloud()` depois de
+~700ms (debounce). `pushToCloud()` chama `PecasRepo.saveDelta` e, ao terminar, recarrega
+o cadastro para trazer o que outros usuários gravaram nesse meio-tempo.
+
+---
+
+## 6. O problema "peças somem"
+
+O sistema teve **duas causas raiz diferentes** para o mesmo sintoma relatado —
+*"quando o sistema é atualizado em um usuário, o outro perde suas peças"* — corrigidas
+em momentos diferentes por frentes diferentes de trabalho. Vale entender as duas para
+não reintroduzir nenhuma ao mexer no código de sincronização.
+
+### Causa 1 — o editor de peças embutido no Roteiro nunca sincronizava (corrigida por `CadastroSync`)
+
+A tela de Roteiro (`app.js`) tem seu próprio modal de banco de peças/programas
+(`banco-manager.js`). Criar/editar/excluir ali só mexia no `localStorage`
+(`roteiroApp`) — nunca era enviado para `public.pecas`/`public.programas`. Quando
+chegava uma atualização de tempo real do cadastro (outro usuário editando pela tela
+`pecas-programas.html`), o código antigo substituía `state.pecas`/`state.programas`
+inteiro pelo que vinha da nuvem — **apagando** qualquer peça criada só localmente no
+Roteiro, que nunca tinha ido para o banco.
+
+**Correção:** `cadastro-sync.js` (`CadastroSync`) mantém uma **fila de pendências**
+(`pecas`/`programas`/`excluidos`, indexados por `code`, persistida em `localStorage`)
+de tudo que foi criado/editado/excluído no editor embutido do Roteiro mas ainda não
+confirmado no banco. `roteiro-pecas-bridge.js` (`mergeCadastro`/`combinar`) funde essa
+fila com o que vem da nuvem em vez de sobrescrever — um item pendente sempre "ganha" da
+versão remota até ser confirmado. `CadastroSync.flush()` tenta gravar a fila via
+`PecasRepo.saveDelta` sempre que a sincronização de grade roda (`cloud-sync.js`).
+
+### Causa 2 — debounce da tela de Cadastro perdendo a corrida com o tempo real (corrigida à parte)
+
+Um problema diferente, na própria tela `pecas-programas.html`: ao salvar uma peça, a
+gravação na nuvem é **adiada** (`scheduleSync`, debounce de ~700ms). Se, antes desse
+atraso terminar, chegasse uma notificação de tempo real de **outro** usuário, o
+`setupRealtime` da tela de Cadastro recarregava o cadastro inteiro e substituía
+`pecas`/`programas` na tela — sem saber que havia uma edição deste usuário esperando
+para ser enviada. Quando o envio pendente finalmente disparava, usava a lista **já
+sobrescrita**, sem a peça recém-criada.
+
+O mesmo padrão existia em `cloud-sync.js` para a **grade do roteiro**: editar a grade
+também é debounced (~900ms), e uma atualização remota de `shared_data` conseguia
+substituir `app.grade` inteira antes do envio pendente completar.
+
+**Correção:** as duas telas agora rastreiam se há uma gravação local **agendada**
+(`pushTimer`/`_pushTimer` ainda não disparou) ou **em andamento**
+(`pushInFlight`/`_pushInFlight`, `true` durante o `await` da gravação), via
+`temAlteracoesPendentes()`. O listener de tempo real consulta essa função antes de
+recarregar: sem alterações pendentes, recarrega normalmente; com alterações pendentes,
+não sobrescreve — só avisa no status e deixa o próprio envio pendente subir o delta em
+cima do que está no banco agora (a RPC já trata conflito por `row_version`).
+
+> As duas correções são **complementares, não redundantes**: a Causa 1 é sobre um
+> caminho de edição (o banco embutido do Roteiro) que nunca chegava a tentar
+> sincronizar; a Causa 2 é sobre uma sincronização que já ia acontecer, mas perdia a
+> corrida contra uma atualização remota simultânea. `tests/unit/multiusuario.test.mjs`
+> testa a Causa 1 (a ponte `roteiro-pecas-bridge.js`); os testes manuais descritos nesta
+> seção validam a Causa 2 (debounce vs. tempo real).
+
+---
+
+## 7. `CadastroSync`
+
+`window.CadastroSync` (`cadastro-sync.js`) — fila de pendências para o editor de
+peças/programas embutido na tela de Roteiro (§6, Causa 1).
+
+| Função | Uso |
+|---|---|
+| `CadastroSync.init({ client, userId })` | liga o cliente Supabase e o usuário |
+| `CadastroSync.upsertPeca(peca)` / `upsertPrograma(p)` | marca um item como pendente de envio |
+| `CadastroSync.excluir(code, tipo)` | marca uma exclusão pendente |
+| `CadastroSync.pendentes()` | `{ pecas, programas, excluidos }` — usado por `roteiro-pecas-bridge.js` para fundir com a nuvem |
+| `CadastroSync.flush()` | tenta gravar tudo que está pendente via `PecasRepo.saveDelta`; limpa da fila só o que foi confirmado |
+
+Chamado a partir de `banco-manager.js` (editor embutido) e disparado periodicamente
+por `cloud-sync.js`'s `pushToCloud()`.
+
+---
+
+## 8. Ponte Cadastro → Roteiro
+
+`roteiro-pecas-bridge.js` (`window.RoteiroPecasBridge`):
+
+- `carregarCadastro()` — lê as tabelas relacionais via `PecasRepo`; cai para o espelho
+  `shared_data` se elas não existirem.
+- `mergeCadastro(app, cadastro, pendentes)` — funde o cadastro remoto com o que veio de
+  `CadastroSync.pendentes()`: um item pendente sempre prevalece sobre a versão remota,
+  até ser confirmado. Nunca toca em `roteiros`, `pecasDia` ou `grade`. Só peças
+  **ativas** entram. Se a leitura remota vier vazia (falha de rede), o banco local é
+  preservado.
+- `combinar(...)` — a função de merge propriamente dita, usada tanto por
+  `mergeCadastro` quanto pelo handler de tempo real em `cloud-sync.js`.
+- `aplicarNoEstado(state, cadastro)` — aplica o cadastro atualizado no `state` já em
+  memória, sem re-render desnecessário se nada mudou.
+
+---
+
+## 9. Log de atividades (`canal-log.js`)
+
+`window.CanalLog` — usado pelas **duas telas**, um único sistema (não há dois logs
+paralelos). Registra em três lugares:
+
+1. **Console**, sempre, prefixo `[log]`.
+2. **`localStorage`** (anel de até 300 entradas por navegador), disponível offline via
+   `CanalLog.recentes()` e exportável em JSON (`CanalLog.exportar()`).
+3. **`public.activity_log`**, quando há sessão Supabase — best-effort, uma falha de
+   rede nunca interrompe a ação do usuário.
+
+### API
+
+| Função | Uso |
+|---|---|
+| `CanalLog.init({ client, user, tela, workspaceId })` | inicializa e ativa a captura de erros globais |
+| `CanalLog.registrar(evento, detalhe, { codes, nivel })` | registra um evento (`nivel`: `info`\|`warn`\|`error`) |
+| `CanalLog.recentes(n)` | últimas N entradas locais deste navegador |
+| `CanalLog.equipe(n)` | últimas N entradas da equipe toda, direto da nuvem |
+| `CanalLog.onNovaEntrada(handler)` | assina novas entradas em tempo real |
+| `CanalLog.exportar()` | baixa o log local em JSON |
+
+Eventos já emitidos pelo código: `cadastro_aberto`, `cadastro_exclusao_marcada`,
+`cadastro_salvo`, `cadastro_salvo_falhou`, `cadastro_sync_adiado` (§6, Causa 2),
+`roteiro_sincronizado`, `roteiro_sync_falhou`, `roteiro_atualizado_por_outro_usuario`,
+`roteiro_sync_adiado` (§6, Causa 2), e `erro_nao_tratado` (captura automática de
+`window.onerror`/`unhandledrejection`, ativada assim que `canal-log.js` carrega — não
+depende de login).
+
+### Onde ver
+
+- **Modal "Log de atividades"** em `pecas-programas.html` (botão **🕘 Log**): tabela
+  com as últimas entradas, filtro por tela e nível, atualização ao vivo enquanto aberta.
+- Console do navegador (filtrar por `[log]`).
+- SQL direto: `select * from activity_log order by criado_em desc limit 50;`
+
+---
+
+## 10. Confecção do Roteiro
+
+Núcleo em `app.js` (~4000 linhas). Combina grade fixa (`grade_base.js`), peças do dia
+importadas de planilha (`pecas_dia.js`), banco de peças/programas (agora sincronizado
+via `CadastroSync` + `roteiro-pecas-bridge.js`, §6-8) e regras de negócio configuráveis.
+
+### Saídas
+
+Roteiro na tela com validação em tempo real; exportações XLSX (`xlsx-js-style`), PDF
+(`jspdf`+`autotable`), JSON; backup automático em `localStorage` e, opcionalmente,
+pasta local (File System Access API, só Chromium).
+
+### Mapa por área (`app.js`)
+
+| Área | Funções chave |
+|---|---|
+| Estado + regras | `state`, `REGRAS_DEFAULT`, `loadRegras`, `saveRegras`, `saveState` |
+| Render principal | `renderAll`, `renderRoteiro`, `renderPecasSidebar`, `renderPecasPanel`, `renderProgramas` |
+| Edição de itens | `editItemModal`, `saveEditItem`, `addItemModal`, `removeItem` |
+| Geração do roteiro | `buildRoteiroFromPrograms` (a versão real, em `app.js`; ver §12 sobre a versão paralela em `src/core`) |
+| Validação | `validateRoteiroRegras` |
+| Exportações | `exportXLSX`, `exportExcel`, `exportPDF`, `exportJSON` |
+| Banco embutido | modal de peças/programas, chama `CadastroSync.upsertPeca`/`excluir` a cada edição |
+| Backup | `setupAutoBackup`, `runAutoBackup` |
+
+---
+
+## 11. Estado global e regras de negócio
+
+### `state`
+
+| Campo | Descrição |
+|---|---|
+| `roteiro` | Itens do roteiro do dia selecionado |
+| `pecas` / `programas` | Banco (fundido via `CadastroSync`+bridge) |
+| `currentDate` / `weekOffset` | Navegação de datas |
+| `pecasDia` | Peças importadas da planilha do dia |
+| `pecasFixas` | Peças fixas injetadas em todo roteiro |
+| `gradeAcked` | Avisos de divergência de grade já assumidos |
+
+### `REGRAS_DEFAULT` (principais chaves)
+
+`inicioRoteiro`, `rpolInicio`/`rpolFim`, `gradeTolerancia`, `breakSlotsPorBloco`,
+`tiposChamada`, `backupIntervaloMin`, `regrasTipos.<TIPO>` (janela/intervalo/adjacência
+por tipo), `vh*` (config. de vinhetas). Editáveis pelo painel **Admin**, salvas em
+`localStorage['roteiroRegras']` e sincronizadas via `shared_data.regras`.
+
+---
+
+## 12. Módulos utilitários (`src/core`)
+
+Camada de funções **puras** (sem DOM, sem rede), testável em Node:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `normalize.js` | `normalizeKey`, `baseProgramTitle`, `getEpisodeId` |
+| `time.js` | `timeToSec`, `secToTime` |
+| `pecasCatalog.js` | vigência/janela de peças, `catalogFromCadastro` |
+| `validator.js` | `validateRoteiroRegras` |
+| `roteiroBuilder.js` | `buildRoteiroFromPrograms` — versão pura, com mesma lógica de negócio de `app.js`, mas VH "a seguir"/"assistindo" dirigidas por um `catalogo` opcional (derivado do cadastro) em vez das listas hardcoded do `app.js` |
+
+> ⚠️ **`src/core/*` não está conectado ao app real.** É testado por `npm test`, mas
+> `index.html`/`app.js` não importam esses módulos — a tela de Roteiro roda sua própria
+> implementação (script clássico, sem bundler). As duas podem divergir com o tempo se só
+> uma for atualizada. Unificar exigiria migrar para módulos ES ou um bundler — não feito
+> aqui. Ver §18.
+
+---
+
+## 13. Fluxos principais
+
+### 13.1 Login
+`CanalAuth.requireUser()` → sem sessão, formulário inline → `signIn` →
+`CanalLog.init(...)` → carrega dados da tela.
+
+### 13.2 Editar uma peça no Cadastro
+`saveItem` → altera array local → `CanalLog.registrar('cadastro_...')` → `render()` →
+`scheduleSync()` (debounce 700ms) → `pushToCloud()` → `PecasRepo.saveDelta` → conflito?
+loga e avisa → `loadFromCloud()`. Se, nesse meio-tempo, chegar uma notificação de outro
+usuário: `temAlteracoesPendentes()` evita a sobrescrita (§6, Causa 2).
+
+### 13.3 Editar uma peça no editor embutido do Roteiro
+`banco-manager.js` → `CadastroSync.upsertPeca(...)` (fila local) → próxima
+`pushToCloud()` da tela de Roteiro chama `CadastroSync.flush()` → grava via
+`PecasRepo.saveDelta`. Até lá, `roteiro-pecas-bridge.js` garante que o item pendente
+não desaparece se uma atualização remota chegar (§6, Causa 1).
+
+### 13.4 Abrir o Roteiro
+`onAuthenticated` → busca cadastro + funde com `CadastroSync.pendentes()` → busca
+`shared_data`/`user_data` → injeta scripts → `patchLocalStorage()` (intercepta writes
+para agendar sync) → `setupRealtime()`.
+
+### 13.5 Gerar roteiro
+`buildRoteiroFromPrograms(programs)` → insere VH de classificação, blocos, breaks,
+VHs "a seguir"/"assistindo", peças fixas → `recalcTimes()` → `renderRoteiro()` →
+`validateRoteiroRegras()`.
+
+---
+
+## 14. Persistência — mapa completo
+
+```
+NAVEGADOR (por usuário)
+  localStorage['roteiroApp']          ← pecas, programas, roteiros, pecasDia, grade
+  localStorage['roteiroRegras']       ← REGRAS
+  localStorage['cadastroSyncPendentes'] ← fila do CadastroSync (peças/programas ainda não confirmados)
+  localStorage['canalLog']             ← anel de até 300 entradas de log
+
+SUPABASE (compartilhado / por usuário)
+  public.pecas / public.programas      ← cadastro (fonte da verdade), compartilhado
+  public.shared_data (linha única)     ← grade, regras + espelho JSONB de pecas/programas
+  public.user_data (por user_id)       ← roteiros, pecas_dia — isolado por usuário
+  public.activity_log                  ← log de atividades, compartilhado
+  auth.users                            ← contas da equipe (GoTrue)
+```
+
+---
+
+## 15. Testes
+
+```bash
+npm test          # vitest — testes unitários (src/core + tests/unit)
+npm run test:watch
+npm run test:db    # aplica as migrações 001–003 num Postgres real (PGlite)
+```
+
+Cobertura atual: `src/core/*.test.js` (timeToSec, validação, geração de roteiro,
+catálogo), `tests/unit/pecasRepo.test.mjs` (PecasRepo), `tests/unit/consistencia.test.mjs`
+(cenários de conflito), `tests/unit/multiusuario.test.mjs` (a ponte
+`roteiro-pecas-bridge.js` preserva peças pendentes — trava o comportamento da Causa 1
+do §6).
+
+---
+
+## 16. Deploy
+
+Guia completo em `DEPLOY.md`. Resumo: criar projeto Supabase → rodar
+`supabase-schema.sql` e as migrações de `db/` em ordem (001→002→003→004) → preencher
+`supabase-config.js` → criar logins da equipe manualmente → publicar os arquivos
+estáticos (sem build step).
+
+---
+
+## 17. Guia de manutenção
 
 | Tarefa | Onde mexer |
 |---|---|
-| Mudar janela RPOL | Painel Admin → `regrasTipos.RPOL.inicio/fim` (ou `REGRAS_DEFAULT.rpolInicio/rpolFim`) |
-| Alterar tolerância da grade | Admin → `gradeTolerancia` |
-| Mudar nº de breaks por bloco | Admin → `breakSlotsPorBloco` |
-| Adicionar novo tipo de peça | (1) Incluir em `TIPOS_CONFIGURAVEIS` (`app.js:3152`) · (2) adicionar entrada em `regrasTipos` do `REGRAS_DEFAULT` · (3) tratar cor/ícone em `renderRoteiro`/`renderPecasSidebar` |
-| Adicionar coluna na exportação | Ajustar `exportXLSX` / `exportPDF` (colunas + headers + cellStyles) |
-| Trocar tema padrão | `loadTheme()` (`app.js:2512`) — default `theme-day` |
-| Adicionar tema | `index.html` (novo bloco `body.theme-<nome>`) + opção no seletor da UI |
-| Adicionar VH nova | Novo campo em `REGRAS_DEFAULT.vh...` + tratamento em `buildRoteiroFromPrograms` |
-| Modificar grade base | Editar `grade_base.js` OU usar modal de grade (`openGradeModal`) OU importar via `applyGradeSemanalImport` |
-| Migrar para servidor | Substituir `api-sync.js` pela versão SERVIDOR do pacote |
-| Ajustar intervalo de backup | Admin → `backupIntervaloMin` (reload após alterar) |
+| Mudar janela RPOL / tolerância de grade / breaks | Admin (regras) |
+| Adicionar novo tipo de peça | `TIPOS_CONFIGURAVEIS` em `app.js` + `regrasTipos` |
+| Adicionar coluna na exportação | `exportXLSX`/`exportPDF` |
+| Mudar debounce de sincronização | `scheduleSync()` (`pecas-programas.js`) / `patchLocalStorage()` (`cloud-sync.js`) |
+| Adicionar novo evento ao log | `CanalLog.registrar(evento, detalhe, { nivel })` no ponto do código |
+| Aplicar a migração do log | `db/004_activity_log.sql` no SQL Editor do Supabase |
+| Mexer na fila de pendências do banco embutido | `cadastro-sync.js` |
 
 ---
 
-## 10. Riscos conhecidos / TODO
+## 18. Riscos conhecidos / lacunas encontradas
 
-- **Acoplamento por globais**: `state`, `REGRAS`, `API`, `PartsStore` moram em `window`. Refatorar para módulos ES exigiria reescrever handlers `onclick=` do HTML.
-- **Sem testes automatizados** — validações são visuais. Considerar suíte de testes para `timeToSec`, `buildRoteiroFromPrograms`, `validateRoteiroRegras`.
-- **Render "big-bang"** (`renderAll` reconstrói DOM): mitigado por `debounce(220ms)` nas versões `*Debounced`, mas ainda custoso em roteiros longos.
-- **`data.js` em uma linha só** dificulta diff/merge — considerar formatar como JSON separado.
-- **File System Access API** só funciona em Chromium; em Firefox o auto-backup em pasta é ignorado silenciosamente.
-- **Import XLSX** depende do nome/estrutura da aba; se a planilha mudar de layout, os fallbacks em `pecas_dia.js` podem falhar — verificar `A3` e nomes de aba.
-- **Sincronização servidor**: sem resolução de conflito — última escrita vence. Se dois usuários editarem o mesmo dia, o mais recente sobrescreve.
-- **Peças fixas** têm 4 posições (`inicio`, `fim`, `antes_programa`, `apos_assinatura`) — expandir exigirá ajustes em `buildRoteiroFromPrograms`.
+- **`db/004_autenticacao.sql` ausente.** `AUTENTICACAO.md` descreve uma migração que
+  revogaria o acesso do papel anônimo às tabelas de cadastro. As colunas de auditoria já
+  existem, mas a revogação de acesso anônimo em si não está em nenhum script versionado.
+  Confirme manualmente no painel do Supabase.
+- **`src/core/*` não conectado ao app real** — ver §12. Risco de divergência entre a
+  lógica de `app.js` e a versão "espelho" testável.
+- **`api-sync.js` é um stub não utilizado** pelo fluxo atual (Supabase) — mantido só
+  como caminho de migração futura para um servidor próprio.
+- **Acoplamento por globais** (`state`, `REGRAS`, `PartsStore` em `window`).
+- **Log sem retenção/paginação** — `activity_log` cresce indefinidamente sem expurgo.
+- **`CadastroSync` e a correção de debounce (§6) foram feitas em momentos/frentes
+  diferentes** e nunca testadas juntas em produção multiusuário real antes desta
+  reconciliação — recomenda-se um teste manual com 2 navegadores antes de confiar
+  cegamente (ver roteiro de teste manual em `CONSISTENCIA.md`).
 
 ---
 
-_Documento gerado a partir da inspeção estática de `index.html`, `app.js`, `banco-manager.js`, `pecas_dia.js`, `grade_base.js`, `parts-store.js`, `api-sync.js` e `data.js` — versão do projeto anexada em 2026._
+## 19. Histórico de versões
+
+Ver `CHANGELOG.md` para o histórico completo. Marcos relevantes:
+
+- **v1.2.0** — consistência multiusuário: `row_version`, RPCs de delta.
+- **v2.2.0** — autenticação única (`auth.js`) e ponte cadastro→roteiro.
+- **v2.4.0** (patch em paralelo, já no `main`) — `CadastroSync` + `canal-log.js`:
+  corrige peças criadas no editor embutido do Roteiro nunca sincronizando (§6, Causa 1).
+- **v2.4.1** — corrige a corrida entre sincronização pendente e tempo real na tela de
+  Cadastro e na grade do Roteiro (§6, Causa 2); consolida o log em `canal-log.js` (sem
+  sistema paralelo); adiciona `db/004_activity_log.sql` (referenciado mas ausente);
+  move `multiusuario.test.mjs` para `tests/unit/` (não era coletado pelo `vitest`);
+  corrige `buildRoteiroFromPrograms` vazio e uma asserção quebrada em `validator.test.js`.
+
+---
+
+_Documento gerado a partir da inspeção estática de todo o repositório (HTML, JS e SQL),
+reconciliando duas frentes de correção que convergiram no mesmo problema. Sempre que um
+módulo mudar de forma relevante, atualize a seção correspondente aqui._

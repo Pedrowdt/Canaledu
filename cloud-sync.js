@@ -42,6 +42,7 @@ let currentUser = null;
 let scriptsLoaded = false;
 let _origSetItem = null;
 let _pushTimer = null;
+let _pushInFlight = false; // true durante o await do pushToCloud
 
 function setSyncStatus(msg, show = true) {
   const el = document.getElementById('cloud-sync-status');
@@ -230,13 +231,30 @@ function patchLocalStorage() {
     _origSetItem.call(localStorage, key, value);
     if (key === 'roteiroApp' || key === 'roteiroRegras') {
       clearTimeout(_pushTimer);
-      _pushTimer = setTimeout(pushToCloud, 900);
+      _pushTimer = setTimeout(() => {
+        _pushTimer = null;
+        pushToCloud();
+      }, 900);
     }
   };
 }
 
+// Há uma escrita local (grade/regras) agendada ou em andamento para a
+// nuvem. Enquanto isso for verdade, uma atualização remota não pode
+// substituir a grade local inteira — apagaria a mudança que este usuário
+// acabou de fazer e ainda não teve chance de enviar. (peças/programas não
+// precisam dessa guarda: RoteiroPecasBridge.mergeCadastro já funde com o
+// que está pendente em vez de sobrescrever.)
+function temAlteracoesPendentes() {
+  return _pushTimer !== null || _pushInFlight;
+}
+
 async function pushToCloud() {
   if (!currentUser) return;
+  // Marca em andamento ANTES do primeiro await: enquanto isso, o handler de
+  // tempo real (abaixo) não pode aplicar um snapshot remoto de grade por
+  // cima do que está sendo enviado agora nem do que ainda não terminou de subir.
+  _pushInFlight = true;
   const app    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   const regras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
@@ -275,6 +293,8 @@ async function pushToCloud() {
     console.warn('cloud-sync: falha ao sincronizar', e);
     if (window.CanalLog) CanalLog.registrar('roteiro_sync_falhou', { mensagem: e.message || String(e) }, { nivel: 'error' });
     setSyncStatus('Falha ao sincronizar (verifique a internet)');
+  } finally {
+    _pushInFlight = false;
   }
 }
 
@@ -298,8 +318,29 @@ function setupRealtime() {
         // outro usuário, quando o espelho JSONB estava atrasado).
         const cadastroEspelho = { pecas: payload.new.pecas || [], programas: payload.new.programas || [] };
         const unido = RoteiroPecasBridge.mergeCadastro(app, cadastroEspelho);
-        app.pecas           = unido.pecas;
-        app.programas       = unido.programas;
+        app.pecas     = unido.pecas;
+        app.programas = unido.programas;
+
+        if (temAlteracoesPendentes()) {
+          // Não sobrescreve a grade/regras locais: a gravação pendente
+          // deste usuário vai subir em cima do que acabou de chegar (mesma
+          // linha shared_data) e o próprio pushToCloud não apaga o que
+          // outro usuário só precisa ver após a tela recarregar. Evita
+          // apagar uma edição de grade feita há poucos instantes e ainda
+          // não enviada — a mesma causa raiz que fazia peças "sumirem".
+          _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
+          if (typeof state !== 'undefined') {
+            state.pecas     = app.pecas;
+            state.programas = app.programas;
+          }
+          if (window.CanalLog) {
+            CanalLog.registrar('roteiro_sync_adiado', { motivo: 'alteracao_remota_com_edicao_local_pendente' }, { nivel: 'warn' });
+          }
+          setSyncStatus('Atualização remota recebida — aplicando após sua edição...');
+          if (typeof renderAll === 'function') renderAll();
+          return;
+        }
+
         app.grade           = payload.new.grade || {};
         app.gradeByDay      = payload.new.grade_by_day || {};
         app.gradeOrder      = payload.new.grade_order || {};

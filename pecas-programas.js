@@ -36,6 +36,7 @@ let editingId = null;
 let deleteId = null;
 let pushTimer = null;
 let lastPushAt = 0;
+let pushInFlight = false; // true durante o await do pushToCloud (grava + recarrega)
 
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
@@ -183,6 +184,12 @@ function marcarExcluidos(codes) {
 }
 
 async function pushToCloud() {
+  // Marca em andamento ANTES de qualquer await: enquanto isso, o listener de
+  // tempo real (setupRealtime, logo abaixo) não pode recarregar e sobrescrever
+  // `pecas`/`programas` por cima do que está sendo enviado agora — era essa
+  // janela que fazia peças recém-criadas "sumirem" quando outro usuário
+  // salvava algo enquanto o envio deste usuário ainda estava agendado.
+  pushInFlight = true;
   setSyncStatus('Sincronizando...');
   const delP = deletedPecas.slice();
   const delG = deletedProgramas.slice();
@@ -221,12 +228,26 @@ async function pushToCloud() {
     if (window.CanalLog) CanalLog.registrar('cadastro_salvo_falhou', { mensagem: e.message || String(e) }, { nivel: 'error' });
     setSyncStatus('Falha ao sincronizar');
     showToast('Falha ao salvar no banco: ' + (e.message || e), true);
+  } finally {
+    pushInFlight = false;
   }
 }
 
 function scheduleSync() {
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(pushToCloud, 700);
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    pushToCloud();
+  }, 700);
+}
+
+// Há alterações locais ainda não gravadas no banco (agendadas ou em
+// andamento). Enquanto isso for verdade, um recarregamento vindo do tempo
+// real NÃO pode substituir `pecas`/`programas` por inteiro — apagaria da
+// tela (e, ao sincronizar em seguida, também do banco) o que o usuário
+// acabou de criar/editar/excluir e ainda não teve a chance de enviar.
+function temAlteracoesPendentes() {
+  return pushTimer !== null || pushInFlight;
 }
 
 function setupRealtime() {
@@ -234,6 +255,21 @@ function setupRealtime() {
   // Ignora eco da própria escrita (janela de 1,5s após o último push).
   PecasRepo.onRemoteChange(async () => {
     if (Date.now() - lastPushAt < 1500) return;
+
+    if (temAlteracoesPendentes()) {
+      // Não sobrescreve a tela: o envio pendente deste usuário vai gravar
+      // seu delta em cima da versão mais nova do banco (a RPC já trata
+      // conflito por row_version) e, ao terminar, recarrega tudo — inclusive
+      // a mudança do outro usuário que acabou de chegar.
+      if (window.CanalLog) {
+        CanalLog.registrar('cadastro_sync_adiado', {
+          motivo: 'alteracao_remota_com_edicao_local_pendente',
+        }, { nivel: 'warn' });
+      }
+      setSyncStatus('Atualização remota recebida — aplicando após sua edição...');
+      return;
+    }
+
     await loadFromCloud();
     render();
     setSyncStatus('Atualizado por outro usuário ✓');
@@ -692,4 +728,104 @@ function exportJSON(){
     : {version:'1.0',exportedAt:new Date().toISOString(),total:list.length,programas:list.map(p=>({code:p.code,descricao:p.descricao,tempo:p.tempo,midia:p.midia,type:p.type,assinatura:p.assinatura||[]}))};
   const a=Object.assign(document.createElement('a'),{href:URL.createObjectURL(new Blob([JSON.stringify(out,null,2)],{type:'application/json'})),download:isPecas?'pecas-insercao.json':'programas.json'});
   a.click();
+}
+
+// =====================================================
+// LOG DE ATIVIDADES (modal) — lê de window.CanalLog, o
+// mesmo módulo usado pelo Roteiro. Sem sistema paralelo.
+// =====================================================
+let logEntradas = [];
+let logUnsubscribe = null;
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+const LOG_NIVEL_LABEL = { info: 'Info', warn: 'Aviso', error: 'Erro' };
+
+function fmtLogData(iso) {
+  try {
+    return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch { return iso || ''; }
+}
+
+function fmtLogDetalhes(entrada) {
+  const d = entrada.detalhe || {};
+  const partes = [];
+  if (entrada.codes && entrada.codes.length) partes.push(`codes: ${entrada.codes.join(', ')}`);
+  Object.entries(d).forEach(([k, v]) => {
+    if (v == null || v === '') return;
+    if (k === 'stack') return; // não polui a lista, fica só no console/objeto
+    const val = Array.isArray(v) ? v.join(', ') : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    partes.push(`${k}: ${val}`);
+  });
+  return partes.join(' · ');
+}
+
+async function openLog() {
+  document.getElementById('log-overlay').style.display = 'flex';
+  await loadLog();
+
+  if (!logUnsubscribe && window.CanalLog && typeof CanalLog.onNovaEntrada === 'function') {
+    logUnsubscribe = CanalLog.onNovaEntrada((entrada) => {
+      logEntradas.unshift(entrada);
+      renderLog();
+    });
+    const liveEl = document.getElementById('log-live');
+    if (liveEl) liveEl.style.display = 'inline-flex';
+  }
+}
+
+function closeLog() {
+  document.getElementById('log-overlay').style.display = 'none';
+  if (logUnsubscribe) { logUnsubscribe(); logUnsubscribe = null; }
+  const liveEl = document.getElementById('log-live');
+  if (liveEl) liveEl.style.display = 'none';
+}
+
+async function loadLog() {
+  const body = document.getElementById('log-body');
+  body.innerHTML = '<div class="log-empty">Carregando…</div>';
+  // CanalLog.equipe() lê a nuvem (todos os usuários); se não houver sessão
+  // ainda ou a tabela não estiver migrada, cai para o log local deste navegador.
+  logEntradas = window.CanalLog
+    ? await CanalLog.equipe(200).then((r) => (r && r.length ? r : CanalLog.recentes(200).slice().reverse()))
+    : [];
+  renderLog();
+}
+
+function renderLog() {
+  const body = document.getElementById('log-body');
+  const filtroTela = document.getElementById('log-filter-tela').value;
+  const filtroNivel = document.getElementById('log-filter-nivel').value;
+
+  const filtradas = logEntradas.filter((e) =>
+    (!filtroTela || e.tela === filtroTela) &&
+    (!filtroNivel || e.nivel === filtroNivel)
+  );
+
+  if (!filtradas.length) {
+    body.innerHTML = '<div class="log-empty">Nenhum registro ainda. Ações como salvar, excluir ou importar peças e programas — e erros inesperados — aparecem aqui.</div>';
+    return;
+  }
+
+  const linhas = filtradas.map((e) => `
+    <tr>
+      <td style="white-space:nowrap;color:#999">${fmtLogData(e.criado_em)}</td>
+      <td><span class="log-badge ${escapeHtml(e.nivel || 'info')}">${escapeHtml(LOG_NIVEL_LABEL[e.nivel] || e.nivel || 'info')}</span></td>
+      <td style="white-space:nowrap">${escapeHtml(e.tela)}</td>
+      <td>${escapeHtml(e.evento)}</td>
+      <td style="white-space:nowrap">${escapeHtml(e.user_email || '—')}</td>
+      <td class="log-detalhes">${escapeHtml(fmtLogDetalhes(e))}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <table class="log-table">
+      <thead><tr><th>Quando</th><th>Nível</th><th>Tela</th><th>Evento</th><th>Usuário</th><th>Detalhes</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>
+  `;
 }

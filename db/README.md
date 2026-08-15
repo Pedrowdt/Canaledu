@@ -23,8 +23,23 @@ antigo que lia `shared_data` continua funcionando.
 2. `002_migrar_shared_data.sql` — importa o que já existe em `shared_data`
    (JSONB) para as tabelas novas. Roda dentro de uma transação e pode ser
    reexecutado sem duplicar (upsert por `code`).
+3. `003_consistencia.sql` — `row_version` (optimistic locking) e gravação por
+   delta com detecção de conflito. Ver CONSISTENCIA.md.
+4. `004_activity_log.sql` — cria `public.activity_log`, usada por
+   `canal-log.js` (`CanalLog`) para registrar o que a equipe faz nas duas
+   telas (peças/programas salvos, sincronizações adiadas, erros não
+   tratados...). Opcional: sem ela o log continua funcionando só em
+   console + `localStorage` (best-effort, nunca bloqueia a ação do usuário).
 
 Nada precisa ser apagado: `shared_data` continua existindo como espelho.
+
+> ⚠️ **Gap conhecido, não relacionado ao log:** `AUTENTICACAO.md` menciona um
+> `db/004_autenticacao.sql` que revogaria o acesso do papel anônimo às
+> tabelas de cadastro — esse arquivo nunca foi commitado neste repositório.
+> As colunas de auditoria (`created_by`/`updated_by`) já existem (criadas em
+> `001`), mas a revogação de acesso anônimo em si não está em nenhum script
+> versionado. Confirme manualmente no painel do Supabase (Database →
+> Policies) se o papel `anon` tem algum `GRANT` residual em `pecas`/`programas`.
 
 ## Estrutura
 

@@ -134,7 +134,57 @@
     localStorage.removeItem(LS_KEY);
   }
 
-  const api = { init, registrar, recentes, equipe, exportar, limparLocal };
+  /** Assina novas entradas em tempo real (para uma tela de log aberta). */
+  function onNovaEntrada(handler) {
+    if (!client) return () => {};
+    const channel = client
+      .channel('activity_log_changes')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'activity_log', filter: `workspace_id=eq.${workspaceId}` },
+        (payload) => handler(payload.new)
+      )
+      .subscribe();
+    return () => client.removeChannel(channel);
+  }
+
+  let capturaGlobalAtiva = false;
+
+  /**
+   * Liga a captura automática de erros não tratados (exceções síncronas e
+   * promises rejeitadas sem catch) direto no log — sem precisar espalhar
+   * try/catch pelo código só para registrar. Chamada uma vez por init().
+   */
+  function ativarCapturaGlobal() {
+    if (capturaGlobalAtiva || typeof window === 'undefined') return;
+    capturaGlobalAtiva = true;
+
+    window.addEventListener('error', (event) => {
+      const err = event.error;
+      registrar('erro_nao_tratado', {
+        mensagem: (err && err.message) || event.message || 'Erro desconhecido',
+        stack: err && err.stack ? String(err.stack).split('\n').slice(0, 6).join('\n') : undefined,
+        arquivo: event.filename,
+        linha: event.lineno,
+      }, { nivel: 'error' });
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      const reason = event.reason;
+      registrar('erro_nao_tratado', {
+        mensagem: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error && reason.stack ? String(reason.stack).split('\n').slice(0, 6).join('\n') : undefined,
+        origem: 'unhandledrejection',
+      }, { nivel: 'error' });
+    });
+  }
+
+  const api = { init, registrar, recentes, equipe, exportar, limparLocal, onNovaEntrada };
   global.CanalLog = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
+
+  // Ativa a captura de erros globais assim que o script carrega — não
+  // precisa esperar login/init pra começar a registrar (mesmo que só no
+  // console + localStorage até haver sessão Supabase).
+  ativarCapturaGlobal();
 })(typeof window !== 'undefined' ? window : globalThis);
