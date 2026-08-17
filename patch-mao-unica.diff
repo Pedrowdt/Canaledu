@@ -1,0 +1,435 @@
+diff --git a/app.js b/app.js
+index 576faad..1c42c7c 100644
+--- a/app.js
++++ b/app.js
+@@ -240,10 +240,9 @@ function saveState() {
+   saved.pecas     = state.pecas;
+   saved.programas = state.programas;
+   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+-  // Envia para o cadastro compartilhado o que foi criado/editado aqui.
+-  // Sem isso a peça existia só neste navegador e desaparecia da tela na
+-  // primeira atualização vinda de outro usuário.
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.sincronizarEstado(state);
++  // FLUXO DE MÃO ÚNICA: o Roteiro NUNCA grava no cadastro (public.pecas /
++  // public.programas). Tudo aqui é local (localStorage + user_data).
++  // Alterações no cadastro só acontecem na tela "Peças e Programas".
+   // Aciona backup automático silenciosamente se pasta estiver configurada
+   if (typeof runAutoBackup === 'function' && _backupDirHandle) {
+     runAutoBackup();
+@@ -1094,7 +1093,7 @@ function saveNewPeca() {
+   const val  = document.getElementById('np-val').value.trim();
+   const obs  = document.getElementById('np-obs').value.trim();
+   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+-  state.pecas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
++  state.pecas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
+                      type, validade: val, obs: sanitizeText(obs), categoria: 'MANUAL' });
+   saveState();
+   renderPecasSidebar();
+@@ -1148,8 +1147,7 @@ function deletePeca(idx) {
+   if (!item) return;
+   if (!confirm(`Excluir "${item.descricao.substring(0,50)}" do banco de peças?\n\nEsta ação não pode ser desfeita.`)) return;
+   state.pecas.splice(idx, 1);
+-  // Exclusão explícita: autoriza o DELETE no cadastro compartilhado.
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [item.code]);
++  // Exclusão apenas local do roteiro — o cadastro compartilhado não é tocado.
+   saveState();
+   renderPecasSidebar();
+   renderPecasPanel();
+@@ -1181,6 +1179,7 @@ function importBanco(e) {
+           if (p.code && p.descricao) {
+             if (!existing.has(p.code)) {
+               state.pecas.push({
++          _localOnly: true,
+                 code: p.code, descricao: sanitizeText(p.descricao),
+                 tempo: p.tempo || '00:01:00', midia: p.midia || '0OMN',
+                 type: p.type || 'EVNH', validade: p.validade || '',
+@@ -1240,6 +1239,7 @@ function importBanco(e) {
+           }
+           if (!/^\d{2}:\d{2}:\d{2}$/.test(tempo)) tempo = '00:01:00';
+           state.pecas.push({
++          _localOnly: true,
+             code, descricao: sanitizeText(desc), tempo, midia: '0OMN',
+             type:     ci.type >= 0 ? String(r[ci.type]||'EVNH').trim() : 'EVNH',
+             validade: ci.val  >= 0 ? String(r[ci.val] ||'').trim()     : '',
+@@ -1330,7 +1330,7 @@ function saveNewProg() {
+   const desc = document.getElementById('npp-desc').value.trim();
+   const dur  = document.getElementById('npp-dur').value.trim() || '00:25:00';
+   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+-  state.programas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
++  state.programas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
+   saveState();
+   renderProgramas();
+   document.getElementById('badge-prog').textContent = state.programas.length;
+diff --git a/banco-manager.js b/banco-manager.js
+index 118b0fa..60c3c0f 100644
+--- a/banco-manager.js
++++ b/banco-manager.js
+@@ -148,6 +148,7 @@ function _bmImportPecasJSON(file) {
+         const desc = (typeof sanitizeText === 'function') ? sanitizeText(p.descricao) : p.descricao;
+         const obs  = (typeof sanitizeText === 'function') ? sanitizeText(p.obs || '') : (p.obs || '');
+         state.pecas.push({
++          _localOnly: true,
+           code:      String(p.code),
+           descricao: desc,
+           tempo:     p.tempo     || '00:01:00',
+@@ -233,6 +234,7 @@ function _bmImportPecasXLSX(file) {
+           : '';
+ 
+         state.pecas.push({
++          _localOnly: true,
+           code,
+           descricao: desc2,
+           tempo,
+@@ -311,6 +313,7 @@ function _bmImportProgramasJSON(file) {
+ 
+         const desc = (typeof sanitizeText === 'function') ? sanitizeText(p.descricao) : p.descricao;
+         state.programas.push({
++          _localOnly: true,
+           code:      String(p.code),
+           descricao: desc,
+           tempo:     p.tempo || '00:30:00',
+@@ -380,6 +383,7 @@ function _bmImportProgramasXLSX(file) {
+         const desc2 = (typeof sanitizeText === 'function') ? sanitizeText(desc) : desc;
+ 
+         state.programas.push({
++          _localOnly: true,
+           code,
+           descricao: desc2,
+           tempo,
+@@ -467,8 +471,7 @@ function deletePecaByCode(code) {
+ 
+   // Remove a peça do array pelo code
+   state.pecas = state.pecas.filter(p => p.code !== code);
+-  // Exclusão explícita -> autoriza o DELETE no cadastro compartilhado.
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [code]);
++  // Somente local: para excluir do cadastro, use a tela "Peças e Programas".
+   if (typeof saveState === 'function') saveState();
+   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
+   if (typeof renderPecasPanel === 'function') renderPecasPanel();
+@@ -509,7 +512,7 @@ function deleteAllPecasFiltradas() {
+   // Mantém somente as peças que não estão no conjunto a excluir
+   const alvoCodes = new Set(alvo.map(p => p.code));
+   state.pecas = state.pecas.filter(p => !alvoCodes.has(p.code));
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [...alvoCodes]);
++  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+   if (typeof saveState === 'function') saveState();
+   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
+   if (typeof renderPecasPanel === 'function') renderPecasPanel();
+@@ -535,7 +538,7 @@ function deletePrograma(code) {
+   if (!confirm(msg)) return;
+ 
+   state.programas = state.programas.filter(p => p.code !== code);
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [code]);
++  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+   if (typeof saveState === 'function') saveState();
+   if (typeof renderProgramas === 'function') renderProgramas();
+   if (typeof toast === 'function') toast(`🗑 Programa ${code} excluído`, 'success');
+@@ -568,7 +571,7 @@ function deleteAllProgramasFiltrados() {
+ 
+   const alvoCodes = new Set(alvo.map(p => p.code));
+   state.programas = state.programas.filter(p => !alvoCodes.has(p.code));
+-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [...alvoCodes]);
++  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+   if (typeof saveState === 'function') saveState();
+   if (typeof renderProgramas === 'function') renderProgramas();
+   if (typeof toast === 'function') toast(`🗑 ${alvo.length} programas excluídos`, 'success');
+diff --git a/cadastro-sync.js b/cadastro-sync.js
+index b27663a..4d4a6f1 100644
+--- a/cadastro-sync.js
++++ b/cadastro-sync.js
+@@ -34,6 +34,19 @@
+   let repo = null;
+   let timer = null;
+   let enviando = false;
++  // FLUXO DE MÃO ÚNICA: só a tela de Cadastro (pecas-programas.js) pode
++  // escrever no cadastro. Sem allowWrite:true todas as funções de escrita
++  // viram no-op e apenas avisam no console.
++  let allowWrite = false;
++
++  function podeEscrever(fn) {
++    if (allowWrite) return true;
++    console.warn(
++      `[cadastro-sync] ${fn}() ignorado: esta tela não tem permissão de escrita no cadastro. ` +
++      'O fluxo é de mão única — só "Peças e Programas" grava em public.pecas/programas.'
++    );
++    return false;
++  }
+ 
+   const vazio = () => ({
+     pecas: {},
+@@ -93,17 +106,23 @@
+     };
+   }
+ 
+-  function init({ client: c, user: u, workspaceId: w, repo: r } = {}) {
++  function init({ client: c, user: u, workspaceId: w, repo: r, allowWrite: aw } = {}) {
++    allowWrite = aw === true;
+     if (c) client = c;
+     if (u) user = u;
+     if (w) workspaceId = w;
+     repo = r || global.PecasRepo || null;
++    if (!allowWrite) {
++      console.info('[cadastro-sync] modo somente leitura (allowWrite ausente): nada será enviado ao cadastro.');
++      return api;
++    }
+     if (total()) agendar(0); // reenvia o que ficou pendente da sessão anterior
+     return api;
+   }
+ 
+   /** Marca itens criados/editados no Roteiro para subirem ao cadastro. */
+   function marcarUpsert(kind, itens) {
++    if (!podeEscrever('marcarUpsert')) return;
+     const alvo = kind === 'programas' ? 'programas' : 'pecas';
+     const fila = ler();
+     const codes = [];
+@@ -122,6 +141,7 @@
+ 
+   /** Marca exclusões explícitas — a única coisa que autoriza DELETE na nuvem. */
+   function marcarExclusao(kind, codes) {
++    if (!podeEscrever('marcarExclusao')) return;
+     const alvo = kind === 'programas' ? 'programas' : 'pecas';
+     const fila = ler();
+     const lista = (Array.isArray(codes) ? codes : [codes]).filter(Boolean).map(String);
+@@ -149,6 +169,7 @@
+    */
+   async function flush() {
+     if (enviando) return { enviados: 0, pendentes: total() };
++    if (!allowWrite) return { enviados: 0, pendentes: total() };
+     const repositorio = repo || global.PecasRepo;
+     if (!repositorio || !client || !user) return { enviados: 0, pendentes: total() };
+ 
+@@ -230,6 +251,7 @@
+    */
+   function sincronizarEstado(state) {
+     if (!state) return;
++    if (!podeEscrever('sincronizarEstado')) return;
+     marcarUpsert('pecas', mudados('pecas', state.pecas));
+     marcarUpsert('programas', mudados('programas', state.programas));
+   }
+diff --git a/index.html b/index.html
+index 57deea8..648a450 100644
+--- a/index.html
++++ b/index.html
+@@ -1313,7 +1313,7 @@
+ <script src="auth.js"></script>
+ <script src="canal-log.js"></script>
+ <script src="pecas-repo.js"></script>
+-<script src="cadastro-sync.js"></script>
++<!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
+ <script src="roteiro-pecas-bridge.js"></script>
+ <script src="cloud-sync.js"></script>
+ </body>
+diff --git a/multiusuario.test.mjs b/multiusuario.test.mjs
+index a6c4a6d..a2c8392 100644
+--- a/multiusuario.test.mjs
++++ b/multiusuario.test.mjs
+@@ -73,6 +73,7 @@ describe('fila de pendências (CadastroSync)', () => {
+ 
+   it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
+     const sync = loadSync();
++    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
+     sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
+     expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+ 
+@@ -84,4 +85,13 @@ describe('fila de pendências (CadastroSync)', () => {
+     expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
+     expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+   });
++
++  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
++    const sync = loadSync();
++    sync.init({});
++    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
++    sync.marcarUpsert('pecas', [peca('Y')]);
++    sync.marcarExclusao('pecas', ['Z']);
++    expect(sync.total()).toBe(0);
++  });
+ });
+diff --git a/pecas-programas.html b/pecas-programas.html
+index d64802d..e932b96 100644
+--- a/pecas-programas.html
++++ b/pecas-programas.html
+@@ -13,6 +13,7 @@
+ <script src="auth.js"></script>
+ <script src="canal-log.js"></script>
+ <script src="pecas-repo.js"></script>
++<script src="cadastro-sync.js"></script>
+ <style>
+ *{box-sizing:border-box;margin:0;padding:0}
+ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+diff --git a/pecas-programas.js b/pecas-programas.js
+index e1faaea..4d0ec5a 100644
+--- a/pecas-programas.js
++++ b/pecas-programas.js
+@@ -141,6 +141,15 @@ async function startApp(user) {
+       CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
+     }
+     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
++    if (window.CadastroSync) {
++      // Única tela autorizada a gravar no cadastro (fluxo de mão única).
++      CadastroSync.init({
++        client: supabaseClient,
++        user: currentUser,
++        workspaceId: WORKSPACE_ID,
++        allowWrite: true,
++      });
++    }
+     console.info('[Peças e Programas] modo de banco:', modo);
+     await loadFromCloud();
+     setupRealtime();
+diff --git a/pecas-repo.js b/pecas-repo.js
+index 59b4033..27d1470 100644
+--- a/pecas-repo.js
++++ b/pecas-repo.js
+@@ -176,27 +176,19 @@
+     return msg.includes('does not exist') || msg.includes('could not find the function') || error?.code === 'PGRST202';
+   }
+ 
+-  /** Fallback sem RPC: upsert linha a linha + delete SÓ dos codes informados. */
+-  async function salvarSemRpc(table, upserts, deletes) {
+-    if (upserts.length) {
+-      const payload = upserts.map(({ row_version, ...rest }) => rest);
+-      const { error } = await client.from(table).upsert(payload, { onConflict: 'code' });
+-      if (error) throw error;
+-    }
+-    if (deletes.length) {
+-      const { error } = await client.from(table).delete().in('code', deletes);
+-      if (error) throw error;
+-    }
+-    return { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
+-  }
+-
+   async function salvarTabela(kind, rpcName, upserts, deletes) {
+     if (!upserts.length && !deletes.length) return { aplicados: 0, removidos: 0, conflitos: [] };
+-    const table = kind;
+     const { data, error } = await client.rpc(rpcName, { p_upserts: upserts, p_deletes: deletes });
+     if (error) {
+-      if (!rpcAusente(error)) throw error;
+-      return await salvarSemRpc(table, upserts, deletes);
++      // Não existe mais caminho de escrita direta: as RPCs SECURITY DEFINER
++      // são as ÚNICAS portas de gravação do cadastro (migração 006).
++      if (rpcAusente(error)) {
++        throw new Error(
++          'As funções de gravação do cadastro (fn_salvar_pecas / fn_salvar_programas) ' +
++          'não estão instaladas no banco. Aplique as migrações em db/ antes de salvar.'
++        );
++      }
++      throw error;
+     }
+     return data || { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
+   }
+diff --git a/roteiro-pecas-bridge.js b/roteiro-pecas-bridge.js
+index 428e8e9..d06a0cf 100644
+--- a/roteiro-pecas-bridge.js
++++ b/roteiro-pecas-bridge.js
+@@ -63,21 +63,49 @@
+     };
+   }
+ 
++  /** Carimbo de recência de um item (row_version > updated_at > 0). */
++  function versao(item) {
++    if (!item || typeof item !== 'object') return -1;
++    const rv = Number(item.row_version);
++    if (Number.isFinite(rv)) return rv * 1e13; // row_version domina o timestamp
++    const ts = Date.parse(item.updated_at || item.updatedAt || item.atualizado_em || '');
++    return Number.isFinite(ts) ? ts : 0;
++  }
++
+   /**
+-   * Une o cadastro da nuvem com o que este usuário ainda não sincronizou.
+-   * Regras (nesta ordem):
+-   *   1) a nuvem manda em tudo que já está sincronizado;
+-   *   2) itens pendentes deste usuário (criados/editados aqui e ainda não
+-   *      confirmados) permanecem em tela, sobrepondo a versão da nuvem;
+-   *   3) itens que este usuário excluiu explicitamente saem, mesmo que a
+-   *      nuvem ainda os traga (a exclusão está na fila de envio).
+-   * Sem isso, uma atualização feita por outro usuário apagava da tela peças
+-   * que só existiam localmente.
++   * Une o cadastro da nuvem com o snapshot local desta máquina.
++   *
++   * FLUXO DE MÃO ÚNICA: o Roteiro nunca escreve de volta no cadastro. Para
++   * que uma atualização vinda de outro usuário não apague da tela algo mais
++   * recente que este navegador já tem, a escolha é feita por RECÊNCIA
++   * (row_version / updated_at), e não sincronizando de volta para a nuvem:
++   *   1) o cadastro da nuvem é a base;
++   *   2) quando o item local é comprovadamente mais novo (versão maior),
++   *      ele prevalece em tela até a nuvem alcançá-lo;
++   *   3) itens que existem só localmente permanecem visíveis (rascunho local
++   *      do roteiro), sem nunca subirem ao cadastro;
++   *   4) a fila legada de pendências, quando existir, ainda é respeitada.
+    */
+   function combinar(remotos, locais, pendentes, kind) {
+     const pend = lerPendentes(pendentes);
+     const mapa = new Map();
+     (remotos || []).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
++
++    // Snapshot local: mantém o que é só local e o que é mais recente.
++    (locais || []).forEach((item) => {
++      if (!item || !item.code) return;
++      const code = String(item.code);
++      const remoto = mapa.get(code);
++      if (remoto) {
++        if (versao(item) > versao(remoto)) mapa.set(code, item);
++        return;
++      }
++      // Ausente na nuvem: só permanece se for um rascunho criado no
++      // Roteiro (marcado com _localOnly). Itens que vieram do cadastro e
++      // sumiram de lá foram realmente excluídos no cadastro.
++      if (item._localOnly === true) mapa.set(code, item);
++    });
++
+     apenasAtivos(pend[kind]).forEach((item) => mapa.set(String(item.code), item));
+     pend.excluidos[kind].forEach((code) => mapa.delete(String(code)));
+     return [...mapa.values()];
+diff --git a/tests/unit/consistencia.test.mjs b/tests/unit/consistencia.test.mjs
+index 427ad23..c87a1be 100644
+--- a/tests/unit/consistencia.test.mjs
++++ b/tests/unit/consistencia.test.mjs
+@@ -97,15 +97,17 @@ describe('gravação por delta', () => {
+     expect(calls.rpc[0].args.p_deletes).toEqual(['90001']);
+   });
+ 
+-  it('fallback sem RPC usa upsert + delete in(), sem apagar o resto', async () => {
++  it('sem as RPCs instaladas, falha em vez de gravar direto na tabela', async () => {
+     const repo = loadRepo();
+     const { client, calls } = fakeClient({ pecas: [], programas: [] });
+     client.rpc = async () => ({ data: null, error: { message: 'Could not find the function' } });
+     await repo.init(client);
+     await repo.loadAll();
+-    await repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] });
+-    expect(calls.upserts[0].payload[0].code).toBe('55555');
+-    expect(calls.deletes[0].val).toEqual(['11111']);
++    await expect(
++      repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] })
++    ).rejects.toThrow(/fn_salvar_pecas/);
++    expect(calls.upserts.length).toBe(0);
++    expect(calls.deletes.length).toBe(0);
+   });
+ 
+   it('modo legado mescla com o estado remoto atual (não sobrescreve outros)', async () => {
+diff --git a/tests/unit/multiusuario.test.mjs b/tests/unit/multiusuario.test.mjs
+index a6c4a6d..a2c8392 100644
+--- a/tests/unit/multiusuario.test.mjs
++++ b/tests/unit/multiusuario.test.mjs
+@@ -73,6 +73,7 @@ describe('fila de pendências (CadastroSync)', () => {
+ 
+   it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
+     const sync = loadSync();
++    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
+     sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
+     expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+ 
+@@ -84,4 +85,13 @@ describe('fila de pendências (CadastroSync)', () => {
+     expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
+     expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+   });
++
++  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
++    const sync = loadSync();
++    sync.init({});
++    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
++    sync.marcarUpsert('pecas', [peca('Y')]);
++    sync.marcarExclusao('pecas', ['Z']);
++    expect(sync.total()).toBe(0);
++  });
+ });

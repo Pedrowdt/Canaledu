@@ -63,21 +63,49 @@
     };
   }
 
+  /** Carimbo de recência de um item (row_version > updated_at > 0). */
+  function versao(item) {
+    if (!item || typeof item !== 'object') return -1;
+    const rv = Number(item.row_version);
+    if (Number.isFinite(rv)) return rv * 1e13; // row_version domina o timestamp
+    const ts = Date.parse(item.updated_at || item.updatedAt || item.atualizado_em || '');
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
   /**
-   * Une o cadastro da nuvem com o que este usuário ainda não sincronizou.
-   * Regras (nesta ordem):
-   *   1) a nuvem manda em tudo que já está sincronizado;
-   *   2) itens pendentes deste usuário (criados/editados aqui e ainda não
-   *      confirmados) permanecem em tela, sobrepondo a versão da nuvem;
-   *   3) itens que este usuário excluiu explicitamente saem, mesmo que a
-   *      nuvem ainda os traga (a exclusão está na fila de envio).
-   * Sem isso, uma atualização feita por outro usuário apagava da tela peças
-   * que só existiam localmente.
+   * Une o cadastro da nuvem com o snapshot local desta máquina.
+   *
+   * FLUXO DE MÃO ÚNICA: o Roteiro nunca escreve de volta no cadastro. Para
+   * que uma atualização vinda de outro usuário não apague da tela algo mais
+   * recente que este navegador já tem, a escolha é feita por RECÊNCIA
+   * (row_version / updated_at), e não sincronizando de volta para a nuvem:
+   *   1) o cadastro da nuvem é a base;
+   *   2) quando o item local é comprovadamente mais novo (versão maior),
+   *      ele prevalece em tela até a nuvem alcançá-lo;
+   *   3) itens que existem só localmente permanecem visíveis (rascunho local
+   *      do roteiro), sem nunca subirem ao cadastro;
+   *   4) a fila legada de pendências, quando existir, ainda é respeitada.
    */
   function combinar(remotos, locais, pendentes, kind) {
     const pend = lerPendentes(pendentes);
     const mapa = new Map();
     (remotos || []).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
+
+    // Snapshot local: mantém o que é só local e o que é mais recente.
+    (locais || []).forEach((item) => {
+      if (!item || !item.code) return;
+      const code = String(item.code);
+      const remoto = mapa.get(code);
+      if (remoto) {
+        if (versao(item) > versao(remoto)) mapa.set(code, item);
+        return;
+      }
+      // Ausente na nuvem: só permanece se for um rascunho criado no
+      // Roteiro (marcado com _localOnly). Itens que vieram do cadastro e
+      // sumiram de lá foram realmente excluídos no cadastro.
+      if (item._localOnly === true) mapa.set(code, item);
+    });
+
     apenasAtivos(pend[kind]).forEach((item) => mapa.set(String(item.code), item));
     pend.excluidos[kind].forEach((code) => mapa.delete(String(code)));
     return [...mapa.values()];

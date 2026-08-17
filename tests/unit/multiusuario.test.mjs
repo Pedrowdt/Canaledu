@@ -73,6 +73,7 @@ describe('fila de pendências (CadastroSync)', () => {
 
   it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
     const sync = loadSync();
+    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
     sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
     expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
 
@@ -83,5 +84,14 @@ describe('fila de pendências (CadastroSync)', () => {
     sync.marcarExclusao('pecas', ['A']);
     expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
     expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+  });
+
+  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
+    const sync = loadSync();
+    sync.init({});
+    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
+    sync.marcarUpsert('pecas', [peca('Y')]);
+    sync.marcarExclusao('pecas', ['Z']);
+    expect(sync.total()).toBe(0);
   });
 });

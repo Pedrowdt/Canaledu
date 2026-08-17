@@ -141,6 +141,15 @@ async function startApp(user) {
       CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
     }
     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
+    if (window.CadastroSync) {
+      // Única tela autorizada a gravar no cadastro (fluxo de mão única).
+      CadastroSync.init({
+        client: supabaseClient,
+        user: currentUser,
+        workspaceId: WORKSPACE_ID,
+        allowWrite: true,
+      });
+    }
     console.info('[Peças e Programas] modo de banco:', modo);
     await loadFromCloud();
     setupRealtime();

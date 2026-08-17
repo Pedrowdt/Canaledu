@@ -240,10 +240,9 @@ function saveState() {
   saved.pecas     = state.pecas;
   saved.programas = state.programas;
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
-  // Envia para o cadastro compartilhado o que foi criado/editado aqui.
-  // Sem isso a peça existia só neste navegador e desaparecia da tela na
-  // primeira atualização vinda de outro usuário.
-  if (typeof CadastroSync !== 'undefined') CadastroSync.sincronizarEstado(state);
+  // FLUXO DE MÃO ÚNICA: o Roteiro NUNCA grava no cadastro (public.pecas /
+  // public.programas). Tudo aqui é local (localStorage + user_data).
+  // Alterações no cadastro só acontecem na tela "Peças e Programas".
   // Aciona backup automático silenciosamente se pasta estiver configurada
   if (typeof runAutoBackup === 'function' && _backupDirHandle) {
     runAutoBackup();
@@ -1094,7 +1093,7 @@ function saveNewPeca() {
   const val  = document.getElementById('np-val').value.trim();
   const obs  = document.getElementById('np-obs').value.trim();
   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
-  state.pecas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
+  state.pecas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
                      type, validade: val, obs: sanitizeText(obs), categoria: 'MANUAL' });
   saveState();
   renderPecasSidebar();
@@ -1148,8 +1147,7 @@ function deletePeca(idx) {
   if (!item) return;
   if (!confirm(`Excluir "${item.descricao.substring(0,50)}" do banco de peças?\n\nEsta ação não pode ser desfeita.`)) return;
   state.pecas.splice(idx, 1);
-  // Exclusão explícita: autoriza o DELETE no cadastro compartilhado.
-  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [item.code]);
+  // Exclusão apenas local do roteiro — o cadastro compartilhado não é tocado.
   saveState();
   renderPecasSidebar();
   renderPecasPanel();
@@ -1181,6 +1179,7 @@ function importBanco(e) {
           if (p.code && p.descricao) {
             if (!existing.has(p.code)) {
               state.pecas.push({
+          _localOnly: true,
                 code: p.code, descricao: sanitizeText(p.descricao),
                 tempo: p.tempo || '00:01:00', midia: p.midia || '0OMN',
                 type: p.type || 'EVNH', validade: p.validade || '',
@@ -1240,6 +1239,7 @@ function importBanco(e) {
           }
           if (!/^\d{2}:\d{2}:\d{2}$/.test(tempo)) tempo = '00:01:00';
           state.pecas.push({
+          _localOnly: true,
             code, descricao: sanitizeText(desc), tempo, midia: '0OMN',
             type:     ci.type >= 0 ? String(r[ci.type]||'EVNH').trim() : 'EVNH',
             validade: ci.val  >= 0 ? String(r[ci.val] ||'').trim()     : '',
@@ -1330,7 +1330,7 @@ function saveNewProg() {
   const desc = document.getElementById('npp-desc').value.trim();
   const dur  = document.getElementById('npp-dur').value.trim() || '00:25:00';
   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
-  state.programas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
+  state.programas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
   saveState();
   renderProgramas();
   document.getElementById('badge-prog').textContent = state.programas.length;

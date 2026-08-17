@@ -34,6 +34,19 @@
   let repo = null;
   let timer = null;
   let enviando = false;
+  // FLUXO DE MÃO ÚNICA: só a tela de Cadastro (pecas-programas.js) pode
+  // escrever no cadastro. Sem allowWrite:true todas as funções de escrita
+  // viram no-op e apenas avisam no console.
+  let allowWrite = false;
+
+  function podeEscrever(fn) {
+    if (allowWrite) return true;
+    console.warn(
+      `[cadastro-sync] ${fn}() ignorado: esta tela não tem permissão de escrita no cadastro. ` +
+      'O fluxo é de mão única — só "Peças e Programas" grava em public.pecas/programas.'
+    );
+    return false;
+  }
 
   const vazio = () => ({
     pecas: {},
@@ -93,17 +106,23 @@
     };
   }
 
-  function init({ client: c, user: u, workspaceId: w, repo: r } = {}) {
+  function init({ client: c, user: u, workspaceId: w, repo: r, allowWrite: aw } = {}) {
+    allowWrite = aw === true;
     if (c) client = c;
     if (u) user = u;
     if (w) workspaceId = w;
     repo = r || global.PecasRepo || null;
+    if (!allowWrite) {
+      console.info('[cadastro-sync] modo somente leitura (allowWrite ausente): nada será enviado ao cadastro.');
+      return api;
+    }
     if (total()) agendar(0); // reenvia o que ficou pendente da sessão anterior
     return api;
   }
 
   /** Marca itens criados/editados no Roteiro para subirem ao cadastro. */
   function marcarUpsert(kind, itens) {
+    if (!podeEscrever('marcarUpsert')) return;
     const alvo = kind === 'programas' ? 'programas' : 'pecas';
     const fila = ler();
     const codes = [];
@@ -122,6 +141,7 @@
 
   /** Marca exclusões explícitas — a única coisa que autoriza DELETE na nuvem. */
   function marcarExclusao(kind, codes) {
+    if (!podeEscrever('marcarExclusao')) return;
     const alvo = kind === 'programas' ? 'programas' : 'pecas';
     const fila = ler();
     const lista = (Array.isArray(codes) ? codes : [codes]).filter(Boolean).map(String);
@@ -149,6 +169,7 @@
    */
   async function flush() {
     if (enviando) return { enviados: 0, pendentes: total() };
+    if (!allowWrite) return { enviados: 0, pendentes: total() };
     const repositorio = repo || global.PecasRepo;
     if (!repositorio || !client || !user) return { enviados: 0, pendentes: total() };
 
@@ -230,6 +251,7 @@
    */
   function sincronizarEstado(state) {
     if (!state) return;
+    if (!podeEscrever('sincronizarEstado')) return;
     marcarUpsert('pecas', mudados('pecas', state.pecas));
     marcarUpsert('programas', mudados('programas', state.programas));
   }

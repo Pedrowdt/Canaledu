@@ -176,27 +176,19 @@
     return msg.includes('does not exist') || msg.includes('could not find the function') || error?.code === 'PGRST202';
   }
 
-  /** Fallback sem RPC: upsert linha a linha + delete SÓ dos codes informados. */
-  async function salvarSemRpc(table, upserts, deletes) {
-    if (upserts.length) {
-      const payload = upserts.map(({ row_version, ...rest }) => rest);
-      const { error } = await client.from(table).upsert(payload, { onConflict: 'code' });
-      if (error) throw error;
-    }
-    if (deletes.length) {
-      const { error } = await client.from(table).delete().in('code', deletes);
-      if (error) throw error;
-    }
-    return { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
-  }
-
   async function salvarTabela(kind, rpcName, upserts, deletes) {
     if (!upserts.length && !deletes.length) return { aplicados: 0, removidos: 0, conflitos: [] };
-    const table = kind;
     const { data, error } = await client.rpc(rpcName, { p_upserts: upserts, p_deletes: deletes });
     if (error) {
-      if (!rpcAusente(error)) throw error;
-      return await salvarSemRpc(table, upserts, deletes);
+      // Não existe mais caminho de escrita direta: as RPCs SECURITY DEFINER
+      // são as ÚNICAS portas de gravação do cadastro (migração 006).
+      if (rpcAusente(error)) {
+        throw new Error(
+          'As funções de gravação do cadastro (fn_salvar_pecas / fn_salvar_programas) ' +
+          'não estão instaladas no banco. Aplique as migrações em db/ antes de salvar.'
+        );
+      }
+      throw error;
     }
     return data || { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
   }

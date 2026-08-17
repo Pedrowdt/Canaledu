@@ -97,15 +97,17 @@ describe('gravação por delta', () => {
     expect(calls.rpc[0].args.p_deletes).toEqual(['90001']);
   });
 
-  it('fallback sem RPC usa upsert + delete in(), sem apagar o resto', async () => {
+  it('sem as RPCs instaladas, falha em vez de gravar direto na tabela', async () => {
     const repo = loadRepo();
     const { client, calls } = fakeClient({ pecas: [], programas: [] });
     client.rpc = async () => ({ data: null, error: { message: 'Could not find the function' } });
     await repo.init(client);
     await repo.loadAll();
-    await repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] });
-    expect(calls.upserts[0].payload[0].code).toBe('55555');
-    expect(calls.deletes[0].val).toEqual(['11111']);
+    await expect(
+      repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] })
+    ).rejects.toThrow(/fn_salvar_pecas/);
+    expect(calls.upserts.length).toBe(0);
+    expect(calls.deletes.length).toBe(0);
   });
 
   it('modo legado mescla com o estado remoto atual (não sobrescreve outros)', async () => {
