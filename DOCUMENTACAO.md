@@ -523,3 +523,58 @@ Ver `CHANGELOG.md` para o histórico completo. Marcos relevantes:
 _Documento gerado a partir da inspeção estática de todo o repositório (HTML, JS e SQL),
 reconciliando duas frentes de correção que convergiram no mesmo problema. Sempre que um
 módulo mudar de forma relevante, atualize a seção correspondente aqui._
+
+
+---
+
+## 20. Assinatura do programa: cadastro como fonte da verdade
+
+### Regra de negócio
+A vinheta de assinatura inserida automaticamente depois do **último bloco** de
+cada programa é escolhida pela **tag marcada no cadastro do programa**, na
+instância *Peças e Programas* (campo **Assinatura** → coluna
+`public.programas.assinatura`, enum `faixa_assinatura`:
+`infantil | jovem | adulto`).
+
+Ordem de decisão (`assinatura-programa.js#resolverFaixa`):
+
+```
+0) tag do cadastro do programa        -> DECISÓRIA
+1) REGRAS.classificacaoPrograma       -> fallback (modal do painel Admin)
+2) REGRAS.vhAssinatura*Keywords       -> fallback
+3) 'jovem'                            -> fallback final
+```
+
+O cadastro define **qual** faixa. O painel Admin continua definindo **como** a
+vinheta entra: `code`, `descricao`, `tempo` e o `ativo` de cada faixa
+(`REGRAS.vhAssinaturaInfantil/Jovem/Adulto`). Faixa desativada ⇒ nenhuma VH é
+inserida, mesmo com tag no cadastro.
+
+### Como o bloco do roteiro é casado com o cadastro
+1. **Por `code`** — match exato e preferencial.
+2. **Por título base normalizado** — `PGM PALALOOS - T01 EP05 - BL 02` vira
+   `PALALOOS` (sem prefixo `PGM`, temporada/episódio, bloco, parênteses,
+   minutagem, acentos; tudo em maiúsculas).
+
+Programas **inativos** (`ativo === false`) ou **sem tag** não decidem nada — a
+consulta devolve `null` e a cadeia cai no fallback.
+
+### Onde isso vive
+| Arquivo | Papel |
+|---|---|
+| `assinatura-programa.js` | Módulo UMD usado pela tela real (`index.html`/`app.js`) e pelos testes. Publica `window.AssinaturaPrograma`. |
+| `app.js#getAssinatura` | Chama `AssinaturaPrograma.montarVhAssinatura(bloco, REGRAS, state.programas)`. Mantém o algoritmo antigo como rota de segurança se o script não carregar. |
+| `src/core/roteiroBuilder.js` | Versão pura equivalente: `faixaDoCadastro()` + `pickAssinatura(bloco, regras, programasCadastro)`; `buildRoteiroFromPrograms` ganhou o 7º parâmetro opcional `programasCadastro`. |
+| `pecas-repo.js` / `roteiro-pecas-bridge.js` | Já traziam `assinatura` do banco para `state.programas` — nenhuma mudança foi necessária no transporte. |
+| `tests/unit/assinaturaPrograma.test.mjs` | Cobertura da regra e dos fallbacks. |
+
+### Diagnóstico
+A VH gerada carrega `_assinaturaFaixa` e `_assinaturaOrigem`
+(`cadastro | admin | keywords | padrao`). Campos internos, ignorados na
+exportação, úteis para responder "por que este programa saiu como JOVEM?".
+
+### Operação
+- Para mudar a faixa de um programa: edite o programa em **Peças e Programas**
+  e marque a tag. O Roteiro reflete na próxima geração automática.
+- O modal *Classificação por Programa* no Admin permanece útil para programas
+  ainda não cadastrados ou sem tag.

@@ -1510,11 +1510,42 @@ function getVhClassificacao() {
 }
 
 /**
- * Retorna o objeto VH Assinatura para o programa informado,
- * usando as keywords e os codes configurados em REGRAS.
- * Se a assinatura do tipo correspondente estiver desativada, retorna null.
+ * Retorna o objeto VH Assinatura (INFANTIL / JOVEM / ADULTO) do programa.
+ *
+ * ORDEM DE DECISÃO (a partir de 2026):
+ *   0) TAG do cadastro do programa na instância "Peças e Programas"
+ *      (campo Assinatura) — DECISÓRIA. Casada por `code` e, na falta dele,
+ *      pelo título base normalizado do programa.
+ *   1) FALLBACK: mapa "Classificação por programa" do painel Admin;
+ *   2) FALLBACK: palavras-chave configuradas no Admin;
+ *   3) FALLBACK: padrão "jovem".
+ *
+ * Os codes/tempos/ativação de cada faixa continuam vindo das REGRAS do
+ * Admin — o cadastro decide QUAL faixa, o Admin decide COMO ela entra.
+ * Se a faixa escolhida estiver desativada (`ativo:false`), retorna null.
+ *
+ * @param {string|Object} item descrição do bloco ou o próprio bloco {code, descricao}
  */
-function getAssinatura(desc) {
+function getAssinatura(item) {
+  const bloco = typeof item === 'string' ? { descricao: item } : (item || {});
+  const desc = bloco.descricao || '';
+
+  // ── Prioridade 0: TAG vinda do cadastro (Peças e Programas) ──
+  // Módulo carregado por <script src="assinatura-programa.js">. O guard
+  // mantém o roteiro funcionando mesmo se o arquivo não estiver presente.
+  if (typeof AssinaturaPrograma !== 'undefined' && AssinaturaPrograma) {
+    const vh = AssinaturaPrograma.montarVhAssinatura(
+      bloco,
+      REGRAS,
+      (typeof state !== 'undefined' && state && state.programas) || []
+    );
+    // montarVhAssinatura já aplica TODA a cadeia (cadastro -> admin ->
+    // keywords -> padrão), portanto o bloco legado abaixo só roda se o
+    // módulo não tiver sido carregado.
+    return vh;
+  }
+
+  // ── Caminho legado (sem o módulo): apenas configuração do Admin ──
   const u = desc.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
   const infKw = (REGRAS.vhAssinaturaInfantilKeywords || '').split(',').map(k=>k.trim()).filter(Boolean);
   const adKw  = (REGRAS.vhAssinaturaAdultoKeywords   || '').split(',').map(k=>k.trim()).filter(Boolean);
@@ -1643,9 +1674,16 @@ function findVhAssistindo(desc) {
   return null;
 }
 
-/** Determina qual assinatura usar (INFANTIL, JOVEM ou ADULTO) baseado em keywords configuradas em REGRAS. Inserida automaticamente após o último bloco de cada programa. */
-function pickAssinatura(desc) {
-  return getAssinatura(desc);
+/**
+ * Determina qual assinatura usar (INFANTIL, JOVEM ou ADULTO) e devolve a VH
+ * pronta. Inserida automaticamente após o último bloco de cada programa.
+ * A decisão vem da TAG do cadastro (Peças e Programas) e, na ausência dela,
+ * das regras do painel Admin — ver getAssinatura().
+ *
+ * @param {string|Object} item descrição do bloco ou o bloco {code, descricao}
+ */
+function pickAssinatura(item) {
+  return getAssinatura(item);
 }
 
 // Extract base program title (remove block suffix " - BL 01" etc)
@@ -1761,7 +1799,7 @@ function buildRoteiroFromPrograms(programs) {
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
         }
       } else {
-        const ass = pickAssinatura(block.descricao);
+        const ass = pickAssinatura(block); // bloco inteiro: permite casar por code no cadastro
         if (ass) { roteiro.push(ass); cumSec += timeToSec(ass.tempo); }
       }
     });

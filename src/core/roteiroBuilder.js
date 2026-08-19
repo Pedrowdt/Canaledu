@@ -61,13 +61,61 @@ function findVhAssistindo(desc, regras, catalogo) {
 }
 
 /**
- * Assinatura (infantil/jovem/adulto) a inserir após o último bloco de um
- * programa. Prioridade: classificação explícita (`regras.classificacaoPrograma`,
- * mapa por programa definido no Admin) > palavras-chave configuradas > jovem
- * (padrão). Só regras, sem catálogo.
+ * Faixa de assinatura declarada no CADASTRO (instância Peças e Programas).
+ *
+ * Espelha `assinatura-programa.js` (versão UMD usada pelo navegador); aqui a
+ * lógica é replicada para o módulo permanecer puro e sem dependência de DOM.
+ *
+ * Casamento com o bloco do roteiro:
+ *   a) por `code` (exato);
+ *   b) por título base normalizado ("PGM PALALOOS - BL 02" -> "PALALOOS").
+ *
+ * Programas inativos ou sem tag não decidem nada (retorna null -> fallback).
+ *
+ * @param {Object|string} item      bloco do roteiro ou sua descrição
+ * @param {Array} programasCadastro lista de programas cadastrados
+ * @returns {'infantil'|'jovem'|'adulto'|null}
  */
-function pickAssinatura(desc, regras) {
+function faixaDoCadastro(item, programasCadastro) {
+  const lista = programasCadastro || [];
+  if (!lista.length) return null;
+  const bloco = typeof item === 'string' ? { descricao: item } : item || {};
+  const code = bloco.code ? String(bloco.code).trim() : '';
+  const key = normProgKey(bloco.descricao);
+  let porTitulo = null;
+
+  for (const p of lista) {
+    if (!p || p.ativo === false) continue;
+    const bruto = Array.isArray(p.assinatura) ? p.assinatura[0] : p.assinatura;
+    const faixa = String(bruto || '').trim().toLowerCase();
+    if (!['infantil', 'jovem', 'adulto'].includes(faixa)) continue;
+    if (code && String(p.code || '').trim() === code) return faixa; // match forte
+    if (!porTitulo && key && normProgKey(p.descricao) === key) porTitulo = faixa;
+  }
+  return porTitulo;
+}
+
+/**
+ * Assinatura (infantil/jovem/adulto) a inserir após o último bloco de um
+ * programa.
+ *
+ * PRIORIDADE:
+ *   0) TAG do cadastro do programa (Peças e Programas)      <- decisória
+ *   1) `regras.classificacaoPrograma` (modal do Admin)      <- fallback
+ *   2) palavras-chave `regras.vhAssinatura*Keywords`        <- fallback
+ *   3) jovem (padrão)                                       <- fallback
+ *
+ * O cadastro decide QUAL faixa; as REGRAS seguem decidindo COMO ela entra
+ * (code, descrição, tempo e `ativo`). Sem catálogo.
+ *
+ * @param {Object|string} desc      bloco do roteiro ou sua descrição
+ * @param {Object} regras           configuração do Admin
+ * @param {Array} [programasCadastro] programas cadastrados (fonte da verdade)
+ */
+function pickAssinatura(desc, regras, programasCadastro) {
   const r = regras || {};
+  const bloco = typeof desc === 'string' ? { descricao: desc } : desc || {};
+  desc = bloco.descricao || '';
   const u = normalizeKey(desc);
   const infKw = String(r.vhAssinaturaInfantilKeywords || '').split(',').map((k) => k.trim()).filter(Boolean);
   const adKw = String(r.vhAssinaturaAdultoKeywords || '').split(',').map((k) => k.trim()).filter(Boolean);
@@ -76,7 +124,10 @@ function pickAssinatura(desc, regras) {
   const cfgAdt = r.vhAssinaturaAdulto || {};
 
   const progKey = normProgKey(desc);
-  const classifExplicita = (r.classificacaoPrograma || {})[progKey];
+  // Prioridade 0: tag do cadastro; se ausente, cai na configuração do Admin.
+  const classifExplicita =
+    faixaDoCadastro(bloco, programasCadastro || r.programasCadastro) ||
+    (r.classificacaoPrograma || {})[progKey];
 
   let cfg, defaultCode, defaultDesc;
   if (classifExplicita === 'infantil') {
@@ -153,9 +204,12 @@ function injectPecasFixas(roteiro, pecasFixas) {
  * @param {Array} [pecasFixas]  Peças fixas a injetar (code, descricao, tempo, type, posicao, ativo)
  * @param {Object} [catalogo]   Retorno de pecasCatalog.catalogFromCadastro (vhSeguirMap/vhAssistindoMap)
  * @param {number} [startSeconds] Segundo inicial do roteiro (padrão 06:00:00)
+ * @param {Array} [programasCadastro] Programas cadastrados em Peças e Programas.
+ *        A tag `assinatura` (infantil/jovem/adulto) de cada programa é a fonte
+ *        decisória da VH de assinatura; as regras do Admin viram fallback.
  * @returns {Array} itens do roteiro, na ordem de exibição
  */
-export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, catalogo, startSeconds) {
+export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, catalogo, startSeconds, programasCadastro) {
   const r = regras || {};
   const gradeDiaria = grade || {};
   const START_SECONDS = typeof startSeconds === 'number' ? startSeconds : START_SECONDS_DEFAULT;
@@ -232,7 +286,7 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
         }
       } else {
-        const ass = pickAssinatura(block.descricao, r);
+        const ass = pickAssinatura(block, r, programasCadastro);
         if (ass) { roteiro.push(ass); cumSec += timeToSec(ass.tempo); }
       }
     });
@@ -243,4 +297,4 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
   return injectPecasFixas(roteiro, pecasFixas);
 }
 
-export { getVhClassificacao, findVhSeguir, findVhAssistindo, pickAssinatura, injectPecasFixas };
+export { getVhClassificacao, findVhSeguir, findVhAssistindo, pickAssinatura, injectPecasFixas, faixaDoCadastro };

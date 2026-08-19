@@ -1233,15 +1233,20 @@
       </div>
     </div>
 
-    <!-- Classificação por Programa (prioridade sobre keywords) -->
+    <!-- Classificação por Programa — FALLBACK.
+         Desde 2026 a decisão principal é a tag "Assinatura" (Infantil/Jovem/Adulto)
+         marcada no cadastro do programa, na tela "Peças e Programas". O que está
+         aqui só é aplicado a programas sem tag no cadastro. -->
     <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-bottom:8px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
         <div style="font-size:11px;font-weight:600;color:var(--text)">Classificação por Programa</div>
         <span id="adm-classif-contador" style="font-size:10px;color:var(--muted)"></span>
       </div>
       <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
-        Marque diretamente por programa — tem <b>prioridade</b> sobre as keywords da seção abaixo.
-        Programas não marcados aqui continuam usando as keywords normalmente.
+        <b>Fallback.</b> A classificação usada no roteiro vem da tag <b>Assinatura</b>
+        marcada no cadastro do programa em <b>Peças e Programas</b>. O que for marcado aqui
+        só vale para programas <b>sem tag</b> no cadastro — e continua tendo prioridade
+        sobre as keywords da seção abaixo.
       </p>
       <input type="text" id="adm-classif-busca" placeholder="🔎 Buscar programa…"
         oninput="filterClassificacaoProgramaUI(this.value)"
@@ -1314,6 +1319,7 @@
 <script src="canal-log.js"></script>
 <script src="pecas-repo.js"></script>
 <!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
+<script src="assinatura-programa.js"></script>
 <script src="roteiro-pecas-bridge.js"></script>
 <script src="cloud-sync.js"></script>
 </body>

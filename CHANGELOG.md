@@ -1,5 +1,52 @@
 # Changelog
 
+## [2.5.0] — Assinatura decidida pelo cadastro do programa (tag Infantil/Jovem/Adulto)
+
+A VH de assinatura inserida ao fim de cada programa (`ASSINATURA_INFANTIL`,
+`ASSINATURA_JOVEM`, `ASSINATURA_ADULTO`) passa a obedecer à **tag marcada no
+cadastro do programa**, na instância **Peças e Programas** (campo `Assinatura`,
+coluna `public.programas.assinatura`, enum `faixa_assinatura`).
+
+As regras do painel Admin do Roteiro (mapa "Classificação por Programa" e as
+listas de palavras-chave) continuam existindo, mas viraram **fallback**.
+
+### Nova ordem de decisão
+| # | Origem | Papel |
+|---|---|---|
+| 0 | Tag `assinatura` do programa cadastrado | **Decisória** |
+| 1 | `classificacaoPrograma` (modal do Admin) | Fallback |
+| 2 | `vhAssinatura*Keywords` (Admin) | Fallback |
+| 3 | Padrão `jovem` | Fallback |
+
+O cadastro decide **qual** faixa; as REGRAS do Admin seguem decidindo **como** a
+vinheta entra (code, descrição, tempo e liga/desliga por faixa).
+
+### Adicionado
+- `assinatura-programa.js` — módulo UMD puro (navegador + Node) com o casamento
+  programa↔cadastro (por `code` e por título base normalizado), a cadeia de
+  prioridade e a montagem da VH. Devolve também a origem da decisão
+  (`cadastro` | `admin` | `keywords` | `padrao`) em `_assinaturaOrigem`.
+- `tests/unit/assinaturaPrograma.test.mjs` — 10 casos cobrindo tag vence Admin,
+  match por título sem code, programa inativo, os três fallbacks e `ativo:false`.
+
+### Alterado
+- `app.js` — `getAssinatura()/pickAssinatura()` consultam primeiro o cadastro
+  (`state.programas`); o caminho antigo permanece como rota de segurança caso o
+  novo script não esteja carregado. `pickAssinatura` passa a receber o bloco
+  inteiro, o que permite casar por `code`.
+- `src/core/roteiroBuilder.js` — `pickAssinatura(bloco, regras, programasCadastro)`
+  e novo parâmetro `programasCadastro` em `buildRoteiroFromPrograms(...)`
+  (7º argumento, opcional — chamadas existentes seguem válidas). Exporta
+  `faixaDoCadastro`.
+- `index.html` — carrega `assinatura-programa.js` e o modal do Admin agora se
+  identifica explicitamente como fallback.
+- `pecas-programas.html` — o campo Assinatura informa que rege a VH no Roteiro.
+
+### Compatibilidade
+Programa sem tag, inativo ou ausente do cadastro → comportamento idêntico ao
+anterior. Nenhuma migração de banco é necessária: a coluna `assinatura` já
+existia em `db/001_pecas_programas.sql` e já era lida por `pecas-repo.js`.
+
 ## [2.4.1] — Reconciliação: corrida de tempo real na tela de Cadastro/grade + consolidação do log
 
 O commit anterior (`patch resolução de bug`) já havia corrigido uma causa raiz das

@@ -314,7 +314,10 @@ tbody tr:hover{background:#f5f5f3}
            Este campo é a base para a futura automação de inserção de VH no Roteiro. -->
       <div id="programa-only-fields" style="display:none">
         <div class="field">
-          <label>Assinatura</label>
+          <!-- Esta tag é DECISÓRIA no Roteiro: define qual VH de assinatura
+               (ASSINATURA_INFANTIL/_JOVEM/_ADULTO) a automação insere ao fim do
+               programa. Sem tag, o Roteiro cai nas regras do painel Admin. -->
+          <label>Assinatura <span style="font-weight:400;opacity:.7">(define a VH de assinatura no Roteiro)</span></label>
           <div class="dias-wrap" id="assinatura-wrap">
             <button class="dia-btn" data-a="infantil" onclick="toggleDia(this)">Infantil</button>
             <button class="dia-btn" data-a="jovem" onclick="toggleDia(this)">Jovem</button>
