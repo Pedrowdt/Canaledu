@@ -315,6 +315,11 @@ function catMeta(cat) {
   return CATS[cat] || { label: cat, short: cat, text: '#555', bg: '#eee', border: '#ccc', dot: '#aaa' };
 }
 
+// kStatus/kBadgeHtml assumem `ds` em AAAA-MM-DD (o cadastro grava sempre
+// nesse formato via input[type=date] + f-validade). Isso é o mesmo contrato
+// que src/core/normalize.js#parseValidade/formatValidade documentam e testam
+// para o resto do sistema (Roteiro, import de peças do dia) — aqui o cálculo
+// de "expira em Nd" fica local por já não precisar aceitar outros formatos.
 function kStatus(ds){
   if(!ds)return null;
   const d=new Date(ds+'T12:00:00');

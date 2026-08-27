@@ -32,6 +32,54 @@
     return (lista || []).filter((item) => item && item.code && item.ativo !== false);
   }
 
+  // ---------------------------------------------------
+  // Normalização de `validade` — o Roteiro (app.js/isExpired)
+  // hoje só entende dd/mm/aa(aa); o cadastro grava sempre
+  // AAAA-MM-DD (input[type=date] + coluna `date` do banco). Sem
+  // normalizar aqui, a peça vencida nunca era marcada como vencida
+  // e o card mostrava a data em formato ISO. Réplica não-modular de
+  // src/core/normalize.js#parseValidade (mesma regra, coberta pelos
+  // testes de lá) — atualize os dois lugares juntos.
+  // ---------------------------------------------------
+  function parseValidade(v) {
+    if (v == null || v === '') return null;
+    const s = String(v).trim();
+    if (!s || s === 'None') return null;
+
+    let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // AAAA-MM-DD
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); // DD/MM/AAAA ou DD/MM/AA
+    if (m) {
+      let year = Number(m[3]);
+      if (year < 100) year += 2000;
+      const d = new Date(year, Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    return null;
+  }
+
+  /** Forma canônica AAAA-MM-DD usada dentro do `roteiroApp` (local e legado convivem hoje). */
+  function validadeToISO(v) {
+    const d = parseValidade(v);
+    if (!d) return v || '';
+    const yyyy = String(d.getFullYear()).padStart(4, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  /** Garante `validade` em ISO em cada item, sem tocar em nenhum outro campo. */
+  function normalizarValidades(lista) {
+    return (lista || []).map((item) => {
+      if (!item || item.validade == null || item.validade === '') return item;
+      const iso = validadeToISO(item.validade);
+      return iso === item.validade ? item : Object.assign({}, item, { validade: iso });
+    });
+  }
+
   /**
    * Mescla o cadastro dentro do objeto `roteiroApp`.
    * IMPORTANTE: substitui pecas/programas (o cadastro manda),
@@ -89,10 +137,13 @@
   function combinar(remotos, locais, pendentes, kind) {
     const pend = lerPendentes(pendentes);
     const mapa = new Map();
-    (remotos || []).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
+    // Normaliza `validade` para ISO em toda fonte (cadastro remoto,
+    // snapshot local e fila de pendências) para que o roteiro nunca
+    // misture AAAA-MM-DD com dd/mm/aa(aa) dentro do mesmo `roteiroApp`.
+    normalizarValidades(remotos).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
 
     // Snapshot local: mantém o que é só local e o que é mais recente.
-    (locais || []).forEach((item) => {
+    normalizarValidades(locais).forEach((item) => {
       if (!item || !item.code) return;
       const code = String(item.code);
       const remoto = mapa.get(code);
@@ -106,7 +157,7 @@
       if (item._localOnly === true) mapa.set(code, item);
     });
 
-    apenasAtivos(pend[kind]).forEach((item) => mapa.set(String(item.code), item));
+    normalizarValidades(apenasAtivos(pend[kind])).forEach((item) => mapa.set(String(item.code), item));
     pend.excluidos[kind].forEach((code) => mapa.delete(String(code)));
     return [...mapa.values()];
   }
@@ -157,7 +208,7 @@
     return true;
   }
 
-  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos, combinar };
+  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos, combinar, normalizarValidades, validadeToISO };
   global.RoteiroPecasBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

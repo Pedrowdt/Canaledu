@@ -2,6 +2,124 @@
 // PEÇAS DO DIA — IMPORT & SMART INSERTION ENGINE
 // =====================================================
 
+// -----------------------------------------------------
+// VALIDADE (kill date) — helper único
+// Réplica não-modular de src/core/normalize.js (mesma regra usada
+// por app.js e roteiro-pecas-bridge.js). O import de Excel gerava
+// DD/MM/AA cru; a partir daqui gravamos sempre em ISO (AAAA-MM-DD),
+// que é o formato canônico entendido por isExpired() em app.js.
+// Qualquer ajuste de regra aqui deve ser replicado em
+// src/core/normalize.js (fonte de verdade coberta pelos testes).
+// -----------------------------------------------------
+function excelSerialToDate(n) {
+  const utcDays = Math.round(n) - 25569; // dias entre 1899-12-30 e 1970-01-01
+  const d = new Date(utcDays * 86400 * 1000);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 12, 0, 0);
+}
+
+function parseValidade(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number' && Number.isFinite(v) && v >= 1000) {
+    const d = excelSerialToDate(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const s = String(v).trim();
+  if (!s || s === 'None') return null;
+
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // AAAA-MM-DD
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); // DD/MM/AAAA ou DD/MM/AA
+  if (m) {
+    let year = Number(m[3]);
+    if (year < 100) year += 2000;
+    const d = new Date(year, Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}
+
+/** Forma canônica AAAA-MM-DD. '' se a entrada estiver vazia ou não for reconhecida. */
+function validadeToISO(v) {
+  const d = parseValidade(v);
+  if (!d) return '';
+  const yyyy = String(d.getFullYear()).padStart(4, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// -----------------------------------------------------
+// VH "DAQUI A POUCO" — casamento com o próximo programa
+// Réplica não-modular de src/core/pecasCatalog.js#matchVhDaquiForNext
+// (mesma regra, coberta pelos testes de lá). Substitui o antigo
+// critério "1 palavra qualquer casa" — que ignorava pontuação e
+// escolhia a primeira VH em vez da melhor — por cobertura mínima
+// das palavras significativas do programa, com desempate pela
+// maior cobertura e sem fallback quando nada casa bem o bastante.
+// -----------------------------------------------------
+const VH_STOP_WORDS = new Set([
+  'PARA', 'COMO', 'MAIS', 'PELO', 'PELA', 'NUMA', 'COM', 'DOS', 'DAS', 'NOS', 'NAS',
+  'DAQUI', 'POUCO', 'PGM', 'SEGUIR', 'ASSISTINDO', 'ESTA', 'VOCE',
+]);
+
+function normalizeForVhMatch(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Z0-9 ]/gi, ' ') // pontuação -> espaço (ex.: "DAQUI," não pode deixar de casar)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function vhSignificantWords(normalized) {
+  return normalized.split(' ').filter((w) => w.length >= 4 && !VH_STOP_WORDS.has(w));
+}
+
+/**
+ * Escolhe, dentre as VHs "DAQUI A POUCO" candidatas, a que melhor casa com o
+ * próximo programa. Exige cobertura mínima das palavras significativas do
+ * título (>= minCoverage) e desempata pela maior cobertura; sem candidata
+ * boa o bastante, ou empate real, não escolhe nenhuma.
+ */
+function matchVhDaquiForNext(nextProgramTitle, vhCandidates, minCoverage = 0.7) {
+  if (!nextProgramTitle || !vhCandidates || !vhCandidates.length) return null;
+
+  const normTitle = normalizeForVhMatch(nextProgramTitle);
+  const keywords = vhSignificantWords(normTitle);
+  if (!keywords.length) return null;
+
+  let best = null;
+  let bestScore = 0;
+  let tie = false;
+
+  for (const vh of vhCandidates) {
+    // Remove o prefixo completo "VH DAQUI A POUCO" via regex ancorada no
+    // início — um `replace` de substring deixaria "DAQUI"/"POUCO" do
+    // próprio rótulo disponíveis para casar de volta.
+    const vhProg = normalizeForVhMatch(vh.descricao).replace(/^VH\s+DAQUI\s+A\s+POUCO\s*/, '').trim();
+    if (!vhProg) continue;
+    const vhWords = new Set(vhProg.split(' '));
+    const hits = keywords.filter((kw) => vhWords.has(kw)).length;
+    const coverage = hits / keywords.length;
+    if (coverage < minCoverage) continue;
+
+    if (coverage > bestScore) {
+      best = vh;
+      bestScore = coverage;
+      tie = false;
+    } else if (coverage === bestScore) {
+      tie = true;
+    }
+  }
+
+  if (!best || tie) return null;
+  return best;
+}
+
 /** Lê o arquivo XLSX da planilha de peças de inserção usando SheetJS. Detecta a aba correta pela data (formato "DD MMM YY") ou pelo dia da semana em A3. Parseia seções e extrai code, nome, tempo e qtd. */
 async function importPecasDiaExcel(file) {
   const XLSX = window.XLSX;
@@ -158,19 +276,14 @@ function parsePecasDiaRows(rows) {
     // Skip rows where tempo came out as 00:00:00 AND code is not numeric (likely a garbage row)
     if (tempo === '00:00:00' && !/^\d+$/.test(c0) && !c0.startsWith('CE') && !c0.startsWith('AD')) continue;
 
-    // Parse validade
+    // Parse validade — grava sempre em ISO (AAAA-MM-DD), formato canônico
+    // entendido por isExpired() em app.js. Antes era gravado em DD/MM/YY
+    // cru, que a tela de Roteiro não reconhecia (peça vencida nunca era
+    // marcada como VENCIDA).
     let validade = '';
     if (c5 != null) {
-      if (isDateSerial(c5)) {
-        // Convert Excel date serial to DD/MM/YY
-        const date = new Date(Math.round((c5 - 25569) * 86400 * 1000));
-        const dd = String(date.getUTCDate()).padStart(2,'0');
-        const mm = String(date.getUTCMonth() + 1).padStart(2,'0');
-        const yy = String(date.getUTCFullYear()).slice(2);
-        validade = `${dd}/${mm}/${yy}`;
-      } else {
-        validade = String(c5).trim();
-      }
+      validade = validadeToISO(c5);
+      if (!validade && typeof c5 === 'string') validade = c5.trim(); // texto livre (ex. restrição), preservado como estava
     }
 
     // Extract quantity from obs
@@ -186,7 +299,7 @@ function parsePecasDiaRows(rows) {
     if (entreMatch) restricao = `${entreMatch[1]}–${entreMatch[2]}`;
     else if (ateMatch) restricao = `até ${ateMatch[1].toLowerCase()}`;
     else if (aposMatch) restricao = `após ${aposMatch[1].toLowerCase()}`;
-    else if (validade && !validade.match(/\d{2}\/\d{2}\/\d{2}/)) restricao = validade;
+    else if (validade && !parseValidade(validade)) restricao = validade;
 
     // Clean code (remove .0 from numeric floats)
     const code = c0.endsWith('.0') ? c0.slice(0, -2) : c0;
@@ -436,24 +549,13 @@ function buildSmartRoteiro(roteiro, pecasDia) {
 
   /**
    * Retorna uma VH "DAQUI A POUCO" APENAS se ela referenciar especificamente
-   * o programa informado. Nunca retorna uma VH de outro programa como fallback.
-   * Exige que pelo menos 1 palavra significativa do programa (≥4 chars) esteja
-   * no texto da VH após remover "DAQUI A POUCO".
+   * o programa informado (cobertura mínima das palavras significativas do
+   * título, escolhendo a melhor candidata — nunca a primeira que compartilhar
+   * uma palavra qualquer). Nunca retorna uma VH de outro programa como
+   * fallback.
    */
   function findVhDaquiForNext(nextBase) {
-    if (!nextBase || !allVhDaqui.length) return null;
-    const _norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().trim();
-    const normBase = _norm(nextBase);
-    // Palavras significativas do programa (≥4 chars, sem artigos/preposições)
-    const stop = new Set(['PARA','COMO','MAIS','PELO','PELA','NUMA','COM','DOS','DAS','DAS']);
-    const keywords = normBase.split(/\s+/).filter(w => w.length >= 4 && !stop.has(w));
-    if (!keywords.length) return null;
-    return allVhDaqui.find(vh => {
-      // Remove "DAQUI A POUCO" para isolar o programa referenciado na VH
-      const vhProg = _norm(vh.descricao).replace('DAQUI A POUCO','').trim();
-      // A VH precisa mencionar ao menos 1 keyword do programa
-      return keywords.some(kw => vhProg.includes(kw));
-    }) || null; // Null = sem VH adequada, não insere nada
+    return matchVhDaquiForNext(nextBase, allVhDaqui);
   }
 
   // SEM fallback genérico — se não há VH específica para o próximo programa,

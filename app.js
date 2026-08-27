@@ -703,15 +703,55 @@ function renderPecasSidebar() {
     : '');
 }
 
-/** Verifica se uma data de validade (formato dd/mm/aa ou dd/mm/aaaa) já passou. Retorna true se a peça estiver vencida. */
+// =====================================================
+// VALIDADE (kill date) — helper único de datas
+// Réplica não-modular de src/core/normalize.js (parseValidade/
+// formatValidade), pois app.js é carregado como <script> clássico
+// pelo cloud-sync.js e não pode usar `import`. Entende os dois
+// formatos que convivem no sistema — AAAA-MM-DD (cadastro/coluna
+// `date` do banco) e DD/MM/AA(AA) (import legado de Excel) — para
+// que uma peça vencida seja detectada como vencida independente de
+// onde ela veio. Qualquer ajuste de regra aqui deve ser replicado em
+// src/core/normalize.js (fonte de verdade coberta pelos testes).
+// =====================================================
+function parseValidade(v) {
+  if (v == null || v === '') return null;
+  const s = String(v).trim();
+  if (!s || s === 'None') return null;
+
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); // AAAA-MM-DD
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); // DD/MM/AAAA ou DD/MM/AA
+  if (m) {
+    let year = Number(m[3]);
+    if (year < 100) year += 2000;
+    const d = new Date(year, Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  return null;
+}
+
+/** DD/MM/AAAA, só para exibição/exportação — nunca usar para comparações. */
+function formatValidade(v) {
+  const d = parseValidade(v);
+  if (!d) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(d.getFullYear()).padStart(4, '0');
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/** Verifica se uma data de validade (AAAA-MM-DD ou DD/MM/AA(AA)) já passou. Retorna true se a peça estiver vencida. */
 function isExpired(val, today) {
-  if (!val || val === 'None') return false;
-  const m = val.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (!m) return false;
-  let year = parseInt(m[3]);
-  if (year < 100) year += 2000;
-  const d = new Date(year, parseInt(m[2])-1, parseInt(m[1]));
-  return d < today;
+  const d = parseValidade(val);
+  if (!d) return false;
+  const fimDoDia = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  return fimDoDia.getTime() < (today || new Date()).getTime();
 }
 
 // =====================================================
@@ -760,7 +800,7 @@ function renderPecasPanel() {
       </div>
       ${item.obs ? `<div class="peca-card-obs">${escHtml(item.obs)}</div>` : ''}
       ${item.validade && item.validade !== 'None'
-        ? `<div class="peca-card-val">${expired?'⚠ ':''}Validade: ${escHtml(item.validade)}</div>` : ''}
+        ? `<div class="peca-card-val">${expired?'⚠ ':''}Validade: ${escHtml(formatValidade(item.validade) || item.validade)}</div>` : ''}
       <div class="peca-card-actions">
         <button class="act-btn" onclick="editPecaModal(${idx})" title="Editar peça">✎</button>
         <button class="act-btn act-btn-danger" onclick="deletePeca(${idx})" title="Excluir peça">🗑</button>
@@ -1282,7 +1322,7 @@ function exportBancoXLSX() {
   state.pecas.forEach((item, i) => {
     const r   = i + 1;
     const row = [item.code, item.descricao, item.tempo, item.type,
-                 item.validade||'', item.obs||'', item.midia||'0OMN'];
+                 formatValidade(item.validade) || item.validade || '', item.obs||'', item.midia||'0OMN'];
     row.forEach((v, c) => {
       ws[XLSX.utils.encode_cell({r, c})] = { t:'s', v:String(v||'') };
     });

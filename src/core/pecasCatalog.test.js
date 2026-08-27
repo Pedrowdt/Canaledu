@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isPecaVigente, isPecaDoDia, isPecaNaJanela, selectPecasDoDia,
   buildVhMaps, pecasFixasFromCadastro, catalogFromCadastro, somaTempo,
+  matchVhDaquiForNext,
 } from './pecasCatalog.js';
 
 const ref = new Date('2026-08-05T12:00:00');
@@ -67,5 +68,38 @@ describe('mapas de vinhetas derivados do cadastro', () => {
   });
   it('somaTempo soma durações', () => {
     expect(somaTempo([{ tempo: '00:00:30' }, { tempo: '00:01:00' }])).toBe(90);
+  });
+});
+
+describe('matchVhDaquiForNext — VH "DAQUI A POUCO" do programa certo', () => {
+  it('ignora a pontuação do título ao extrair keywords (vírgula não pode quebrar o match)', () => {
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO PORTUGUÊS DAQUI, PORTUGUÊS DE LÁ' },
+      { descricao: 'VH DAQUI A POUCO OUTRO PROGRAMA' },
+    ];
+    const match = matchVhDaquiForNext('PORTUGUÊS DAQUI, PORTUGUÊS DE LÁ', vhs);
+    expect(match).not.toBeNull();
+    expect(match.descricao).toContain('PORTUGUÊS DAQUI');
+  });
+
+  it('escolhe a VH certa quando dois programas compartilham uma palavra comum', () => {
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO EDUCAÇÃO FINANCEIRA' },
+      { descricao: 'VH DAQUI A POUCO EDUCAÇÃO INFANTIL BRASIL' },
+    ];
+    const match = matchVhDaquiForNext('EDUCAÇÃO INFANTIL BRASIL', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO EDUCAÇÃO INFANTIL BRASIL');
+  });
+
+  it('não insere nada quando nenhuma VH cadastrada é específica o bastante', () => {
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO EDUCAÇÃO FINANCEIRA' },
+      { descricao: 'VH DAQUI A POUCO ESCOLA DE TODOS' },
+    ];
+    expect(matchVhDaquiForNext('PALALOOS', vhs)).toBeNull();
+  });
+
+  it('sem VH cadastrada, não insere nada (sem fallback genérico)', () => {
+    expect(matchVhDaquiForNext('SCIENTIA', [])).toBeNull();
   });
 });
