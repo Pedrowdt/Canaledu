@@ -60,3 +60,61 @@ divergência era só de formatação na camada JS.
 - Nenhuma migração de banco (`db/*.sql`) foi necessária.
 - O formato canônico interno permanece ISO (`AAAA-MM-DD`); `DD/MM/AAAA`
   existe apenas na apresentação/exportação.
+
+## 3. Roteiro "some" ao trocar para Peças e Programas e voltar
+
+**Sintoma relatado:** editar o Roteiro do dia, ir para a tela de Cadastro
+(Peças e Programas) e, ao voltar, o trabalho que tinha sido feito havia
+desaparecido.
+
+**Causa raiz — condição de corrida entre o debounce de sincronização e a
+navegação de página inteira:**
+
+- Cada edição no Roteiro só é enviada à nuvem depois de um **debounce de
+  900ms** (`cloud-sync.js`, `patchLocalStorage()`). Toda nova edição
+  reinicia esse temporizador.
+- Trocar de tela (`cloudSyncOpenPecasProgramas()` → `location.href = ...`,
+  e a volta é um `<a href="index.html">` comum em `pecas-programas.html`)
+  é uma **navegação de página cheia**, não uma troca de aba dentro do
+  mesmo app. Isso mata o `setTimeout` pendente sem aviso.
+- Se o clique para trocar de tela acontecer antes dos 900ms passarem —
+  o caso mais comum, já que normalmente a pessoa edita e já sai — o envio
+  **nunca acontece**.
+- Ao voltar para `index.html`, `fetchAndMergeCloudData()` recarrega tudo do
+  zero e fazia `merged.roteiros = userRow?.roteiros || localRaw.roteiros || {}`:
+  como `userRow.roteiros` (nuvem) quase sempre existe (só está
+  desatualizado, não vazio), ele **sempre vencia**, mesmo sendo mais velho
+  que o `localStorage` — apagando silenciosamente a edição que não teve
+  tempo de subir. A sobrescrita ainda usava o `setItem` original (sem o
+  patch), então nem disparava um novo envio.
+
+**Correção, em duas partes (uma sem a outra ainda deixa brecha):**
+
+1. **Nunca perder uma escrita local por causa da navegação**
+   (`cloud-sync.js`):
+   - Toda edição agora grava uma marca síncrona de "sincronização
+     pendente" (`roteiroSyncPending` no `localStorage`) **antes** de
+     agendar o debounce — essa marca sobrevive a um recarregamento de
+     página, ao contrário de uma flag em memória.
+   - Nova função `flushPendingSync()`: cancela o debounce e envia
+     imediatamente. `cloudSyncOpenPecasProgramas()` agora é `async` e
+     **aguarda** esse envio antes de trocar de página.
+   - Um listener de `pagehide` chama o mesmo `flushPendingSync()` como
+     rede de segurança para navegação fora do controle do app (botão
+     voltar do navegador, fechar a aba).
+   - A marca só é limpa depois que o `pushToCloud()` correspondente
+     termina com sucesso — e usa um contador de sequência (`_editSeq`)
+     para não confirmar por engano um envio que ficou desatualizado
+     porque chegou uma edição nova enquanto ele estava em andamento.
+2. **Nunca sobrescrever o roteiro local só porque a nuvem respondeu**
+   (`fetchAndMergeCloudData()`): se a marca de pendência ainda estiver
+   presente ao carregar a página (sinal de que o envio anterior não foi
+   confirmado), a precedência é invertida — o `localStorage` vence tanto
+   para `roteiros` quanto para `pecas_dia` — e o envio é refeito
+   automaticamente em seguida, em vez de esperar a próxima edição do
+   usuário.
+
+Testado em `tests/unit/cloudSyncRoteiro.test.mjs`: marca pendente indo e
+voltando, `patchLocalStorage` marcando antes do debounce, o cenário exato
+do bug (nuvem desatualizada não pode sobrescrever o local pendente, e a
+pendência é reenviada), e `flushPendingSync` enviando na hora.

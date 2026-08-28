@@ -43,6 +43,28 @@ let scriptsLoaded = false;
 let _origSetItem = null;
 let _pushTimer = null;
 let _pushInFlight = false; // true durante o await do pushToCloud
+let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma edição nova chegou durante um push já em andamento
+
+// Chave própria (não intercetada pelo patch de localStorage.setItem) que
+// marca que existe uma edição de roteiro/peças do dia gravada localmente
+// mas ainda não confirmada na nuvem. Sobrevive a um reload de página —
+// diferente de uma flag em memória — porque é exatamente numa troca de
+// página (Roteiro -> Peças e Programas -> Roteiro) que o app perde o
+// estado em memória e precisa saber, ao recarregar, se pode confiar na
+// versão que acabou de vir do servidor ou se o localStorage está à frente.
+const PENDING_SYNC_KEY = 'roteiroSyncPending';
+
+function marcarSyncPendente() {
+  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '1');
+}
+
+function marcarSyncConfirmado() {
+  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '0');
+}
+
+function haSyncPendente() {
+  return localStorage.getItem(PENDING_SYNC_KEY) === '1';
+}
 
 function setSyncStatus(msg, show = true) {
   const el = document.getElementById('cloud-sync-status');
@@ -207,8 +229,20 @@ async function fetchAndMergeCloudData(user) {
     localStorage.setItem('roteiroRegras', JSON.stringify(shared?.regras || {}));
   }
 
-  merged.roteiros   = userRow?.roteiros   || localRaw.roteiros   || {};
-  merged.pecasDia   = userRow?.pecas_dia  || localRaw.pecasDia   || {};
+  // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
+  // sumiu o roteiro". `userRow.roteiros` é o último snapshot que CONSEGUIU
+  // ser enviado — se a página anterior foi fechada/trocada antes do debounce
+  // de 900ms (patchLocalStorage) terminar de enviar, a nuvem fica desatualizada
+  // em relação ao que já estava salvo no localStorage. Sem essa checagem, a
+  // nuvem sempre "ganhava" mesmo estando mais velha, apagando o trabalho local.
+  //
+  // `haSyncPendente()` é gravada de forma síncrona a cada edição (antes do
+  // debounce), então sobrevive a um recarregamento de página: se ela ainda
+  // estiver marcada aqui, é sinal de que o último push nunca foi confirmado
+  // e o localStorage está à frente da nuvem — nesse caso o local vence.
+  const localVenceRoteiro = haSyncPendente();
+  merged.roteiros   = localVenceRoteiro ? (localRaw.roteiros   || userRow?.roteiros   || {}) : (userRow?.roteiros   || localRaw.roteiros   || {});
+  merged.pecasDia   = localVenceRoteiro ? (localRaw.pecasDia   || userRow?.pecas_dia  || {}) : (userRow?.pecas_dia  || localRaw.pecasDia   || {});
   merged.pecasFixas = localRaw.pecasFixas || [];
 
   _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(merged));
@@ -220,6 +254,11 @@ async function fetchAndMergeCloudData(user) {
       pecas_dia: merged.pecasDia,
       updated_at: new Date().toISOString(),
     });
+  } else if (localVenceRoteiro) {
+    // O local venceu porque o push anterior não foi confirmado — tenta
+    // enviar de novo agora, em vez de esperar a próxima edição do usuário
+    // (que pode nunca vir, se ele só estiver consultando o roteiro).
+    pushToCloud();
   }
 }
 
@@ -230,6 +269,12 @@ function patchLocalStorage() {
   localStorage.setItem = function (key, value) {
     _origSetItem.call(localStorage, key, value);
     if (key === 'roteiroApp' || key === 'roteiroRegras') {
+      // Marca "pendente" JÁ AQUI, antes do debounce — se a página for
+      // trocada (Roteiro -> Peças e Programas) nos próximos 900ms, essa
+      // marca persiste no localStorage e avisa a próxima carga da página
+      // de que a nuvem pode estar desatualizada em relação a este edit.
+      marcarSyncPendente();
+      _editSeq++;
       clearTimeout(_pushTimer);
       _pushTimer = setTimeout(() => {
         _pushTimer = null;
@@ -237,6 +282,19 @@ function patchLocalStorage() {
       }, 900);
     }
   };
+}
+
+// Cancela o debounce e envia agora mesmo. Usado antes de qualquer navegação
+// para outra página (troca de tela ou fechamento da aba), para não perder
+// uma edição feita nos últimos 900ms — a causa raiz de "sumiu o roteiro"
+// ao ir para Peças e Programas e voltar.
+function flushPendingSync() {
+  if (_pushTimer) {
+    clearTimeout(_pushTimer);
+    _pushTimer = null;
+  }
+  if (!currentUser) return Promise.resolve();
+  return pushToCloud();
 }
 
 // Há uma escrita local (grade/regras) agendada ou em andamento para a
@@ -255,6 +313,7 @@ async function pushToCloud() {
   // tempo real (abaixo) não pode aplicar um snapshot remoto de grade por
   // cima do que está sendo enviado agora nem do que ainda não terminou de subir.
   _pushInFlight = true;
+  const seqAtStart = _editSeq; // se uma edição nova chegar durante os awaits abaixo, isso muda
   const app    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   const regras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
@@ -288,6 +347,11 @@ async function pushToCloud() {
 
     if (window.CadastroSync) await CadastroSync.flush().catch(() => {});
     if (window.CanalLog) CanalLog.registrar('roteiro_sincronizado', { grade: Object.keys(app.grade || {}).length });
+    // Só marca como confirmado se NENHUMA edição nova chegou enquanto este
+    // push estava em andamento (os awaits acima). Se chegou, o próprio
+    // patchLocalStorage já marcou "pendente" de novo e reagendou outro
+    // push — aquele, sim, vai poder confirmar quando terminar.
+    if (_editSeq === seqAtStart) marcarSyncConfirmado();
     setSyncStatus('Sincronizado ✓ · ' + currentUser.email);
   } catch (e) {
     console.warn('cloud-sync: falha ao sincronizar', e);
@@ -446,9 +510,31 @@ function cloudSyncBackToHub(e) {
   document.getElementById('hub-overlay').style.display = 'flex';
 }
 
-function cloudSyncOpenPecasProgramas() {
+async function cloudSyncOpenPecasProgramas() {
+  // Garante que qualquer edição feita nos últimos 900ms (ainda no debounce)
+  // chegue na nuvem ANTES de trocar de página — sem isso, um clique logo após
+  // editar o roteiro perde a corrida com o timer e a edição nunca é
+  // enviada (ver haSyncPendente()/patchLocalStorage acima).
+  try {
+    setSyncStatus('Salvando antes de trocar de tela...');
+    await flushPendingSync();
+  } catch (e) {
+    console.warn('cloud-sync: falha ao salvar antes de abrir Peças e Programas', e);
+    // Mesmo falhando o envio, a marca de "pendente" continua salva no
+    // localStorage — o próximo carregamento do Roteiro vai preferir o
+    // local e tentar reenviar (ver fetchAndMergeCloudData).
+  }
   location.href = PECAS_PROGRAMAS_PAGE;
 }
+
+// Rede de segurança para navegação/fechamento fora do controle do app
+// (botão voltar do navegador, fechar a aba, F5): dispara o envio em modo
+// "melhor esforço" — não há garantia de terminar a tempo, mas a marca de
+// pendência já gravada de forma síncrona garante que nenhum dado seja
+// silenciosamente descartado na próxima vez que o Roteiro for aberto.
+window.addEventListener('pagehide', () => {
+  if (_pushTimer) flushPendingSync();
+});
 
 (function boot() {
   _origSetItem = localStorage.setItem.bind(localStorage);
