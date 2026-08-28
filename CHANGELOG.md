@@ -1,5 +1,73 @@
 # Changelog
 
+## [2.6.0] — Validade em ISO ponta a ponta, VH "Daqui a Pouco" correta, Roteiro não perde mais trabalho ao trocar de tela, e log/desfazer/ordenação no Roteiro
+
+> **Nota de versionamento:** `package.json`, `version.js` e `version.txt` estavam
+> presos em `2.2.0` desde o commit `2b2c848` (autenticação peças), mesmo com este
+> `CHANGELOG.md` já documentando as releases `2.4.1` e `2.5.0` nos commits
+> seguintes — o bump de versão (`npm run release`) não tinha sido rodado. Esta
+> release corrige esse descompasso, junto com o trabalho novo abaixo.
+
+### Corrigido
+- **Data de validade (kill date) — formato único ISO.** O cadastro (Peças e
+  Programas) sempre gravou `validade` em `AAAA-MM-DD` (nativo de
+  `input[type=date]`), mas o Roteiro só reconhecia `dd/mm/aa(aa)` — uma peça
+  vencida (`validade: "2026-08-04"`) nunca era marcada como VENCIDA, e o card
+  mostrava a data em formato ISO cru. Novo helper único em
+  `src/core/normalize.js` (`parseValidade`/`validadeToISO`/`formatValidade`/
+  `isValidadeExpired`, cobertos por `src/core/normalize.test.js`), replicado
+  de forma não-modular em `app.js` (`isExpired()`), `roteiro-pecas-bridge.js`
+  (`combinar()` normaliza para ISO tanto o cadastro remoto quanto o snapshot
+  local e a fila de pendências) e `pecas_dia.js` (o import de Excel agora
+  grava `validade` sempre em ISO, e a heurística de "restrição" usa o parser
+  em vez de uma regex de `DD/MM/AA`). Nenhuma migração de banco necessária —
+  a coluna já era `date`, a divergência era só de formatação em JS.
+- **VH "Daqui a Pouco" inserindo o programa errado.** O casamento com o
+  próximo programa aceitava "1 palavra qualquer bate" e escolhia a primeira
+  VH da lista, ignorava pontuação (`PORTUGUÊS DAQUI, PORTUGUÊS DE LÁ` nunca
+  casava por causa da vírgula) e tinha uma stop list curta e com duplicata.
+  Nova função pura e testável `matchVhDaquiForNext()` em
+  `src/core/pecasCatalog.js` — normaliza pontuação, remove o prefixo `VH
+  DAQUI A POUCO` com regex ancorada (não `replace` de substring), exige
+  cobertura mínima (≥70%) das palavras significativas do título e escolhe a
+  **melhor** candidata, não a primeira; empate ou cobertura insuficiente ⇒
+  não insere nada. `pecas_dia.js#findVhDaquiForNext()` delega para uma
+  réplica não-modular da mesma função.
+- **Roteiro "some" ao trocar para Peças e Programas e voltar.** Condição de
+  corrida: cada edição só sobe à nuvem depois de um debounce de 900ms
+  (`cloud-sync.js`), e trocar de tela é navegação de página cheia
+  (`location.href`), que mata esse timer sem aviso. Se o clique acontecesse
+  antes dos 900ms — o caso mais comum — o envio nunca ocorria, e ao voltar
+  `fetchAndMergeCloudData()` confiava cegamente em `userRow.roteiros` (nuvem)
+  mesmo estando desatualizado, apagando a edição que não teve tempo de subir.
+  Corrigido em duas partes: (1) toda edição grava uma marca síncrona de
+  "sincronização pendente" no `localStorage` **antes** do debounce — nova
+  `flushPendingSync()`, aguardada por `cloudSyncOpenPecasProgramas()` antes
+  de trocar de página, com um listener de `pagehide` como rede de segurança;
+  (2) se essa marca ainda existir ao recarregar a página,
+  `fetchAndMergeCloudData()` inverte a precedência (local vence a nuvem para
+  `roteiros`/`pecas_dia`) e reenvia automaticamente. Testado em
+  `tests/unit/cloudSyncRoteiro.test.mjs`.
+
+### Adicionado
+- **Log de atividades no Roteiro.** Botão 🕘 no topbar abre o mesmo painel de
+  log já existente em Peças e Programas (filtros por tela/nível, atualização
+  em tempo real via `window.CanalLog`), estilizado no tema escuro do
+  Roteiro. `CanalLog.registrar(...)` passou a ser chamado em
+  `addToRoteiro`, `removeItem`, `clearRoteiro` e `undoLastAction` para o log
+  do Roteiro não ficar vazio.
+- **Desfazer última ação.** Botão "↺ Refazer última ação" na barra de
+  ferramentas do Roteiro. `saveState()` (ponto único de toda gravação real)
+  empilha, por dia, o estado imediatamente anterior sempre que o conteúdo
+  muda de fato (`registrarUndoSeMudou`), num histórico em memória (até 50
+  níveis, escopo de sessão). `undoLastAction()`/`popUndoEntry()` restauram a
+  versão anterior gravando direto no `localStorage`, sem passar de novo por
+  `saveState()` — cliques repetidos andam de verdade para trás no histórico.
+- **Ordenação da sidebar por tempo.** Botões ⏱ Menor ↑ / ⏱ Maior ↓ na sidebar
+  do Roteiro (`sortPecasByTempo()`); clicar no botão já ativo desliga a
+  ordenação. Testado, junto com o item acima, em
+  `tests/unit/appRoteiroFeatures.test.mjs`.
+
 ## [2.5.0] — Assinatura decidida pelo cadastro do programa (tag Infantil/Jovem/Adulto)
 
 A VH de assinatura inserida ao fim de cada programa (`ASSINATURA_INFANTIL`,
