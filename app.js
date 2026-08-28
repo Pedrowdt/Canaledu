@@ -11,6 +11,9 @@ let state = {
   selectedRow: null,   // index of the currently selected/focused row
   sidebarFilters: new Set(),
   panelFilters: new Set(),
+  // Ordenação da lista de peças na sidebar do Roteiro por duração: null (ordem
+  // original), 'asc' (menor primeiro) ou 'desc' (maior primeiro).
+  sidebarSort: null,
   // Peças fixas: entram automaticamente em todo roteiro gerado via importação
   // Estrutura: [{ code, descricao, tempo, type, midia, posicao, ativo }]
   // posicao: "inicio" | "fim" | "antes_programa" | "apos_assinatura"
@@ -19,6 +22,71 @@ let state = {
   // ocultos até o roteiro mudar o suficiente para gerar uma chave diferente.
   gradeAcked: new Set(),
 };
+
+// =====================================================
+// DESFAZER ÚLTIMA AÇÃO
+// Histórico em memória (não persiste entre recarregamentos de página —
+// escopo de sessão, como a maioria dos "desfazer"). Cada entrada guarda a
+// versão do roteiro de um dia específico imediatamente ANTES de uma
+// gravação real (saveState() só grava quando o conteúdo de fato muda), o
+// que cobre naturalmente adicionar, remover, reordenar (drag & drop),
+// limpar e gerar/inserir peças automaticamente — tudo que já passa por
+// saveState() hoje.
+// =====================================================
+let undoStack = []; // [{ dateKey, roteiro }], mais recente por último
+const UNDO_MAX = 50;
+
+/** Compara o roteiro que estava salvo com o que está prestes a ser salvo; se mudou, empilha o anterior para permitir desfazer depois. Chamada de dentro de saveState(), nunca diretamente. */
+function registrarUndoSeMudou(dk, roteiroAnteriorSalvo, roteiroAtual) {
+  if (roteiroAnteriorSalvo === undefined) return; // primeira gravação do dia — nada para desfazer ainda
+  const anteriorJSON = JSON.stringify(roteiroAnteriorSalvo);
+  const atualJSON    = JSON.stringify(roteiroAtual);
+  if (anteriorJSON === atualJSON) return; // nada mudou de fato
+  undoStack.push({ dateKey: dk, roteiro: JSON.parse(anteriorJSON) });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+}
+
+/** Habilita/desabilita o botão "Refazer última ação" conforme exista ou não histórico para o dia em exibição. */
+function atualizarBotaoUndo() {
+  const btn = document.getElementById('btn-undo');
+  if (!btn || !state.currentDate) return;
+  const dk = dateKey(state.currentDate);
+  btn.disabled = !undoStack.some(e => e.dateKey === dk);
+}
+
+/** Remove e devolve a entrada de desfazer mais recente para o dia informado, ou null se não houver nenhuma. Função pura — só mexe em `undoStack`, não toca DOM/state/localStorage (fica fácil de testar isoladamente). */
+function popUndoEntry(dk) {
+  const idx = undoStack.map(e => e.dateKey).lastIndexOf(dk);
+  if (idx === -1) return null;
+  return undoStack.splice(idx, 1)[0];
+}
+
+/** Reverte a última alteração salva no roteiro do dia em exibição. Não afeta outros dias nem peças/programas do cadastro. Pode ser chamada repetidamente para voltar mais de um passo. */
+function undoLastAction() {
+  const dk = dateKey(state.currentDate);
+  const entry = popUndoEntry(dk);
+  if (!entry) { toast('Não há nada para desfazer neste dia', 'error'); return; }
+
+  state.roteiro = entry.roteiro;
+  if (state.selectedRow !== null && state.selectedRow >= state.roteiro.length) {
+    state.selectedRow = state.roteiro.length ? state.roteiro.length - 1 : null;
+  }
+
+  // Grava direto no localStorage, SEM passar por saveState(): saveState()
+  // empilharia o estado atual (o que acabou de ser desfeito) como um novo
+  // ponto de desfazer, e clicar em "desfazer" de novo simplesmente
+  // alternaria para sempre entre os dois últimos estados em vez de voltar
+  // mais um passo no histórico real.
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  if (!saved.roteiros) saved.roteiros = {};
+  saved.roteiros[dk] = state.roteiro;
+  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+
+  renderRoteiro();
+  renderWeekSelector();
+  toast('Última ação desfeita', 'success');
+  if (window.CanalLog) CanalLog.registrar('roteiro_desfazer_acao', { data: dk });
+}
 
 // Versões com debounce de 220ms para renderizações disparadas por input do usuário.
 // Evita reconstruir o DOM inteiro a cada tecla pressionada.
@@ -236,7 +304,9 @@ function init() {
 function saveState() {
   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   if (!saved.roteiros) saved.roteiros = {};
-  saved.roteiros[dateKey(state.currentDate)] = state.roteiro;
+  const dk = dateKey(state.currentDate);
+  registrarUndoSeMudou(dk, saved.roteiros[dk], state.roteiro);
+  saved.roteiros[dk] = state.roteiro;
   saved.pecas     = state.pecas;
   saved.programas = state.programas;
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
@@ -434,6 +504,7 @@ function ackGradeAviso(ackKey) {
 /** Função principal de renderização. Recalcula os tempos, constrói o HTML da tabela linha por linha, verifica a grade para cada programa e injeta os break summaries ao final. */
 function renderRoteiro() {
   recalcTimes();
+  atualizarBotaoUndo();
   const tbody = document.getElementById('roteiro-tbody');
   const empty = document.getElementById('roteiro-empty');
 
@@ -651,7 +722,22 @@ function toggleFilter(type) {
   renderPecasSidebar();
 }
 
-/** Renderiza a lista de peças na barra lateral aplicando filtros de busca, tipo e duração. Cada item é arrastável e clicável (duplo clique insere no roteiro na posição selecionada). */
+/** Ordena uma lista de peças por duração (`timeToSec` do campo `tempo`). dir: 'asc' (menor primeiro), 'desc' (maior primeiro), ou qualquer outra coisa para não ordenar. Função pura — não muta o array recebido nem toca DOM. */
+function sortPecasByTempo(items, dir) {
+  if (dir !== 'asc' && dir !== 'desc') return items;
+  const sinal = dir === 'asc' ? 1 : -1;
+  return [...items].sort((a, b) => sinal * (timeToSec(a.tempo) - timeToSec(b.tempo)));
+}
+
+/** Ativa/desativa a ordenação da sidebar por duração da peça. Clicar no botão já ativo desliga a ordenação (volta à ordem original). Só um sentido fica ativo por vez. */
+function toggleSidebarSort(dir) {
+  state.sidebarSort = (state.sidebarSort === dir) ? null : dir;
+  document.getElementById('sort-asc-btn')?.classList.toggle('sort-active', state.sidebarSort === 'asc');
+  document.getElementById('sort-desc-btn')?.classList.toggle('sort-active', state.sidebarSort === 'desc');
+  renderPecasSidebar();
+}
+
+/** Renderiza a lista de peças na barra lateral aplicando filtros de busca, tipo, duração e ordenação por tempo. Cada item é arrastável e clicável (duplo clique insere no roteiro na posição selecionada). */
 function renderPecasSidebar() {
   const search   = document.getElementById('pecas-search-input').value.toLowerCase();
   const durMax   = document.getElementById('sidebar-dur-filter')?.value || '';
@@ -659,7 +745,7 @@ function renderPecasSidebar() {
     ...state.programas.map(p => ({...p, type:'RPRO', categoria:'PROGRAMAS'}))];
   const today = new Date();
 
-  const filtered = allItems.filter(item => {
+  let filtered = allItems.filter(item => {
     if (state.sidebarFilters.size > 0 && !state.sidebarFilters.has(item.type)) return false;
     if (search && !item.descricao.toLowerCase().includes(search) &&
         !item.code.toLowerCase().includes(search) &&
@@ -670,6 +756,8 @@ function renderPecasSidebar() {
     }
     return true;
   });
+
+  filtered = sortPecasByTempo(filtered, state.sidebarSort);
 
   const list = document.getElementById('pecas-sidebar-list');
   if (filtered.length === 0) {
@@ -918,6 +1006,7 @@ function addToRoteiro(code) {
   renderRoteiro();
   renderWeekSelector();
   toast(`"${peca.descricao.substring(0,40)}" adicionada`, 'success');
+  if (window.CanalLog) CanalLog.registrar('roteiro_peca_adicionada', { data: dateKey(state.currentDate), descricao: peca.descricao }, { codes: [peca.code] });
 }
 
 /** Seleciona ou deseleciona uma linha do roteiro como cursor de inserção. A linha selecionada fica com fundo azul e o botão de adicionar muda para "+ Inserir após #N". */
@@ -940,6 +1029,7 @@ function selectRow(i, event) {
 
 /** Remove o item no índice i do roteiro. Ajusta selectedRow para compensar o índice removido e recalcula os tempos. */
 function removeItem(i) {
+  const removida = state.roteiro[i];
   state.roteiro.splice(i, 1);
   if (state.selectedRow !== null) {
     if (state.selectedRow >= i) state.selectedRow = Math.max(0, state.selectedRow - 1);
@@ -949,6 +1039,9 @@ function removeItem(i) {
   saveState();
   renderRoteiro();
   renderWeekSelector();
+  if (window.CanalLog && removida) {
+    CanalLog.registrar('roteiro_peca_removida', { data: dateKey(state.currentDate), descricao: removida.descricao }, { codes: [removida.code] });
+  }
 }
 
 // Inject break duration summary rows between program blocks
@@ -1012,10 +1105,13 @@ function injectBreakSummaries() {
 /** Limpa todo o roteiro do dia atual após confirmação do usuário. Reseta selectedRow e re-renderiza. */
 function clearRoteiro() {
   if (!confirm('Limpar todo o roteiro do dia?')) return;
+  const dk = dateKey(state.currentDate);
+  const totalAnterior = state.roteiro.length;
   state.roteiro = [];
   saveState();
   renderRoteiro();
   renderWeekSelector();
+  if (window.CanalLog) CanalLog.registrar('roteiro_limpo', { data: dk, itensRemovidos: totalAnterior }, { nivel: 'warn' });
 }
 
 /** Busca uma peça pelo code nos dois bancos: state.pecas e state.programas. Retorna o primeiro resultado encontrado ou null. */
@@ -2851,6 +2947,101 @@ function toast(msg, type='success') {
   el.textContent = msg;
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3000);
+}
+
+// =====================================================
+// LOG DE ATIVIDADES (modal) — lê de window.CanalLog, o mesmo módulo
+// usado pela tela de Peças e Programas. Mesma lógica, replicada aqui
+// porque cada tela é um documento HTML separado (sem módulos ES) — não
+// há sistema de log paralelo, as duas telas leem a mesma trilha.
+// =====================================================
+let logEntradas = [];
+let logUnsubscribe = null;
+
+const LOG_NIVEL_LABEL = { info: 'Info', warn: 'Aviso', error: 'Erro' };
+
+function fmtLogData(iso) {
+  try {
+    return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch { return iso || ''; }
+}
+
+function fmtLogDetalhes(entrada) {
+  const d = entrada.detalhe || {};
+  const partes = [];
+  if (entrada.codes && entrada.codes.length) partes.push(`codes: ${entrada.codes.join(', ')}`);
+  Object.entries(d).forEach(([k, v]) => {
+    if (v == null || v === '') return;
+    if (k === 'stack') return; // não polui a lista, fica só no console/objeto
+    const val = Array.isArray(v) ? v.join(', ') : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    partes.push(`${k}: ${val}`);
+  });
+  return partes.join(' · ');
+}
+
+async function openLog() {
+  document.getElementById('log-overlay').style.display = 'flex';
+  await loadLog();
+
+  if (!logUnsubscribe && window.CanalLog && typeof CanalLog.onNovaEntrada === 'function') {
+    logUnsubscribe = CanalLog.onNovaEntrada((entrada) => {
+      logEntradas.unshift(entrada);
+      renderLog();
+    });
+    const liveEl = document.getElementById('log-live');
+    if (liveEl) liveEl.style.display = 'inline-flex';
+  }
+}
+
+function closeLog() {
+  document.getElementById('log-overlay').style.display = 'none';
+  if (logUnsubscribe) { logUnsubscribe(); logUnsubscribe = null; }
+  const liveEl = document.getElementById('log-live');
+  if (liveEl) liveEl.style.display = 'none';
+}
+
+async function loadLog() {
+  const body = document.getElementById('log-body');
+  body.innerHTML = '<div class="log-empty">Carregando…</div>';
+  // CanalLog.equipe() lê a nuvem (todos os usuários); se não houver sessão
+  // ainda ou a tabela não estiver migrada, cai para o log local deste navegador.
+  logEntradas = window.CanalLog
+    ? await CanalLog.equipe(200).then((r) => (r && r.length ? r : CanalLog.recentes(200).slice().reverse()))
+    : [];
+  renderLog();
+}
+
+function renderLog() {
+  const body = document.getElementById('log-body');
+  const filtroTela  = document.getElementById('log-filter-tela').value;
+  const filtroNivel = document.getElementById('log-filter-nivel').value;
+
+  const filtradas = logEntradas.filter((e) =>
+    (!filtroTela || e.tela === filtroTela) &&
+    (!filtroNivel || e.nivel === filtroNivel)
+  );
+
+  if (!filtradas.length) {
+    body.innerHTML = '<div class="log-empty">Nenhum registro ainda. Ações como adicionar, remover, limpar ou desfazer no Roteiro — e no Cadastro — aparecem aqui.</div>';
+    return;
+  }
+
+  const linhas = filtradas.map((e) => `
+    <tr>
+      <td style="white-space:nowrap;color:var(--muted)">${fmtLogData(e.criado_em)}</td>
+      <td><span class="log-badge ${escHtml(e.nivel || 'info')}">${escHtml(LOG_NIVEL_LABEL[e.nivel] || e.nivel || 'info')}</span></td>
+      <td style="white-space:nowrap">${escHtml(e.tela)}</td>
+      <td>${escHtml(e.evento)}</td>
+      <td style="white-space:nowrap">${escHtml(e.user_email || '—')}</td>
+      <td class="log-detalhes">${escHtml(fmtLogDetalhes(e))}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <table class="log-table">
+      <thead><tr><th>Quando</th><th>Nível</th><th>Tela</th><th>Evento</th><th>Usuário</th><th>Detalhes</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table>`;
 }
 
 // =====================================================

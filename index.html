@@ -151,6 +151,7 @@
   .btn-danger:hover { background: rgba(232,93,93,.1); }
   .btn-green { border-color: var(--green); color: var(--green); }
   .btn-green:hover { background: rgba(45,202,114,.1); }
+  .btn.sort-active { border-color: var(--accent); color: var(--accent); background: rgba(79,142,247,.1); }
   #theme-selector.btn-sm { height: 24px; line-height: 1; }
 
   /* PANELS */
@@ -369,6 +370,28 @@
   .modal { scrollbar-width: thin; scrollbar-color: var(--border2) var(--bg3); }
   .modal h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; }
   .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* LOG DE ATIVIDADES — mesmo painel da tela de Peças e Programas,
+     reaproveitando window.CanalLog (canal-log.js), estilizado no tema
+     escuro do Roteiro. */
+  .log-modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 12px; width: 820px; max-width: 94vw; max-height: 86vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 10px 48px rgba(0,0,0,.4); }
+  .log-modal .modal-header { padding: 16px 20px 13px; border-bottom: 1px solid var(--border2); display: flex; justify-content: space-between; align-items: center; }
+  .log-modal .modal-header .log-title { font-weight: 600; font-size: 14px; }
+  .log-filters { display: flex; gap: 8px; padding: 12px 20px; flex-wrap: wrap; border-bottom: 1px solid var(--border2); }
+  .log-filters select { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 11.5px; font-family: var(--sans); }
+  .log-body { overflow-y: auto; padding: 8px 20px 20px; flex: 1; }
+  .log-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .log-table th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border2); position: sticky; top: 0; background: var(--bg2); }
+  .log-table td { padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .log-badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+  .log-badge.info { background: rgba(79,142,247,.15); color: var(--accent); }
+  .log-badge.warn { background: rgba(240,167,66,.15); color: var(--amber); }
+  .log-badge.error { background: rgba(232,93,93,.15); color: var(--red); }
+  .log-empty { padding: 40px 0; text-align: center; color: var(--muted); font-size: 12px; }
+  .log-detalhes { color: var(--muted); font-size: 11px; max-width: 300px; white-space: pre-wrap; word-break: break-word; }
+  .log-live { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--muted); margin-left: 10px; }
+  .log-live .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
   .form-row { margin-bottom: 12px; }
   .form-row label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
   .form-row input, .form-row select { width: 100%; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text); font-size: 12px; font-family: var(--sans); outline: none; }
@@ -570,6 +593,7 @@
         <option value="destaque">★ Destaque</option>
       </select>
       <button class="btn btn-sm btn-icon" onclick="importData()" title="Importar — CSV do Notion ou JSON de backup">📥</button>
+      <button class="btn btn-sm btn-icon" onclick="openLog()" title="Log de atividades">🕘</button>
       <button class="btn btn-sm btn-icon" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)" title="Inserir Peças — distribuir peças do dia no roteiro automaticamente">⚡</button>
       <div style="display:flex;gap:4px">
         <button class="btn btn-sm btn-icon btn-green" onclick="exportExcel()" title="Exportar CSV (Roteiro Rede)">📄</button>
@@ -633,6 +657,12 @@
             <option value="600">Até 10:00</option>
           </select>
         </div>
+        <!-- Ordenação da sidebar por tempo (duração da peça). Clicar no botão já
+             ativo desliga a ordenação e volta à ordem original da lista. -->
+        <div style="padding:0 10px 4px;display:flex;gap:4px">
+          <button id="sort-asc-btn" class="btn btn-sm" style="flex:1" onclick="toggleSidebarSort('asc')" title="Ordenar peças por tempo crescente">⏱ Menor ↑</button>
+          <button id="sort-desc-btn" class="btn btn-sm" style="flex:1" onclick="toggleSidebarSort('desc')" title="Ordenar peças por tempo decrescente">⏱ Maior ↓</button>
+        </div>
         <!-- Botão de acesso às peças fixas -->
         <div style="padding:4px 10px">
           <button id="btn-pecas-fixas" class="btn btn-sm" onclick="openPecasFixasModal()"
@@ -649,6 +679,8 @@
         <div class="roteiro-toolbar">
           <!-- Botão para abrir modal de inserção de peça no roteiro -->
           <button class="btn btn-sm" onclick="addItemModal()">+ Adicionar peça</button>
+          <!-- Desfaz a última alteração salva no roteiro do dia em exibição (adicionar, remover, reordenar, limpar, inserção automática...). Começa desabilitado até haver algo para desfazer. -->
+          <button class="btn btn-sm" id="btn-undo" onclick="undoLastAction()" disabled title="Reverter a última ação feita no roteiro deste dia">↺ Refazer última ação</button>
           <!-- Botão para limpar todo o roteiro do dia atual (com confirmação) -->
           <button class="btn btn-sm" onclick="clearRoteiro()">Limpar roteiro</button>
           <!-- Botão para abrir o modal de configuração da grade semanal -->
@@ -998,6 +1030,37 @@
     <div class="modal-actions" style="margin-top:12px">
       <button class="btn" onclick="closeModal('modal-grade')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveGradeFromModal()">Salvar grade</button>
+    </div>
+  </div>
+</div>
+
+<!-- LOG DE ATIVIDADES — mesmo painel de "Peças e Programas", lendo de
+     window.CanalLog (canal-log.js). Mostra ações da equipe nas duas telas. -->
+<div class="modal-overlay" id="log-overlay" style="display:none" onclick="if(event.target===this)closeLog()">
+  <div class="log-modal">
+    <div class="modal-header">
+      <div>
+        <span class="log-title">Log de atividades</span>
+        <span class="log-live" id="log-live" style="display:none"><span class="dot"></span>ao vivo</span>
+      </div>
+      <button class="btn btn-sm" onclick="closeLog()">Fechar</button>
+    </div>
+    <div class="log-filters">
+      <select id="log-filter-tela" onchange="renderLog()">
+        <option value="">Todas as telas</option>
+        <option value="cadastro">Cadastro</option>
+        <option value="roteiro">Roteiro</option>
+      </select>
+      <select id="log-filter-nivel" onchange="renderLog()">
+        <option value="">Todos os níveis</option>
+        <option value="info">Info</option>
+        <option value="warn">Aviso</option>
+        <option value="error">Erro</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadLog()">↻ Atualizar</button>
+    </div>
+    <div class="log-body" id="log-body">
+      <div class="log-empty">Carregando…</div>
     </div>
   </div>
 </div>

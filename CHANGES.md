@@ -118,3 +118,40 @@ Testado em `tests/unit/cloudSyncRoteiro.test.mjs`: marca pendente indo e
 voltando, `patchLocalStorage` marcando antes do debounce, o cenário exato
 do bug (nuvem desatualizada não pode sobrescrever o local pendente, e a
 pendência é reenviada), e `flushPendingSync` enviando na hora.
+
+## 4. Log de atividades no Roteiro, desfazer última ação e ordenação da sidebar
+
+Três pedidos novos, implementados em `index.html` + `app.js`:
+
+- **Log de atividades** — botão 🕘 no topbar do Roteiro abre o mesmo painel
+  de log já existente em Peças e Programas (filtros por tela/nível,
+  atualização em tempo real), lendo de `window.CanalLog`. Estilizado no
+  tema escuro do Roteiro (novo CSS `.log-modal`/`.log-table`/etc., em vez
+  de reaproveitar o CSS claro da outra tela). As funções
+  `openLog/closeLog/loadLog/renderLog` são uma réplica não-modular das de
+  `pecas-programas.js` (cada tela é um HTML separado, sem módulos — mesmo
+  padrão já usado no resto do projeto). Para o log do Roteiro não ficar
+  vazio, `CanalLog.registrar(...)` passou a ser chamado em
+  `addToRoteiro`, `removeItem`, `clearRoteiro` e `undoLastAction`.
+- **Desfazer última ação** — botão "↺ Refazer última ação" na barra de
+  ferramentas do Roteiro, desabilitado até existir algo para desfazer.
+  `saveState()` (já é o ponto único por onde passa toda gravação real —
+  adicionar, remover, arrastar, limpar, geração automática) empilha, por
+  dia, o estado imediatamente anterior sempre que o conteúdo muda de fato
+  (`registrarUndoSeMudou`), num histórico em memória (`undoStack`, até 50
+  níveis, não persiste entre recarregamentos — escopo de sessão).
+  `undoLastAction()`/`popUndoEntry()` restauram a versão anterior do dia em
+  exibição gravando direto no `localStorage`, **sem** passar de novo por
+  `saveState()` — senão clicar "desfazer" empilharia o estado que acabou
+  de ser desfeito e o botão viraria um alternador infinito entre os dois
+  últimos estados em vez de andar de verdade para trás no histórico
+  (cliques repetidos voltam mais de um passo).
+- **Ordenação da sidebar por tempo** — dois botões (⏱ Menor ↑ / ⏱ Maior ↓)
+  abaixo do filtro de duração na sidebar do Roteiro. `sortPecasByTempo()`
+  ordena a lista filtrada por `timeToSec(tempo)`; clicar no botão já ativo
+  desliga a ordenação e volta à ordem original.
+
+Testado em `tests/unit/appRoteiroFeatures.test.mjs`: quando um ponto de
+desfazer é (ou não) criado, `popUndoEntry` andando corretamente para trás
+no histórico por dia (LIFO, sem misturar dias diferentes), e
+`sortPecasByTempo` nos dois sentidos (sem mutar o array original).
