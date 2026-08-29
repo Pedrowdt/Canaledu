@@ -38,6 +38,74 @@ let pushTimer = null;
 let lastPushAt = 0;
 let pushInFlight = false; // true durante o await do pushToCloud (grava + recarrega)
 
+// =====================================================
+// RASCUNHO PENDENTE — persistência local de segurança
+//
+// Bug corrigido aqui: `pecas`/`programas`/`deletedPecas`/`deletedProgramas`
+// só existiam em memória, e `scheduleSync()` só envia 700ms depois da
+// última mudança. Qualquer recarregamento de página nesse meio-tempo —
+// principalmente o `location.reload()` automático em SIGNED_OUT, que
+// dispara sempre que a sessão do Supabase Auth deste navegador muda (por
+// exemplo, outra pessoa fazendo login no MESMO navegador/computador) —
+// descartava silenciosamente tudo que ainda não tinha sido confirmado no
+// banco, inclusive exclusões: a peça "voltava", porque o DELETE nunca
+// chegou a sair, e o reload só truxe de volta o que já estava no banco.
+//
+// Aqui a marca de pendência é gravada de forma SÍNCRONA a cada mudança —
+// antes do debounce — e sobrevive a um reload porque fica em localStorage,
+// não em memória. `startApp()` verifica essa marca ao carregar e, se
+// existir, restaura o rascunho por cima do que acabou de vir da nuvem e
+// tenta reenviar na hora, em vez de descartar.
+// =====================================================
+const RASCUNHO_KEY  = 'cadastroRascunho';
+const PENDENTE_KEY  = 'cadastroSyncPendente';
+
+function persistirRascunho() {
+  try {
+    localStorage.setItem(RASCUNHO_KEY, JSON.stringify({
+      pecas, programas, deletedPecas, deletedProgramas,
+      email: currentUser && currentUser.email,
+      salvoEm: new Date().toISOString(),
+    }));
+    localStorage.setItem(PENDENTE_KEY, '1');
+  } catch (e) {
+    console.warn('[Peças e Programas] não foi possível salvar rascunho local', e);
+  }
+}
+
+function limparRascunho() {
+  try {
+    localStorage.removeItem(RASCUNHO_KEY);
+    localStorage.setItem(PENDENTE_KEY, '0');
+  } catch (e) { /* localStorage indisponível — nada a fazer */ }
+}
+
+function haRascunhoPendente() {
+  try { return localStorage.getItem(PENDENTE_KEY) === '1'; }
+  catch (e) { return false; }
+}
+
+function lerRascunho() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RASCUNHO_KEY) || 'null');
+    if (!raw || typeof raw !== 'object') return null;
+    return {
+      pecas: Array.isArray(raw.pecas) ? raw.pecas : [],
+      programas: Array.isArray(raw.programas) ? raw.programas : [],
+      deletedPecas: Array.isArray(raw.deletedPecas) ? raw.deletedPecas : [],
+      deletedProgramas: Array.isArray(raw.deletedProgramas) ? raw.deletedProgramas : [],
+      email: raw.email || null,
+    };
+  } catch (e) { return null; }
+}
+
+/** Cancela o debounce e envia agora — usado antes do reload automático em SIGNED_OUT, como melhor esforço (a sessão pode já não ser mais válida nesse ponto; a rede de segurança de verdade é o rascunho em localStorage). */
+function flushPendingSync() {
+  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  if (!currentUser) return Promise.resolve();
+  return pushToCloud();
+}
+
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 
 function items(){ return activeTab === 'pecas' ? pecas : programas; }
@@ -81,9 +149,21 @@ function showGateLogin(errorMsg){
   // Guarda para onde voltar depois do login (esta própria página).
   CanalAuth.rememberReturnTo('pecas-programas.html');
 
-  // Sessão expirada/logout em outra aba -> recarrega e cai no gate.
-  CanalAuth.onAuthChange((event) => {
-    if (event === 'SIGNED_OUT') location.reload();
+  // Sessão expirada/logout em outra aba -> recarrega e cai no gate. Se
+  // houver algo pendente de envio (ex.: outra pessoa logando neste mesmo
+  // navegador no meio de uma edição), tenta enviar agora — melhor esforço,
+  // já que a sessão pode não ser mais válida neste ponto; a rede de
+  // segurança de verdade é o rascunho em localStorage (ver startApp).
+  CanalAuth.onAuthChange(async (event) => {
+    if (event !== 'SIGNED_OUT') return;
+    try { await flushPendingSync(); } catch (e) { /* ver comentário acima */ }
+    location.reload();
+  });
+
+  // Rede de segurança para fechar a aba/navegar para fora com algo
+  // agendado ainda não enviado.
+  window.addEventListener('pagehide', () => {
+    if (pushTimer) flushPendingSync();
   });
 
   const user = await CanalAuth.requireUser();
@@ -152,6 +232,7 @@ async function startApp(user) {
     }
     console.info('[Peças e Programas] modo de banco:', modo);
     await loadFromCloud();
+    restaurarRascunhoPendenteSeExistir();
     setupRealtime();
   } catch (e) {
     // Nunca deixar a tela travada no gate por causa de uma falha de rede/banco.
@@ -176,6 +257,39 @@ async function loadFromCloud() {
     setSyncStatus('Falha ao carregar');
     showToast('Não foi possível carregar o cadastro: ' + (e.message || e), true);
   }
+}
+
+/**
+ * Se a marca de "sincronização pendente" ainda estiver presente ao abrir a
+ * tela, é sinal de que uma sessão anterior (deste ou de outro usuário, no
+ * mesmo navegador) fez alterações — inclusive exclusões — que nunca
+ * chegaram a ser confirmadas no banco antes da página recarregar. Em vez de
+ * descartar (o bug relatado: "as alterações que fiz, inclusive exclusão de
+ * peças, voltaram"), o rascunho local vence o que acabou de vir da nuvem, e
+ * o envio é refeito na hora — o mecanismo normal de conflito por
+ * row_version em pushToCloud() cobre qualquer edição de terceiros que
+ * porventura tenha acontecido nesse meio-tempo.
+ */
+function restaurarRascunhoPendenteSeExistir() {
+  if (!haRascunhoPendente()) return;
+  const rascunho = lerRascunho();
+  if (!rascunho) { limparRascunho(); return; }
+
+  pecas             = rascunho.pecas;
+  programas         = rascunho.programas;
+  deletedPecas      = rascunho.deletedPecas;
+  deletedProgramas  = rascunho.deletedProgramas;
+
+  const deEmail = rascunho.email && rascunho.email !== currentUser.email ? ` (feitas por ${rascunho.email})` : '';
+  showToast(`Alterações não sincronizadas de uma sessão anterior${deEmail} foram recuperadas e estão sendo enviadas agora.`, false);
+  if (window.CanalLog) {
+    CanalLog.registrar('cadastro_rascunho_recuperado', {
+      email_original: rascunho.email,
+      exclusoesPecas: deletedPecas.length,
+      exclusoesProgramas: deletedProgramas.length,
+    }, { nivel: 'warn' });
+  }
+  scheduleSync();
 }
 
 // Codes excluídos explicitamente nesta tela (a única coisa que autoriza um
@@ -211,6 +325,9 @@ async function pushToCloud() {
     });
     deletedPecas = deletedPecas.filter((c) => !delP.includes(c));
     deletedProgramas = deletedProgramas.filter((c) => !delG.includes(c));
+    // O delta foi gravado no banco com sucesso (mesmo que parte tenha vindo
+    // como conflito, abaixo) — não há mais nada pendente para proteger.
+    limparRascunho();
     if (window.CanalLog) {
       CanalLog.registrar('cadastro_salvo', {
         aplicados: res && res.aplicados,
@@ -243,6 +360,10 @@ async function pushToCloud() {
 }
 
 function scheduleSync() {
+  // Grava o rascunho ANTES do debounce — se a página recarregar nos
+  // próximos 700ms (ou a qualquer momento antes do envio confirmar), essa
+  // cópia em localStorage é o que garante que a mudança não se perde.
+  persistirRascunho();
   clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     pushTimer = null;

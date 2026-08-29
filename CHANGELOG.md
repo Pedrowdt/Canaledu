@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.6.1] — Peças e Programas não perde mais alterações (inclusive exclusões) ao recarregar a página
+
+### Corrigido
+- **Exclusões e edições revertidas quando a página recarrega antes do envio.**
+  Em `pecas-programas.js`, tudo que ainda não tinha sido gravado no banco
+  (`pecas`, `programas`, `deletedPecas`, `deletedProgramas`) só existia em
+  memória, e `scheduleSync()` só envia 700ms depois da última mudança. Se a
+  página recarregasse nesse meio-tempo — o caso relatado foi **outra pessoa
+  fazendo login no mesmo navegador**, o que troca a sessão do Supabase Auth
+  e dispara `SIGNED_OUT`, que já tinha um `location.reload()` automático e
+  incondicional — tudo que ainda não tinha sido confirmado no banco era
+  descartado em silêncio. Como o `DELETE` nunca chegava a sair, a peça
+  excluída simplesmente "voltava" depois do reload.
+  - `scheduleSync()` agora grava um rascunho (`persistirRascunho()`) em
+    `localStorage` de forma **síncrona**, antes do debounce — sobrevive a
+    um reload porque não depende de nada em memória.
+  - `startApp()` verifica essa marca ao carregar
+    (`restaurarRascunhoPendenteSeExistir()`): se houver um rascunho não
+    confirmado, ele **prevalece** sobre o que acabou de vir da nuvem, e o
+    reenvio é agendado na hora — em vez de a peça excluída reaparecer, a
+    exclusão pendente é recuperada e reenviada. Qualquer edição concorrente
+    de outra pessoa nesse meio-tempo continua protegida pelo controle de
+    conflito por `row_version` que `pushToCloud()` já tinha.
+  - O handler de `SIGNED_OUT` agora tenta `flushPendingSync()` (cancela o
+    debounce e envia na hora) antes do `location.reload()` — melhor esforço,
+    já que a sessão pode não ser mais válida nesse ponto; a proteção real é
+    o rascunho em `localStorage`, não essa tentativa. Um listener de
+    `pagehide` cobre fechar a aba/navegar para fora com algo ainda agendado.
+  - `limparRascunho()` some assim que `pushToCloud()` confirma a gravação.
+  - Testado em `tests/unit/pecasProgramasRascunho.test.mjs`, incluindo o
+    cenário exato do bug (exclusão pendente recuperada em vez de "voltar").
+
 ## [2.6.0] — Validade em ISO ponta a ponta, VH "Daqui a Pouco" correta, Roteiro não perde mais trabalho ao trocar de tela, e log/desfazer/ordenação no Roteiro
 
 > **Nota de versionamento:** `package.json`, `version.js` e `version.txt` estavam
