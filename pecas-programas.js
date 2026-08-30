@@ -469,7 +469,7 @@ function assinaturaBadgeHtml(list){
   if(!list||!list.length)return'—';
   return list.map(a=>{
     const m=ASSINATURA_META[a]||{label:a,text:'#555',bg:'#eee',border:'#ccc'};
-    return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${m.label}</span>`;
+    return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${escapeHtml(m.label)}</span>`;
   }).join('');
 }
 
@@ -533,13 +533,13 @@ function render(){
 
   document.getElementById('tbody').innerHTML=filtered.map(p=> isPecas ? `
     <tr>
-      <td class="code-cell">${p.code}</td>
+      <td class="code-cell">${escapeHtml(p.code)}</td>
       <td>
-        <div class="desc-main">${p.descricao}</div>
-        ${p.obs?`<div class="desc-obs">${p.obs}</div>`:''}
+        <div class="desc-main">${escapeHtml(p.descricao)}</div>
+        ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
       </td>
-      <td class="tempo-cell">${p.tempo}</td>
-      <td class="type-cell">${p.type}</td>
+      <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
+      <td class="type-cell">${escapeHtml(p.type)}</td>
       <td>${catBadgeHtml(p.categoria)}</td>
       <td>${kBadgeHtml(p.validade)}</td>
       <td class="hor-cell">${horLabel(p)}</td>
@@ -551,11 +551,11 @@ function render(){
       </td>
     </tr>` : `
     <tr>
-      <td class="code-cell">${p.code}</td>
-      <td><div class="desc-main">${p.descricao}</div></td>
-      <td class="tempo-cell">${p.tempo}</td>
-      <td class="type-cell">${p.type}</td>
-      <td class="hor-cell">${p.midia||''}</td>
+      <td class="code-cell">${escapeHtml(p.code)}</td>
+      <td><div class="desc-main">${escapeHtml(p.descricao)}</div></td>
+      <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
+      <td class="type-cell">${escapeHtml(p.type)}</td>
+      <td class="hor-cell">${escapeHtml(p.midia||'')}</td>
       <td>${assinaturaBadgeHtml(p.assinatura)}</td>
       <td>
         <div class="row-actions">

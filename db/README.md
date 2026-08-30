@@ -30,16 +30,20 @@ antigo que lia `shared_data` continua funcionando.
    telas (peças/programas salvos, sincronizações adiadas, erros não
    tratados...). Opcional: sem ela o log continua funcionando só em
    console + `localStorage` (best-effort, nunca bloqueia a ação do usuário).
+5. `005_log_atividades.sql` — evolução de `004_activity_log.sql` (tabela
+   `log_atividades`, mesma finalidade).
+6. `006_pecas_one_way.sql` — fluxo de mão única: só a tela "Peças e
+   Programas" pode gravar em `pecas`/`programas` (REVOKE + RLS + trigger de
+   escopo). O Roteiro passa a ser somente leitura no banco.
+7. `004_autenticacao.sql` — revoga qualquer privilégio residual do papel
+   `anon` nas tabelas de cadastro, log e espelho legado. Reexecutável a
+   qualquer momento (todo `REVOKE` é seguro mesmo que o privilégio já não
+   exista). Numerado como "004" porque foi planejado antes de
+   `004_activity_log.sql`/`005_log_atividades.sql` existirem — a ordem de
+   aplicação não importa entre este e os dois de log, mas aplique depois de
+   `001`/`003`/`006` (precisa que `pecas`/`programas` já existam).
 
 Nada precisa ser apagado: `shared_data` continua existindo como espelho.
-
-> ⚠️ **Gap conhecido, não relacionado ao log:** `AUTENTICACAO.md` menciona um
-> `db/004_autenticacao.sql` que revogaria o acesso do papel anônimo às
-> tabelas de cadastro — esse arquivo nunca foi commitado neste repositório.
-> As colunas de auditoria (`created_by`/`updated_by`) já existem (criadas em
-> `001`), mas a revogação de acesso anônimo em si não está em nenhum script
-> versionado. Confirme manualmente no painel do Supabase (Database →
-> Policies) se o papel `anon` tem algum `GRANT` residual em `pecas`/`programas`.
 
 ## Estrutura
 

@@ -1,5 +1,16 @@
 -- =====================================================
 -- Roteiro Canal Educação — Schema Supabase
+--
+-- ⚠️ LEGADO — não é mais o schema recomendado para novas instalações.
+-- Cria só a tabela antiga `shared_data`, sem o cadastro relacional
+-- (pecas/programas), sem RLS granular e sem o fluxo de mão única.
+-- Para uma instalação nova, rode em ordem os arquivos em db/:
+-- 001_pecas_programas.sql, 002_migrar_shared_data.sql,
+-- 003_consistencia.sql, 004_activity_log.sql, 005_log_atividades.sql,
+-- 006_pecas_one_way.sql — ver db/README.md e DEPLOY.md.
+-- Este arquivo continua funcionando como modo de compatibilidade caso
+-- você não possa rodar as migrações de db/.
+--
 -- Cole este arquivo inteiro em: Supabase → SQL Editor → New query → Run
 -- =====================================================
 

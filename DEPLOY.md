@@ -16,9 +16,29 @@ a equipe; **o roteiro do dia é isolado por usuário** (cada um só vê e edita 
    senha para o banco (guarde-a, mas não precisará dela no dia a dia) e a região
    mais próxima (ex: São Paulo). Aguarde ~2 minutos até o projeto ficar pronto.
 3. No menu lateral, vá em **SQL Editor** → **New query**.
-4. Abra o arquivo `supabase-schema.sql` (está junto com o seu sistema), copie todo
-   o conteúdo, cole no editor e clique em **Run**. Isso cria as tabelas e as regras
-   de segurança automaticamente.
+4. Rode, **em ordem**, os arquivos da pasta `db/` (cada um copiado e colado
+   inteiro, um de cada vez, clicando **Run** antes de passar para o próximo):
+   1. `db/001_pecas_programas.sql` — cria as tabelas de peças/programas, tipos,
+      índices, GRANTs, RLS, views e os triggers que espelham tudo em
+      `shared_data` (para o código que ainda lê esse formato continuar
+      funcionando).
+   2. `db/002_migrar_shared_data.sql` — se você já vinha de uma instalação
+      antiga (só com `shared_data`), importa o que já existia para as tabelas
+      novas. Se é uma instalação nova, pode rodar mesmo assim — não faz nada.
+   3. `db/003_consistencia.sql` — trava por versão (`row_version`) para
+      detectar quando duas pessoas editam a mesma peça ao mesmo tempo.
+   4. `db/004_activity_log.sql` e `db/005_log_atividades.sql` — criam o log de
+      atividades (quem editou o quê, e quando) usado pelo botão de log das
+      duas telas. Opcional: sem eles o sistema continua funcionando.
+   5. `db/006_pecas_one_way.sql` — só a tela "Peças e Programas" pode alterar
+      o cadastro; o Roteiro só lê. Reforçado no próprio banco (não é só uma
+      regra do site).
+
+   > O arquivo `supabase-schema.sql` na raiz do projeto é **legado**: cria só
+   > a tabela antiga `shared_data`, sem o cadastro relacional, sem RLS
+   > granular e sem o fluxo de mão única acima. Use-o apenas se por algum
+   > motivo você não puder rodar as migrações de `db/`; nesse caso, o sistema
+   > funciona no modo de compatibilidade, mas sem essas proteções.
 5. No menu lateral, vá em **Project Settings** → **API**. Copie:
    - **Project URL** (algo como `https://xxxxxxxx.supabase.co`)
    - **anon public key** (uma chave longa)

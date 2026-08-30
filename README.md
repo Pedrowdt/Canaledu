@@ -14,6 +14,8 @@ com backend Supabase (Postgres + Auth + Realtime).
 | [AUTENTICACAO.md](AUTENTICACAO.md) | Detalhes do fluxo de login único |
 | [db/README.md](db/README.md) | Migrações SQL — o que cada uma faz e como aplicar |
 | [CHANGELOG.md](CHANGELOG.md) | Histórico de versões |
+| [ANALISE.md](ANALISE.md) | Revisão do projeto e propostas de melhoria futura, por área e priorizadas |
+| [COMMITS.md](COMMITS.md) | Convenção de mensagens de commit usada no projeto |
 
 ## Início rápido (desenvolvimento)
 

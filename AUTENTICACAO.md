@@ -29,8 +29,10 @@ Regras de acesso a **Peças e Programas**:
 2. a sessão é a mesma do Roteiro: quem já entrou no Roteiro abre o cadastro
    direto;
 3. logout em qualquer tela derruba a outra (`onAuthChange` → `SIGNED_OUT`);
-4. no banco, `db/004_autenticacao.sql` revoga qualquer acesso do papel
-   anônimo e registra `created_by` / `updated_by` em cada linha do cadastro.
+4. no banco, `db/004_autenticacao.sql` revoga qualquer acesso residual do
+   papel anônimo às tabelas de cadastro/log (a autoria `created_by` /
+   `updated_by` já é registrada pelas funções de gravação, ver
+   `003_consistencia.sql`/`006_pecas_one_way.sql`).
 
 ### Persistência garantida no roteiro (`roteiro-pecas-bridge.js`)
 A tela de confecção lê o banco de peças do `localStorage` (`roteiroApp`),
@@ -56,7 +58,10 @@ A ponte torna o cadastro a **fonte da verdade**:
 \i db/001_pecas_programas.sql
 \i db/002_migrar_shared_data.sql
 \i db/003_consistencia.sql
-\i db/004_autenticacao.sql   -- NOVO: fecha o acesso anônimo + autoria
+\i db/004_autenticacao.sql   -- fecha o acesso anônimo (created_by/updated_by já vêm de 003/006)
+\i db/004_activity_log.sql   -- opcional: log de atividades
+\i db/005_log_atividades.sql -- opcional: evolução do log acima
+\i db/006_pecas_one_way.sql  -- só "Peças e Programas" grava no cadastro
 ```
 
 Crie os usuários da equipe em **Authentication → Users** (e-mail + senha).

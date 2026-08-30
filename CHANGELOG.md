@@ -1,5 +1,58 @@
 # Changelog
 
+## [2.6.2] — Correções de segurança, documentação e higiene do repositório
+
+Aplicado a partir da revisão completa do projeto (ver `analise-projeto.md`),
+os 5 itens de maior impacto/menor esforço:
+
+### Corrigido
+- **XSS armazenado em Peças e Programas.** A tabela principal
+  (`pecas-programas.js`) inseria `code`/`descricao`/`obs`/`tempo`/`type`/
+  `midia` direto no `innerHTML`, sem escapar — texto livre editável por
+  qualquer conta autenticada virava HTML executado no navegador de toda a
+  equipe. `escapeHtml()` (já existia, só não era usada aqui) agora envolve
+  todos esses campos nos dois branches (peças e programas), e o fallback de
+  `assinaturaBadgeHtml()` também passou a escapar. Testado em
+  `tests/unit/pecasProgramasXSS.test.mjs`.
+- **`db/004_autenticacao.sql` nunca tinha sido commitado**, apesar de
+  referenciado em `AUTENTICACAO.md`/`db/README.md` desde a introdução da
+  autenticação única — o gap ficava documentado mas nunca fechado. Escrito
+  agora: revoga qualquer privilégio residual do papel `anon` em
+  `pecas`/`programas`/`activity_log`/`log_atividades`/`shared_data`/
+  `user_data` e nas funções de gravação/leitura do cadastro. Idempotente —
+  validado rodando duas vezes seguidas contra um Postgres real (PGlite).
+  A autoria (`created_by`/`updated_by`) já era coberta por
+  `003_consistencia.sql`/`006_pecas_one_way.sql`, então este arquivo ficou
+  focado só na revogação.
+- **`DEPLOY.md` mandava rodar o schema errado.** O passo 1.4 apontava para
+  `supabase-schema.sql` (raiz), que só cria a tabela legada `shared_data` —
+  quem seguisse o guia hoje montaria um Supabase sem o cadastro relacional,
+  sem RLS granular, sem log de atividades e sem o fluxo de mão única.
+  Corrigido para apontar, em ordem, para `db/001` → `006`; `supabase-schema.sql`
+  passou a se identificar como legado logo no topo do próprio arquivo.
+- **Versão do sistema podia voltar a dessincronizar.** `scripts/sync-version.js`
+  já existia e tinha o comentário "roda via `.versionrc.json` → `postbump`",
+  mas esse arquivo de configuração nunca tinha sido commitado — por isso
+  `package.json`/`version.js`/`version.txt` ficaram presos em `2.2.0` por
+  quatro releases seguidas (corrigido manualmente em `2.6.0`/`2.6.1`). Criado
+  `.versionrc.json` conectando o `postbump` ao script, que agora também
+  grava `version.txt` (antes só atualizava `version.js`). Novo teste,
+  `tests/unit/versaoConsistente.test.mjs`, falha se os três arquivos
+  voltarem a divergir — pega o problema no `npm test`, não manualmente.
+
+### Removido
+- `activity-log.js` (órfão — não referenciado em nenhum HTML nem na lista
+  de scripts dinâmicos de `cloud-sync.js`; superado por `canal-log.js`).
+- `multiusuario.test.mjs` na raiz (cópia idêntica de
+  `tests/unit/multiusuario.test.mjs`; fora do `include` do `vitest.config.js`,
+  nunca rodava).
+- `patch-mao-unica.diff` e `ALTERACOES.diffstat.txt` (artefatos de uma
+  sessão de trabalho anterior, não documentação).
+
+### Adicionado
+- `.gitignore` (o projeto não tinha nenhum — `node_modules/` só não estava
+  versionado por disciplina manual, não por configuração).
+
 ## [2.6.1] — Peças e Programas não perde mais alterações (inclusive exclusões) ao recarregar a página
 
 ### Corrigido
