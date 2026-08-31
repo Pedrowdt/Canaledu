@@ -52,7 +52,67 @@ function validadeToISO(v) {
 }
 
 // -----------------------------------------------------
-// VH "DAQUI A POUCO" — casamento com o próximo programa
+// PEÇAS DO DIA A PARTIR DO CADASTRO — auto-preenchimento
+// Réplica não-modular de src/core/pecasCatalog.js#selectPecasDoDia/
+// isPecaVigente/isPecaDoDia (mesma regra, coberta pelos testes de lá).
+// Evita depender só da planilha diária: toda peça já cadastrada (com
+// categoria elegível, `dias` compatível com hoje e validade em dia)
+// entra automaticamente no pool de "peças do dia" assim que o painel
+// é aberto, sem esperar ninguém importar um Excel. A planilha continua
+// disponível para o que ainda não está cadastrado (peça avulsa nova) —
+// ver importPecasDiaExcel(), que agora MESCLA em vez de substituir.
+// -----------------------------------------------------
+
+/** Categorias do cadastro (Peças e Programas) elegíveis para "peças do dia", mapeadas para o rótulo de seção usado neste painel. MANUT/BUSSOLA ficam de fora — não fazem parte da rotação diária. */
+const CATEGORIA_CADASTRO_PARA_DIA = {
+  CHAMADA_QUENTE: 'CHAMADA QUENTE',
+  RCOM: 'RCOM',
+  RPOL: 'RPOL',
+  INTGOV: 'INTERPROGRAMAS GOV',
+};
+
+const DIAS_SEMANA_ABREV = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+
+function isPecaVigenteEm(peca, ref) {
+  if (!peca || !peca.validade) return true;
+  const d = new Date(`${peca.validade}T23:59:59`);
+  if (Number.isNaN(d.getTime())) return true;
+  return d.getTime() >= ref.getTime();
+}
+
+function isPecaDoDiaSemana(peca, dow) {
+  const dias = peca?.dias || [];
+  if (!dias.length) return true; // sem restrição de dia cadastrada => todo dia
+  return dias.map((d) => String(d).toLowerCase()).includes(DIAS_SEMANA_ABREV[dow]);
+}
+
+/**
+ * Deriva o pool de "peças do dia" diretamente do cadastro, para a data
+ * `ref`. Ignora a janela hIni/hFim aqui de propósito — isso é decidido na
+ * hora de inserir no roteiro (ver isPecaNaJanela/smartInsertPecas), não na
+ * hora de montar o pool do dia inteiro.
+ */
+function pecasDoDiaDoCadastro(pecasCadastro, ref) {
+  const dow = ref.getDay();
+  return (pecasCadastro || [])
+    .filter((p) => p && p.ativo !== false && CATEGORIA_CADASTRO_PARA_DIA[p.categoria])
+    .filter((p) => isPecaVigenteEm(p, ref) && isPecaDoDiaSemana(p, dow))
+    .map((p) => ({
+      code: p.code,
+      descricao: p.descricao,
+      tempo: p.tempo || '00:00:00',
+      midia: p.midia || '0OMN',
+      type: p.type || '',
+      validade: p.validade || '',
+      obs: p.obs || '',
+      categoria: CATEGORIA_CADASTRO_PARA_DIA[p.categoria],
+      qtd: Number(p.freq) || 1,
+      restricao: '',
+      usado: 0,
+      _origemCadastro: true, // distingue de itens vindos de planilha/manuais, só para exibir um selo na UI
+    }));
+}
+
 // Réplica não-modular de src/core/pecasCatalog.js#matchVhDaquiForNext
 // (mesma regra, coberta pelos testes de lá). Substitui o antigo
 // critério "1 palavra qualquer casa" — que ignorava pontuação e
@@ -197,10 +257,20 @@ async function importPecasDiaExcel(file) {
     return;
   }
 
-  state.pecasDia = pecasDia;
+  // Mescla com o que já está no painel (inclusive peças carregadas
+  // automaticamente do cadastro) em vez de substituir tudo — a planilha
+  // passa a ser um complemento para o que ainda não está cadastrado, não a
+  // única fonte. Em caso de mesmo code, a versão da planilha prevalece
+  // (mais específica/recente que o cadastro).
+  const atuais = new Map((state.pecasDia || []).map(p => [p.code, p]));
+  pecasDia.forEach(p => atuais.set(p.code, p));
+  state.pecasDia = [...atuais.values()];
+
   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   if (!saved.pecasDia) saved.pecasDia = {};
-  saved.pecasDia[dateKey(d)] = pecasDia;
+  saved.pecasDia[dateKey(d)] = state.pecasDia;
+  // Importar é uma ação explícita — desfaz um "Limpar" anterior deste dia.
+  if (saved.pecasDiaLimpo) delete saved.pecasDiaLimpo[dateKey(d)];
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
   // Mescla peças importadas no banco permanente automaticamente
   if (typeof mergeBancoFromRoteiro === 'function') mergeBancoFromRoteiro(pecasDia);
@@ -329,9 +399,19 @@ function renderPecasDiaPanel() {
   const panel = document.getElementById('pecas-dia-content');
   if (!panel) return;
 
+  const diaKey = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
+
   if (!state.pecasDia || !state.pecasDia.length) {
     const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
-    state.pecasDia = saved.pecasDia?.[dateKey(state.currentDate)] || [];
+    state.pecasDia = saved.pecasDia?.[diaKey] || [];
+  }
+
+  // Nada foi importado/adicionado manualmente ainda para este dia — deriva
+  // automaticamente do cadastro (Peças e Programas) em vez de deixar o
+  // painel vazio esperando alguém importar uma planilha. Só não faz isso
+  // se o usuário explicitamente limpou as peças deste dia (clearPecasDia).
+  if ((!state.pecasDia || !state.pecasDia.length) && !foiLimpoManualmente(diaKey)) {
+    state.pecasDia = pecasDoDiaDoCadastro(state.pecas, state.currentDate);
   }
 
   const search     = (document.getElementById('pd-search')?.value || '').toLowerCase();
@@ -350,8 +430,13 @@ function renderPecasDiaPanel() {
   }
 
   if (!state.pecasDia?.length) {
-    panel.innerHTML = `<div class="empty"><div class="icon">📂</div>
-      <p>Nenhuma peça importada para este dia.<br>Clique em "Importar Planilha" para carregar.</p></div>`;
+    panel.innerHTML = foiLimpoManualmente(diaKey)
+      ? `<div class="empty"><div class="icon">📂</div>
+        <p>Peças do dia limpas.<br>
+        <a href="#" onclick="restaurarPecasDiaDoCadastro();return false" style="color:var(--accent)">↺ Restaurar peças do cadastro</a>
+        ou importe uma planilha para peças avulsas.</p></div>`
+      : `<div class="empty"><div class="icon">📂</div>
+        <p>Nenhuma peça do cadastro é elegível para hoje.<br>Importe uma planilha ou adicione manualmente.</p></div>`;
     document.getElementById('badge-pecas-dia').textContent = '0';
     return;
   }
@@ -373,6 +458,7 @@ function renderPecasDiaPanel() {
           <div class="peca-meta">
             <span class="peca-dur">${p.tempo}</span>
             <span class="type-badge badge-${p.type}">${p.type}</span>
+            ${p._origemCadastro ? `<span style="font-size:9px;color:var(--muted)" title="Carregada automaticamente do cadastro">📋 cadastro</span>` : ''}
             ${p.restricao ? `<span style="font-size:9px;color:var(--amber)">${escHtml(p.restricao)}</span>` : ''}
             ${usageStr ? `<span style="font-size:9px;color:var(--green);margin-left:auto">${usageStr}</span>` : ''}
           </div>
@@ -386,16 +472,39 @@ function renderPecasDiaPanel() {
   document.getElementById('badge-pecas-dia').textContent = total;
 }
 
+/** O usuário clicou explicitamente em "Limpar" para este dia? Enquanto essa marca existir, o painel fica vazio em vez de recompor sozinho a partir do cadastro. */
+function foiLimpoManualmente(diaKey) {
+  if (!diaKey) return false;
+  try {
+    const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    return !!(saved.pecasDiaLimpo && saved.pecasDiaLimpo[diaKey]);
+  } catch { return false; }
+}
+
+/** Remove a marca de "limpo manualmente" e re-renderiza — o painel volta a se popular automaticamente a partir do cadastro. */
+function restaurarPecasDiaDoCadastro() {
+  const diaKey = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  if (saved.pecasDiaLimpo) { delete saved.pecasDiaLimpo[diaKey]; localStorage.setItem('roteiroApp', JSON.stringify(saved)); }
+  state.pecasDia = [];
+  renderPecasDiaPanel();
+}
+
+
 /** Limpa todas as peças do dia importadas para a data selecionada, após confirmação. Remove do state e do localStorage. */
 function clearPecasDia() {
-  if (!confirm('Limpar todas as peças do dia importadas?')) return;
+  if (!confirm('Limpar todas as peças do dia (inclusive as carregadas automaticamente do cadastro)?')) return;
   state.pecasDia = [];
   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
-  if (saved.pecasDia) {
-    const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
-    if (key) delete saved.pecasDia[key];
-    localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
+  if (saved.pecasDia && key) delete saved.pecasDia[key];
+  // Marca explicitamente como "limpo" para este dia — sem isso, o painel se
+  // recomporia sozinho a partir do cadastro na próxima renderização.
+  if (key) {
+    if (!saved.pecasDiaLimpo) saved.pecasDiaLimpo = {};
+    saved.pecasDiaLimpo[key] = true;
   }
+  localStorage.setItem('roteiroApp', JSON.stringify(saved));
   renderPecasDiaPanel();
   toast('Peças do dia limpas', 'success');
 }
@@ -443,6 +552,7 @@ function saveAddPecaDia() {
   if (!saved.pecasDia) saved.pecasDia = {};
   const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
   if (key) saved.pecasDia[key] = state.pecasDia;
+  if (saved.pecasDiaLimpo && key) delete saved.pecasDiaLimpo[key];
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
 
   closeModal('modal-add-peca-dia');

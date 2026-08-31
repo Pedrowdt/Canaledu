@@ -8,12 +8,23 @@ const src = readFileSync(new URL('../../pecas_dia.js', import.meta.url), 'utf8')
 
 function loadPure() {
   const g = { window: {} };
+  const store = new Map();
+  const localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
   const factory = new Function(
     'window',
     'globalThis',
-    `${src}\nreturn { parsePecasDiaRows, validadeToISO, parseValidade, matchVhDaquiForNext };`
+    'localStorage',
+    `${src}\nreturn {
+      parsePecasDiaRows, validadeToISO, parseValidade, matchVhDaquiForNext,
+      pecasDoDiaDoCadastro, isPecaVigenteEm, isPecaDoDiaSemana, foiLimpoManualmente,
+    };`
   );
-  return factory.call(g, g.window, g);
+  const app = factory.call(g, g.window, g, localStorage);
+  return { ...app, __localStorage: localStorage };
 }
 
 describe('import de Excel — validade sempre em ISO (bug: peça vencida nunca era detectada no Roteiro)', () => {
@@ -72,5 +83,85 @@ describe('matchVhDaquiForNext em pecas_dia.js — mesma regra de src/core/pecasC
     const { matchVhDaquiForNext } = loadPure();
     const vhs = [{ descricao: 'VH DAQUI A POUCO ESCOLA DE TODOS' }];
     expect(matchVhDaquiForNext('PALALOOS', vhs)).toBeNull();
+  });
+});
+
+describe('pecasDoDiaDoCadastro — peças do dia auto-preenchidas a partir do cadastro', () => {
+  // Quarta-feira (dow=3), para casar com dias:['qua'] nos exemplos abaixo.
+  const QUARTA = new Date(2026, 7, 26); // 26/08/2026 é uma quarta
+
+  it('inclui peça de categoria elegível sem restrição de dia/validade', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [{ code: 'A1', descricao: 'Chamada X', categoria: 'CHAMADA_QUENTE', tempo: '00:00:30', type: 'ECHE' }];
+    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
+    expect(out).toHaveLength(1);
+    expect(out[0].categoria).toBe('CHAMADA QUENTE'); // mapeado pro rótulo de seção do painel
+    expect(out[0]._origemCadastro).toBe(true);
+  });
+
+  it('categorias fora da rotação diária (MANUT/BUSSOLA) ficam de fora', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [
+      { code: 'M1', descricao: 'Manutenção', categoria: 'MANUT' },
+      { code: 'B1', descricao: 'Bússola', categoria: 'BUSSOLA' },
+    ];
+    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(0);
+  });
+
+  it('peça inativa (ativo:false) nunca entra, mesmo elegível', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [{ code: 'A1', categoria: 'RCOM', ativo: false }];
+    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(0);
+  });
+
+  it('respeita os dias cadastrados — só entra se hoje estiver na lista', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [
+      { code: 'SO_QUA', categoria: 'RPOL', dias: ['qua'] },
+      { code: 'SO_SEG', categoria: 'RPOL', dias: ['seg'] },
+    ];
+    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
+    expect(out.map(p => p.code)).toEqual(['SO_QUA']);
+  });
+
+  it('sem `dias` cadastrado, vale para todo dia', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [{ code: 'TODO_DIA', categoria: 'RCOM', dias: [] }];
+    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(1);
+  });
+
+  it('respeita a validade (kill date) — peça vencida não entra', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [
+      { code: 'VENCIDA', categoria: 'RCOM', validade: '2026-08-01' },
+      { code: 'VALIDA',  categoria: 'RCOM', validade: '2026-12-31' },
+    ];
+    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
+    expect(out.map(p => p.code)).toEqual(['VALIDA']);
+  });
+
+  it('mapeia freq/máx do cadastro para qtd, default 1', () => {
+    const { pecasDoDiaDoCadastro } = loadPure();
+    const cadastro = [
+      { code: 'COM_FREQ', categoria: 'RCOM', freq: '3' },
+      { code: 'SEM_FREQ', categoria: 'RCOM' },
+    ];
+    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
+    expect(out.find(p => p.code === 'COM_FREQ').qtd).toBe(3);
+    expect(out.find(p => p.code === 'SEM_FREQ').qtd).toBe(1);
+  });
+});
+
+describe('foiLimpoManualmente — "Limpar" não pode ser imediatamente desfeito pela auto-derivação', () => {
+  it('sem nada gravado, não está limpo', () => {
+    const { foiLimpoManualmente } = loadPure();
+    expect(foiLimpoManualmente('2026-08-26')).toBe(false);
+  });
+
+  it('reconhece a marca gravada por clearPecasDia() para o dia certo, só para o dia certo', () => {
+    const { foiLimpoManualmente, __localStorage } = loadPure();
+    __localStorage.setItem('roteiroApp', JSON.stringify({ pecasDiaLimpo: { '2026-08-26': true } }));
+    expect(foiLimpoManualmente('2026-08-26')).toBe(true);
+    expect(foiLimpoManualmente('2026-08-27')).toBe(false);
   });
 });

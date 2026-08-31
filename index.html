@@ -841,13 +841,14 @@
           <option value="EINT">EINT — Interprograma</option>
           <option value="EVNH">EVNH — Vinheta</option>
         </select>
-        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-pecas-dia').click()">↑ Importar Planilha</button>
+        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-pecas-dia').click()" title="Complementa as peças já carregadas do cadastro — use para peças avulsas ainda não cadastradas">↑ Importar Planilha</button>
         <button class="btn btn-sm" onclick="openAddPecaDiaModal()" style="border-color:var(--green);color:var(--green)" title="Adicionar peça manualmente">+ Adicionar</button>
         <button class="btn btn-sm" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)">⚡ Inserir no roteiro</button>
-        <button class="btn btn-sm" onclick="clearPecasDia()" style="border-color:var(--red,#ef4444);color:var(--red,#ef4444)" title="Limpar peças do dia importadas">🗑 Limpar</button>
+        <button class="btn btn-sm" onclick="clearPecasDia()" style="border-color:var(--red,#ef4444);color:var(--red,#ef4444)" title="Limpar peças do dia (inclusive as automáticas do cadastro)">🗑 Limpar</button>
       </div>
       <div style="padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)">
-        Importe a planilha <strong style="color:var(--text)">PLANILHA_DE_PEÇAS_DE_INSERÇÃO_2026.xlsx</strong> — a aba correspondente à data selecionada é carregada automaticamente.
+        As peças elegíveis para hoje (categoria/dias/validade do cadastro) são carregadas automaticamente — marcadas com <strong style="color:var(--text)">📋 cadastro</strong>.
+        Use <strong style="color:var(--text)">Importar Planilha</strong> só para peças avulsas que ainda não estão cadastradas.
         Duplo-clique numa peça para adicionar ao roteiro, ou use <strong style="color:var(--cyan)">⚡ Inserir no roteiro</strong> para distribuição automática inteligente.
       </div>
       <div style="flex:1;overflow-y:auto" id="pecas-dia-content">
@@ -865,6 +866,8 @@
       <div class="section-header">
         <h2>Grade Semanal</h2>
         <span style="font-size:11px;color:var(--muted);flex:1">Horários fixos da programação — dia atual destacado em azul · ✓ no horário · laranja = desvio</span>
+        <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
+        <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)" title="Substitui a grade dos 7 dias a partir de uma planilha semanal (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx)">📥 Importar planilha…</button>
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);cursor:pointer" title="Escolha um programa e a cor, depois clique em ✅">
           <span title="Cor do programa" style="font-size:14px">🎨</span>
           <input type="color" id="grade-color-picker" value="#3b82f6"
@@ -874,6 +877,15 @@
           <datalist id="grade-prog-list"></datalist>
           <button class="btn btn-sm" title="Aplicar cor" style="padding:2px 6px;font-size:14px;line-height:1" onclick="(function(){var p=document.getElementById('grade-color-prog').value.trim();var c=document.getElementById('grade-color-picker').value;if(!p){alert('Informe o nome do programa');return;}setProgramColor(p,c);})()">✅</button>
         </label>
+      </div>
+      <!-- Aparece só depois de escolher um arquivo — pré-seleciona a aba mais
+           provável, mostra o preview, e some de novo depois de aplicar. -->
+      <div id="grade-import-sheets" style="display:none;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);align-items:center;gap:10px;flex-wrap:wrap">
+        <label style="font-size:10px;color:var(--muted)">Aba da semana</label>
+        <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
+        <span id="grade-import-preview" style="font-size:10px;color:var(--muted)"></span>
+        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
+        <button class="btn btn-sm" onclick="document.getElementById('grade-import-sheets').style.display='none'">Cancelar</button>
       </div>
       <div style="flex:1;overflow:auto;padding:0;position:relative" id="grade-visual-container">
         <div class="empty"><div class="icon">📅</div><p>Clique na aba para carregar a grade.</p></div>
@@ -1218,25 +1230,9 @@
       <label>Exibir indicadores de grade no roteiro</label>
       <input type="checkbox" id="adm-mostrar-grade" checked style="width:18px;height:18px;accent-color:var(--accent)">
     </div>
-
-    <!-- Importar grade semanal a partir de planilha (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx) -->
-    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-top:8px">
-      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📥 Importar grade da planilha semanal</div>
-      <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
-        Carrega uma aba (ex.: <b>01 A 07 DE JUNHO</b>) com colunas Seg–Dom em slots de 5 min.
-        A grade base de cada dia da semana será substituída pelos programas detectados.
-      </p>
-      <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
-      <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)">📂 Selecionar planilha…</button>
-      <div id="grade-import-sheets" style="display:none;margin-top:8px">
-        <div class="form-row" style="margin:0 0 6px">
-          <label style="font-size:10px">Aba da semana</label>
-          <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
-        </div>
-        <div id="grade-import-preview" style="font-size:10px;color:var(--muted);margin-bottom:6px"></div>
-        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
-      </div>
-    </div>
+    <p style="font-size:10px;color:var(--muted);margin:-2px 0 8px">
+      Para importar uma nova grade semanal de planilha, use a aba <strong style="color:var(--text)">Grade Semanal</strong> — o botão fica lá agora, junto com a visualização.
+    </p>
 
     <!-- Seção: Automação -->
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Automação</div>

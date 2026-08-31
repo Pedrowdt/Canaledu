@@ -1,5 +1,47 @@
 # Changelog
 
+## [2.7.0] — Peças do dia auto-preenchidas do cadastro, e importação de Grade Semanal simplificada
+
+Duas melhorias de UX a partir de feedback direto de uso.
+
+### Adicionado
+- **Peças do dia não dependem mais só de planilha.** O banco já tinha tudo
+  pronto para isso e nunca era usado: `fn_pecas_elegiveis` (Postgres) e
+  `PecasRepo.pecasElegiveis()` existiam desde `001_pecas_programas.sql` com
+  o comentário *"usado pela confecção de roteiros"*, mas não tinham nenhum
+  chamador em lugar nenhum do app — e `src/core/pecasCatalog.js#selectPecasDoDia`
+  (client-side, testada) também nunca foi ligada à UI. Agora, ao abrir o
+  painel de Peças do Dia sem nada importado/limpo para aquele dia,
+  `pecasDoDiaDoCadastro()` (réplica não-modular da mesma regra) deriva a
+  lista automaticamente a partir do cadastro — categoria elegível
+  (Chamada quente/RCOM/RPOL/Interprograma gov), `dias` compatível com o dia
+  da semana e validade em dia. Itens assim carregados ganham o selo
+  "📋 cadastro" no card.
+  - **Importar Planilha vira complemento, não pré-requisito diário:** agora
+    mescla por `code` no que já está no painel (a versão da planilha
+    prevalece em empate) em vez de substituir tudo — use só para peças
+    avulsas ainda não cadastradas.
+  - **"Limpar" agora é definitivo até o próximo import/adição manual:**
+    antes, limpar e reabrir o painel trazia tudo de volta pela derivação
+    automática — sensação de "o excluir não funciona". Uma marca
+    (`pecasDiaLimpo`) grava a intenção explícita; o painel oferece
+    "↺ Restaurar peças do cadastro" para desfazer.
+  - Corrigido de brinde: `changeWeek()` não recarregava `state.pecasDia` ao
+    trocar de semana (só `selectDate()` fazia isso) — o painel podia ficar
+    mostrando o conteúdo do dia anterior até reabrir a aba manualmente.
+  - Testado em `tests/unit/pecasDia.test.mjs` (categoria elegível, `dias`,
+    validade, inativo, mapeamento `freq`→`qtd`, e a marca de "limpo").
+- **Importação de Grade Semanal saiu do painel de Admin.** O fluxo (abrir
+  Admin → rolar por configurações sem relação → achar a caixa de import →
+  escolher planilha → conferir aba → aplicar → fechar modal → ir na aba
+  Grade Semanal ver o resultado) virou: abrir a aba **Grade Semanal** →
+  "📥 Importar planilha…" → conferir aba/preview → aplicar — o resultado
+  aparece na hora, na mesma tela, sem modal nenhum de permeio.
+  `applyGradeSemanalImport()` agora chama `renderGrade()` além de
+  `renderRoteiro()`, e a barra de importação se fecha sozinha após aplicar
+  com sucesso. Nenhuma lógica de parsing de planilha mudou — só a
+  localização da UI.
+
 ## [2.6.2] — Correções de segurança, documentação e higiene do repositório
 
 Aplicado a partir da revisão completa do projeto (ver `analise-projeto.md`),

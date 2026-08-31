@@ -434,9 +434,12 @@ function changeWeek(delta) {
   const d = new Date(state.currentDate);
   d.setDate(d.getDate() + delta * 7);
   state.currentDate = d;
-  // Load roteiro for the new date
+  // Load roteiro and pecasDia for the new date (sem isso, o painel de
+  // Peças do Dia ficava mostrando o conteúdo do dia anterior até alguém
+  // reabrir a aba manualmente).
   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
   state.roteiro = saved.roteiros?.[dateKey(d)] || [];
+  state.pecasDia = saved.pecasDia?.[dateKey(d)] || [];
   renderWeekSelector();
   updateDateDisplay();
   renderRoteiro();
@@ -4182,7 +4185,7 @@ function handleGradeSemanalImport(ev) {
       const firstReal = wb.SheetNames.find(n => !/cache/i.test(n)) || wb.SheetNames[0];
       sel.value = firstReal;
       sel.onchange = () => _gradePreviewSelectedSheet();
-      document.getElementById('grade-import-sheets').style.display = 'block';
+      document.getElementById('grade-import-sheets').style.display = 'flex';
       _gradePreviewSelectedSheet();
     } catch (err) {
       console.error(err);
@@ -4321,7 +4324,13 @@ function applyGradeSemanalImport() {
   }
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
   toast(`✓ Grade aplicada: ${totalDays} dias, ${totalProgs} programas`, 'success');
-  // Re-renderizar caso a grade do dia atual tenha mudado
+  // Fecha a barra de importação — resultado já fica visível na própria
+  // aba Grade Semanal, sem precisar fechar modal nenhum.
+  const bar = document.getElementById('grade-import-sheets');
+  if (bar) bar.style.display = 'none';
+  // Re-renderiza tanto a grade visual (esta aba) quanto o roteiro do dia
+  // atual (caso a grade dele tenha mudado).
+  if (typeof renderGrade === 'function') renderGrade();
   if (typeof renderRoteiro === 'function') renderRoteiro();
 }
 
