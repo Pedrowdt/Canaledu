@@ -15,6 +15,8 @@ com backend Supabase (Postgres + Auth + Realtime).
 | [db/README.md](db/README.md) | Migrações SQL — o que cada uma faz e como aplicar |
 | [CHANGELOG.md](CHANGELOG.md) | Histórico de versões |
 | [ANALISE.md](ANALISE.md) | Revisão do projeto e propostas de melhoria futura, por área e priorizadas |
+| [MVP-CADASTRO.md](MVP-CADASTRO.md) | Proposta de consolidação do modelo de dados do cadastro e das regras de distribuição automática — aguardando aprovação |
+| [PROMPT-IMPLEMENTACAO-CADASTRO.md](PROMPT-IMPLEMENTACAO-CADASTRO.md) | Prompt autossuficiente para implementar o MVP acima, uma vez aprovado |
 | [COMMITS.md](COMMITS.md) | Convenção de mensagens de commit usada no projeto |
 
 ## Início rápido (desenvolvimento)
