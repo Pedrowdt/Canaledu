@@ -26,6 +26,71 @@ const CATS = {
 const HAS_KILL = ['RCOM','RPOL','INTGOV'];
 const TODAY = new Date();
 
+// =====================================================
+// IDENTIDADE ESTRUTURADA DO PROGRAMA (MVP-CADASTRO.md, Fase 1)
+// Réplica não-modular de src/core/pecasCatalog.js#baseProgramTitle/
+// getEpisodeId/parseEpisodioInfo (mesma regra, coberta pelos testes de
+// lá — atualize os dois lugares juntos). Usadas aqui para: sugerir
+// programas no campo "Programa relacionado" das vinhetas, e para
+// preencher automaticamente programa_titulo/temporada/episodio/bloco ao
+// salvar um programa.
+// =====================================================
+function baseProgramTitle(desc) {
+  return String(desc || '')
+    .replace(/^\s*PGM\s+/i, '')
+    .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
+    .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')
+    .replace(/\s*-\s*BL\s*\d+\s*$/i, '')
+    .replace(/\s*BL\s*\d+\s*$/i, '')
+    .replace(/\s*\(.*?\)\s*$/, '')
+    .replace(/\s*\d+'\s*$/, '')
+    .trim();
+}
+
+function parseEpisodioInfo(desc) {
+  const s = String(desc || '').toUpperCase();
+  const mTE = s.match(/T\s*(\d+)\s*EP\s*(\d+)/);
+  const mBL = s.match(/BL\s*(\d+)/);
+  return {
+    temporada: mTE ? Number(mTE[1]) : null,
+    episodio: mTE ? Number(mTE[2]) : null,
+    bloco: mBL ? Number(mBL[1]) : null,
+  };
+}
+
+const FUNCOES_COM_PROGRAMA = new Set([
+  'assinatura_infantil', 'assinatura_jovem', 'assinatura_adulto', 'assinatura_padrao',
+  'vh_a_seguir', 'vh_daqui_a_pouco', 'vh_voce_esta_assistindo',
+]);
+
+const FUNCAO_LABEL = {
+  assinatura_infantil: 'Assinatura Infantil', assinatura_jovem: 'Assinatura Jovem',
+  assinatura_adulto: 'Assinatura Adulto', assinatura_padrao: 'Assinatura Padrão',
+  vh_a_seguir: 'A seguir', vh_daqui_a_pouco: 'Daqui a pouco',
+  vh_voce_esta_assistindo: 'Você está assistindo', classificacao_indicativa: 'Classificação indicativa',
+  cartela_oficial: 'Cartela oficial', vinheta_id: 'Vinheta ID', transicao: 'Transição', outro: 'Outro',
+};
+
+/** Mostra/esconde os campos de função da vinheta — só fazem sentido para type=EVNH. */
+function toggleFuncaoFields() {
+  const isEvnh = document.getElementById('f-type').value === 'EVNH';
+  document.getElementById('funcao-fields').style.display = isEvnh ? 'block' : 'none';
+  if (isEvnh) {
+    // Sugestões do datalist: título-base de cada programa cadastrado, sem duplicatas.
+    const titulos = [...new Set(programas.map(p => baseProgramTitle(p.descricao)).filter(Boolean))].sort();
+    document.getElementById('programa-relacionado-list').innerHTML =
+      titulos.map(t => `<option value="${escapeHtml(t)}">`).join('');
+    toggleProgramaRelacionadoField();
+  }
+}
+
+/** O campo "Programa relacionado" só aparece para funções que de fato referenciam um programa (assinaturas e VHs de chamada). */
+function toggleProgramaRelacionadoField() {
+  const funcao = document.getElementById('f-funcao').value;
+  document.getElementById('programa-relacionado-field').style.display =
+    FUNCOES_COM_PROGRAMA.has(funcao) ? 'block' : 'none';
+}
+
 let supabaseClient = null;
 let currentUser = null;
 let pecas = [];
@@ -472,6 +537,13 @@ function assinaturaBadgeHtml(list){
     return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${escapeHtml(m.label)}</span>`;
   }).join('');
 }
+/** Selo pequeno mostrando a função da vinheta (MVP-CADASTRO.md, Fase 1) — só aparece quando cadastrada; sem isso, célula fica vazia (nada muda para peças que não usam o campo novo). */
+function funcaoBadgeHtml(p){
+  if (p.type !== 'EVNH' || !p.funcao) return '';
+  const label = FUNCAO_LABEL[p.funcao] || p.funcao;
+  const rel = p.programaRelacionado ? ` · ${escapeHtml(p.programaRelacionado)}` : '';
+  return `<div style="font-size:9px;color:var(--muted,#888);margin-top:2px">📋 ${escapeHtml(label)}${rel}</div>`;
+}
 
 function horLabel(p){
   const parts=[];
@@ -537,6 +609,7 @@ function render(){
       <td>
         <div class="desc-main">${escapeHtml(p.descricao)}</div>
         ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
+        ${funcaoBadgeHtml(p)}
       </td>
       <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
       <td class="type-cell">${escapeHtml(p.type)}</td>
@@ -600,6 +673,10 @@ function openModal(id){
     document.querySelectorAll('#dias-wrap .dia-btn').forEach(b=>{
       b.classList.toggle('active', !!(p?.dias||[]).includes(b.dataset.d));
     });
+
+    document.getElementById('f-funcao').value = p?.funcao || '';
+    document.getElementById('f-programa-relacionado').value = p?.programaRelacionado || '';
+    toggleFuncaoFields();
   } else {
     document.querySelectorAll('#assinatura-wrap .dia-btn').forEach(b=>{
       b.classList.toggle('active', !!(p?.assinatura||[]).includes(b.dataset.a));
@@ -631,6 +708,7 @@ function saveItem(){
   if (isPecas) {
     const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>b.dataset.d);
     const showH=document.getElementById('f-showh').checked;
+    const funcao = document.getElementById('f-funcao').value;
     p = {
       ...p,
       categoria: document.getElementById('f-cat').value,
@@ -640,11 +718,25 @@ function saveItem(){
       hFim: showH?document.getElementById('f-hfim').value:'',
       freq: showH?document.getElementById('f-freq').value:'',
       obs: document.getElementById('f-obs').value,
+      // Só faz sentido para type=EVNH — em qualquer outro type o campo fica
+      // escondido no formulário, então grava vazio para não sobrar lixo de
+      // uma edição anterior (ex.: trocou de EVNH para ECHE).
+      funcao: p.type === 'EVNH' ? funcao : '',
+      programaRelacionado: (p.type === 'EVNH' && FUNCOES_COM_PROGRAMA.has(funcao))
+        ? document.getElementById('f-programa-relacionado').value.trim() : '',
     };
   } else {
+    // Campos estruturados (MVP-CADASTRO.md, Fase 1): calculados automaticamente
+    // da descrição, mesma extração já usada pelo importador de grade em
+    // app.js — o cadastro manual ganha o mesmo benefício sem digitar de novo.
+    const episodioInfo = parseEpisodioInfo(descricao);
     p = {
       ...p,
       assinatura: [...document.querySelectorAll('#assinatura-wrap .dia-btn.active')].map(b=>b.dataset.a),
+      programaTitulo: baseProgramTitle(descricao),
+      temporada: episodioInfo.temporada,
+      episodio: episodioInfo.episodio,
+      bloco: episodioInfo.bloco,
     };
   }
 

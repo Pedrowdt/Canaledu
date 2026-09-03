@@ -207,3 +207,51 @@ export function catalogFromCadastro({ pecas = [], programas = [], ref = new Date
     pecas: (pecas || []).filter((p) => p && p.ativo !== false),
   };
 }
+
+// =====================================================
+// IDENTIDADE ESTRUTURADA DO PROGRAMA (MVP-CADASTRO.md, Fase 1)
+// Extraídas de app.js (onde já existiam, sem cobertura de teste) —
+// nenhuma mudança de comportamento, só passaram a ter testes e a poder
+// ser reaproveitadas de forma idêntica em pecas-programas.js. app.js
+// mantém sua própria cópia (réplica não-modular, mesmo padrão do resto
+// do projeto); qualquer ajuste de regra deve ser replicado nos dois
+// lugares — estes testes (pecasCatalog.test.js) são a referência.
+// =====================================================
+
+/** Remove sufixos de bloco/temporada/episódio/observações da descrição para obter o título base do programa (ex.: "PGM PALALOOS - T01 EP03 - BL02" -> "PALALOOS"). Usado na comparação com a grade semanal e, na Fase 2, no casamento de VHs pelo `programa_relacionado`. */
+export function baseProgramTitle(desc) {
+  return String(desc || '')
+    .replace(/^\s*PGM\s+/i, '')                    // remove prefixo "PGM " no início
+    .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')   // remove " - T 01 EP 03 - ..." até o fim
+    .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')          // variante sem hífen antes de "T01 EP16"
+    .replace(/\s*-\s*BL\s*\d+\s*$/i, '')            // remove " - BL 01"
+    .replace(/\s*BL\s*\d+\s*$/i, '')                // remove " BL01" ou " BL 01"
+    .replace(/\s*\(.*?\)\s*$/, '')                  // remove parênteses no final (ex: "(reprise quarta 22h)")
+    .replace(/\s*\d+'\s*$/, '')                     // remove sufixo de minutagem da grade, ex: " 10'"
+    .trim();
+}
+
+/** Extrai o identificador combinado do episódio (ex.: "T01EP01") para agrupar blocos do mesmo episódio. */
+export function getEpisodeId(desc) {
+  if (!desc) return '';
+  const m = String(desc).toUpperCase().match(/T\s*\d+\s*EP\s*\d+|EP\s*\d+/);
+  return m ? m[0].replace(/\s+/g, '') : '';
+}
+
+/**
+ * Extrai temporada/episódio/bloco como números separados (para gravar nos
+ * campos estruturados `programas.temporada/episodio/bloco` — ver
+ * db/007_funcao_peca.sql). Qualquer parte não encontrada vem `null`, não
+ * `0` — "não informado" é diferente de "zero".
+ */
+export function parseEpisodioInfo(desc) {
+  const s = String(desc || '').toUpperCase();
+  const mTE = s.match(/T\s*(\d+)\s*EP\s*(\d+)/);
+  const mBL = s.match(/BL\s*(\d+)/);
+  return {
+    temporada: mTE ? Number(mTE[1]) : null,
+    episodio: mTE ? Number(mTE[2]) : null,
+    bloco: mBL ? Number(mBL[1]) : null,
+  };
+}
+

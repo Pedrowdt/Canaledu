@@ -62,6 +62,7 @@ A ponte torna o cadastro a **fonte da verdade**:
 \i db/004_activity_log.sql   -- opcional: log de atividades
 \i db/005_log_atividades.sql -- opcional: evolução do log acima
 \i db/006_pecas_one_way.sql  -- só "Peças e Programas" grava no cadastro
+\i db/007_funcao_peca.sql    -- opcional: Fase 1 do MVP de cadastro (funcao/programa_relacionado)
 ```
 
 Crie os usuários da equipe em **Authentication → Users** (e-mail + senha).

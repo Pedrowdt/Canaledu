@@ -33,6 +33,12 @@ a equipe; **o roteiro do dia é isolado por usuário** (cada um só vê e edita 
    5. `db/006_pecas_one_way.sql` — só a tela "Peças e Programas" pode alterar
       o cadastro; o Roteiro só lê. Reforçado no próprio banco (não é só uma
       regra do site).
+   6. `db/004_autenticacao.sql` — fecha qualquer acesso residual do papel
+      anônimo. Opcional, mas recomendado.
+   7. `db/007_funcao_peca.sql` — campos estruturados de função de vinheta e
+      identidade de programa (Fase 1 do MVP de cadastro, ver
+      `MVP-CADASTRO.md`). Opcional: sem ele o sistema continua funcionando
+      exatamente como antes, só sem os campos novos no formulário.
 
    > O arquivo `supabase-schema.sql` na raiz do projeto é **legado**: cria só
    > a tabela antiga `shared_data`, sem o cadastro relacional, sem RLS

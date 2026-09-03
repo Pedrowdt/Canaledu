@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isPecaVigente, isPecaDoDia, isPecaNaJanela, selectPecasDoDia,
   buildVhMaps, pecasFixasFromCadastro, catalogFromCadastro, somaTempo,
-  matchVhDaquiForNext,
+  matchVhDaquiForNext, baseProgramTitle, getEpisodeId, parseEpisodioInfo,
 } from './pecasCatalog.js';
 
 const ref = new Date('2026-08-05T12:00:00');
@@ -101,5 +101,39 @@ describe('matchVhDaquiForNext — VH "DAQUI A POUCO" do programa certo', () => {
 
   it('sem VH cadastrada, não insere nada (sem fallback genérico)', () => {
     expect(matchVhDaquiForNext('SCIENTIA', [])).toBeNull();
+  });
+});
+
+describe('baseProgramTitle/getEpisodeId/parseEpisodioInfo — identidade estruturada (MVP-CADASTRO.md, Fase 1)', () => {
+  it('baseProgramTitle remove prefixo PGM, temporada/episódio e bloco', () => {
+    expect(baseProgramTitle('PGM PALALOOS - T01 EP03 - BL02')).toBe('PALALOOS');
+  });
+
+  it('baseProgramTitle lida com a variante sem hífen antes de T/EP', () => {
+    expect(baseProgramTitle('PGM SCIENTIA T01 EP16')).toBe('SCIENTIA');
+  });
+
+  it('baseProgramTitle remove parênteses e sufixo de minutagem da grade', () => {
+    expect(baseProgramTitle('PALALOOS (reprise quarta 22h)')).toBe('PALALOOS');
+    expect(baseProgramTitle("PALALOOS 10'")).toBe('PALALOOS');
+  });
+
+  it('baseProgramTitle é estável para string vazia/undefined', () => {
+    expect(baseProgramTitle('')).toBe('');
+    expect(baseProgramTitle(undefined)).toBe('');
+  });
+
+  it('getEpisodeId extrai o identificador combinado', () => {
+    expect(getEpisodeId('PGM PALALOOS - T01 EP03 - BL02')).toBe('T01EP03');
+    expect(getEpisodeId('SEM EPISODIO')).toBe('');
+  });
+
+  it('parseEpisodioInfo separa temporada/episódio/bloco em números', () => {
+    expect(parseEpisodioInfo('PGM PALALOOS - T01 EP03 - BL02')).toEqual({ temporada: 1, episodio: 3, bloco: 2 });
+  });
+
+  it('parseEpisodioInfo devolve null (não 0) para partes ausentes', () => {
+    expect(parseEpisodioInfo('PGM SEM PADRAO NENHUM')).toEqual({ temporada: null, episodio: null, bloco: null });
+    expect(parseEpisodioInfo('PGM PALALOOS - T01 EP03')).toEqual({ temporada: 1, episodio: 3, bloco: null });
   });
 });

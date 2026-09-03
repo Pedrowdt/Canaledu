@@ -42,6 +42,15 @@ antigo que lia `shared_data` continua funcionando.
    `004_activity_log.sql`/`005_log_atividades.sql` existirem — a ordem de
    aplicação não importa entre este e os dois de log, mas aplique depois de
    `001`/`003`/`006` (precisa que `pecas`/`programas` já existam).
+8. `007_funcao_peca.sql` — Fase 1 do MVP de consolidação do cadastro (ver
+   `MVP-CADASTRO.md` na raiz): adiciona `pecas.funcao`/
+   `pecas.programa_relacionado` (substituem, de forma incremental, as
+   listas `VH_SEGUIR_MAP`/`VH_ASSISTINDO_MAP` hardcoded em `app.js`) e
+   `programas.programa_titulo`/`temporada`/`episodio`/`bloco`. Aditiva —
+   toda peça/programa existente fica com os campos novos em `NULL`,
+   comportamento idêntico ao anterior à migração. Aplique depois de `006`
+   (redefine `fn_salvar_pecas`/`fn_salvar_programas`/`v_pecas_roteiro`/
+   `v_programas_roteiro` para reconhecer os campos novos).
 
 Nada precisa ser apagado: `shared_data` continua existindo como espelho.
 

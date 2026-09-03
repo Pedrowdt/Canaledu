@@ -1,5 +1,60 @@
 # Changelog
 
+## [2.8.0] — MVP do cadastro, Fase 1: função da vinheta e identidade estruturada do programa
+
+Implementa a Fase 1 de `MVP-CADASTRO.md` (schema + formulário), aprovada
+após a análise em `PROMPT-IMPLEMENTACAO-CADASTRO.md`. Só adiciona — nenhuma
+peça/programa existente muda de comportamento; a Fase 2 (ligar isso na
+automação do Roteiro, substituindo `VH_SEGUIR_MAP`/`VH_ASSISTINDO_MAP`) fica
+para depois, com aprovação própria.
+
+### Adicionado
+- **`db/007_funcao_peca.sql`** — migração aditiva:
+  - `pecas.funcao` (enum `peca_funcao`, nullable): classifica o que uma
+    vinheta (`type=EVNH`) faz — `vh_a_seguir`, `vh_daqui_a_pouco`,
+    `vh_voce_esta_assistindo`, `assinatura_infantil/jovem/adulto/padrao`,
+    `classificacao_indicativa`, `cartela_oficial`, `vinheta_id`,
+    `transicao`, `outro`. `NULL` = não classificada (estado de toda peça
+    existente antes desta migração).
+  - `pecas.programa_relacionado` (texto, nullable): título-base normalizado
+    do programa que a vinheta acompanha — substitui, para peças cadastradas
+    com isso preenchido, a necessidade de adivinhar por palavras-chave no
+    título (a Fase 2 é que efetivamente muda o motor de distribuição; por
+    ora só o dado fica disponível).
+  - `programas.programa_titulo`/`temporada`/`episodio`/`bloco`: campos
+    estruturados equivalentes ao que `app.js#baseProgramTitle`/
+    `getEpisodeId` já reconstroem via regex toda vez que alguém precisa —
+    agora ficam gravados uma vez.
+  - `fn_salvar_pecas`/`fn_salvar_programas`/`v_pecas_roteiro`/
+    `v_programas_roteiro` redefinidas para reconhecer os campos novos
+    (sem isso as colunas existiriam mas nunca seriam gravadas nem lidas —
+    o fluxo de mão única de `006_pecas_one_way.sql` só permite escrita via
+    essas funções). `fn_funcao_safe()` (mesmo padrão de
+    `fn_categoria_safe`/`fn_posicao_safe`) devolve `NULL` para qualquer
+    valor fora do enum em vez de derrubar o salvamento inteiro.
+  - Validado de ponta a ponta contra Postgres real (PGlite) via
+    `db/testar-schema.mjs`, estendido para também aplicar `004_activity_log`/
+    `005_log_atividades`/`006_pecas_one_way`/`007_funcao_peca` (antes só
+    testava `001`-`003` — gap sinalizado em `ANALISE.md`, corrigido aqui).
+- **Formulário de Peças e Programas** (`pecas-programas.html`/`.js`):
+  quando `type=EVNH`, aparece o campo "Função da vinheta"; ao escolher uma
+  função que referencia um programa (assinaturas e VHs de chamada), aparece
+  "Programa relacionado" com sugestão automática (`<datalist>`) dos
+  programas já cadastrados. Para programas, `programa_titulo`/`temporada`/
+  `episodio`/`bloco` são calculados automaticamente da descrição ao salvar
+  — nada novo para digitar. Peças com `funcao` cadastrada ganham um selo
+  discreto ("📋 função · programa") na tabela.
+- **`src/core/pecasCatalog.js`** ganha `baseProgramTitle`/`getEpisodeId`/
+  `parseEpisodioInfo` extraídas de `app.js` (onde já existiam, sem
+  cobertura de teste) — mesmo comportamento, agora testado; replicadas de
+  forma não-modular em `pecas-programas.js` seguindo o padrão já
+  estabelecido no projeto.
+
+Testado em `src/core/pecasCatalog.test.js` (8 casos novos) e
+`tests/unit/pecasProgramasFuncao.test.mjs` (8 casos: gravação condicional
+por `type`/`funcao`, cálculo automático dos campos de episódio, visibilidade
+dos campos no formulário, e restauração ao editar uma peça existente).
+
 ## [2.7.0] — Peças do dia auto-preenchidas do cadastro, e importação de Grade Semanal simplificada
 
 Duas melhorias de UX a partir de feedback direto de uso.

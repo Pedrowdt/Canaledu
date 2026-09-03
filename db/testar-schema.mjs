@@ -10,6 +10,14 @@ const q = (sql) => db.exec(sql);
 await q(`
   create schema if not exists auth;
   create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+  -- Stub de auth.uid(): o Supabase real popula isso a partir do JWT da
+  -- sessão; aqui simulamos uma sessão autenticada fixa, necessária a
+  -- partir de 006 (fn_salvar_pecas/fn_salvar_programas passam a exigir
+  -- public.fn_uid() não-nulo, e created_by/updated_by referenciam
+  -- auth.users via FK).
+  insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'teste@teste.com');
+  create or replace function auth.uid() returns uuid
+  language sql stable as $$ select '00000000-0000-0000-0000-000000000001'::uuid $$;
   create table if not exists public.shared_data (
     id text primary key, pecas jsonb default '[]', programas jsonb default '[]',
     grade jsonb default '{}', updated_by uuid, updated_at timestamptz default now());
@@ -104,3 +112,57 @@ console.log('espelho protegido:', JSON.stringify({ antes: antes.rows[0], depois:
   antes.rows[0].n === depois.rows[0].n ? '✓' : 'ERRO');
 
 console.log('\nTodos os cenários executados.');
+
+
+// =====================================================
+// 004_activity_log / 005_log_atividades / 006 (mão única) / 007 (função)
+// =====================================================
+await q(readFileSync(new URL('./004_activity_log.sql', import.meta.url), 'utf8'));
+console.log('004_activity_log aplicado ✓');
+
+await q(readFileSync(new URL('./005_log_atividades.sql', import.meta.url), 'utf8'));
+console.log('005_log_atividades aplicado ✓');
+
+await q(readFileSync(new URL('./006_pecas_one_way.sql', import.meta.url), 'utf8'));
+console.log('006_pecas_one_way aplicado ✓');
+
+await q(readFileSync(new URL('./007_funcao_peca.sql', import.meta.url), 'utf8'));
+console.log('007_funcao_peca aplicado ✓');
+
+// A partir daqui, pecas/programas só aceitam escrita via fn_salvar_* (006) —
+// testa exatamente o caminho que o app usa em produção.
+try {
+  await q(`insert into public.pecas (code, descricao) values ('BLOQUEADA', 'x')`);
+  console.log('ERRO: insert direto não foi bloqueado pelo fluxo de mão única');
+} catch (e) {
+  console.log('fluxo de mão única bloqueia insert direto fora de fn_salvar_pecas ✓');
+}
+
+// funcao/programa_relacionado (peças) — via fn_salvar_pecas, único caminho de escrita
+await call('fn_salvar_pecas', [
+  { code: 'VH001', descricao: 'VH DAQUI A POUCO PALALOOS', tempo: '00:00:08', type: 'EVNH',
+    funcao: 'vh_daqui_a_pouco', programa_relacionado: 'PALALOOS' },
+  // funcao inválida não pode derrubar o salvamento inteiro — vira NULL (fn_funcao_safe)
+  { code: 'VH002', descricao: 'PECA SEM FUNCAO CLASSIFICADA', tempo: '00:00:08', type: 'EVNH',
+    funcao: 'NAO_EXISTE_NO_ENUM' },
+  // peça sem os campos novos continua funcionando exatamente como antes de 007
+  { code: 'VH003', descricao: 'PECA ANTIGA SEM OS CAMPOS NOVOS', tempo: '00:00:05', type: 'EVNH' },
+]);
+await show('funcao/programa_relacionado gravados corretamente:',
+  `select code, funcao, programa_relacionado from public.pecas where code like 'VH%' order by code`);
+
+// programa_titulo/temporada/episodio/bloco (programas) — via fn_salvar_programas
+await call('fn_salvar_programas', [
+  { code: 'PALALOOS_T01EP03', descricao: 'PGM PALALOOS - T01 EP03 - BL02', tempo: '00:26:00',
+    programa_titulo: 'PALALOOS', temporada: 1, episodio: 3, bloco: 2 },
+]);
+await show('campos estruturados do programa gravados:',
+  `select code, programa_titulo, temporada, episodio, bloco from public.programas where code = 'PALALOOS_T01EP03'`);
+
+// v_pecas_roteiro/v_programas_roteiro só ADICIONARAM colunas — nada quebrou
+await show('view v_pecas_roteiro expõe funcao/programa_relacionado:',
+  `select code, funcao, "programa_relacionado" from public.v_pecas_roteiro where code='VH001'`);
+await show('fn_pecas_elegiveis continua funcionando depois de 007:',
+  `select code from public.fn_pecas_elegiveis(1,'12:00','2026-08-05')`);
+
+console.log('\n007 validado.');

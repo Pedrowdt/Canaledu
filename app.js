@@ -1826,7 +1826,7 @@ function pickAssinatura(item) {
 }
 
 // Extract base program title (remove block suffix " - BL 01" etc)
-/** Remove sufixos de bloco (" - BL 01", " BL01") da descrição para obter o título base do programa. Usado na comparação com a grade semanal. */
+/** Remove sufixos de bloco (" - BL 01", " BL01") da descrição para obter o título base do programa. Usado na comparação com a grade semanal. Réplica não-modular de src/core/pecasCatalog.js#baseProgramTitle (mesma regra, coberta pelos testes de lá — atualize os dois lugares juntos). */
 function baseProgramTitle(desc) {
   return desc
     .replace(/^\s*PGM\s+/i, '')                // remove prefixo "PGM " no início
@@ -1842,7 +1842,7 @@ function baseProgramTitle(desc) {
 // =====================================================
 // GENERATE ROTEIRO FROM PROGRAM LIST
 // =====================================================
-/** Extrai o identificador do episódio (ex: T01 EP01) para agrupar blocos corretos */
+/** Extrai o identificador do episódio (ex: T01 EP01) para agrupar blocos corretos. Réplica não-modular de src/core/pecasCatalog.js#getEpisodeId. */
 function getEpisodeId(desc) {
   if (!desc) return '';
   const m = String(desc).toUpperCase().match(/T\s*\d+\s*EP\s*\d+|EP\s*\d+/);

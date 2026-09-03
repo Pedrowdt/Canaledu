@@ -259,7 +259,7 @@ tbody tr:hover{background:#f5f5f3}
       <div class="row2">
         <div class="field"><label>Tempo</label><input id="f-tempo" placeholder="00:00:00"></div>
         <div class="field"><label>Type</label>
-          <select id="f-type">
+          <select id="f-type" onchange="toggleFuncaoFields()">
             <option>ECHE</option><option>ECHM</option><option>RCOM</option>
             <option>RPOL</option><option>EINT</option><option>EVNH</option>
             <option>RPRO</option>
@@ -306,6 +306,38 @@ tbody tr:hover{background:#f5f5f3}
           </div>
         </div>
         <div class="field"><label>Observações</label><input id="f-obs" placeholder="Notas adicionais"></div>
+
+        <!-- [MVP-CADASTRO.md, Fase 1] Só faz sentido para type=EVNH (vinhetas).
+             Substitui, para peças cadastradas com isso preenchido, a necessidade
+             de adivinhar por palavras-chave no título qual vinheta acompanha qual
+             programa (ver MVP-CADASTRO.md e PROMPT-IMPLEMENTACAO-CADASTRO.md) —
+             a Fase 2 é que efetivamente liga isso na automação do Roteiro; por
+             enquanto isso só grava o dado estruturado. -->
+        <div id="funcao-fields" style="display:none">
+          <div class="field">
+            <label>Função da vinheta <span style="font-weight:400;opacity:.7">(o que esta EVNH faz)</span></label>
+            <select id="f-funcao" onchange="toggleProgramaRelacionadoField()">
+              <option value="">— Não classificada —</option>
+              <option value="assinatura_infantil">Assinatura — Infantil</option>
+              <option value="assinatura_jovem">Assinatura — Jovem</option>
+              <option value="assinatura_adulto">Assinatura — Adulto</option>
+              <option value="assinatura_padrao">Assinatura — Padrão</option>
+              <option value="vh_a_seguir">VH "A seguir"</option>
+              <option value="vh_daqui_a_pouco">VH "Daqui a pouco"</option>
+              <option value="vh_voce_esta_assistindo">VH "Você está assistindo"</option>
+              <option value="classificacao_indicativa">Classificação indicativa</option>
+              <option value="cartela_oficial">Cartela oficial</option>
+              <option value="vinheta_id">Vinheta de identificação do canal</option>
+              <option value="transicao">Transição</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div class="field" id="programa-relacionado-field" style="display:none">
+            <label>Programa relacionado <span style="font-weight:400;opacity:.7">(qual programa esta vinheta acompanha)</span></label>
+            <input id="f-programa-relacionado" list="programa-relacionado-list" placeholder="Comece a digitar o nome do programa…">
+            <datalist id="programa-relacionado-list"></datalist>
+          </div>
+        </div>
       </div>
 
       <!-- [NOVO] Assinatura (Infantil/Jovem/Adulto) — disponível tanto ao CADASTRAR

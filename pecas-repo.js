@@ -48,6 +48,10 @@
       posicao: r.posicao || '',
       ordem: r.ordem ?? 0,
       ativo: r.ativo !== false,
+      // MVP-CADASTRO.md, Fase 1 — ver db/007_funcao_peca.sql. NULL no banco
+      // vira '' na tela (mesmo padrão de todo campo opcional aqui).
+      funcao: r.funcao || '',
+      programaRelacionado: r.programa_relacionado || '',
       rowVersion: r.row_version ?? null,
     };
   }
@@ -69,6 +73,8 @@
       posicao: p.posicao || null,
       ordem: Number(p.ordem) || 0,
       ativo: p.ativo !== false,
+      funcao: p.funcao || null,
+      programa_relacionado: p.programaRelacionado || null,
       row_version: p.rowVersion ?? null,
     };
   }
@@ -83,6 +89,11 @@
       type: r.type || 'RPRO',
       assinatura: r.assinatura ? [r.assinatura] : [],
       ativo: r.ativo !== false,
+      // MVP-CADASTRO.md, Fase 1 — ver db/007_funcao_peca.sql.
+      programaTitulo: r.programa_titulo || '',
+      temporada: r.temporada ?? null,
+      episodio: r.episodio ?? null,
+      bloco: r.bloco ?? null,
       rowVersion: r.row_version ?? null,
     };
   }
@@ -97,6 +108,10 @@
       type: p.type || 'RPRO',
       assinatura: FAIXAS.includes(faixa) ? faixa : null,
       ativo: p.ativo !== false,
+      programa_titulo: p.programaTitulo || null,
+      temporada: p.temporada ?? null,
+      episodio: p.episodio ?? null,
+      bloco: p.bloco ?? null,
       row_version: p.rowVersion ?? null,
     };
   }
