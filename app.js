@@ -300,23 +300,46 @@ function init() {
 }
 
 /** Persiste o estado atual no localStorage: roteiro do dia, banco de peças e programas. Se o objeto API estiver disponível, também envia os dados ao servidor via HTTP PUT. Aciona o auto-backup silencioso se estiver configurado. */
-/** Persiste o estado atual no localStorage: roteiro do dia, banco de peças e programas. Se o objeto API estiver disponível, também envia os dados ao servidor via HTTP PUT. Aciona o auto-backup silencioso se estiver configurado. */
+/** Persiste o estado atual no localStorage: roteiro do dia, banco de peças e programas. 
+ *  Adiciona controle de concorrência para evitar sobrescrita entre usuários.
+ *  Se o objeto API estiver disponível, também envia os dados ao servidor via HTTP PUT. 
+ *  Aciona o auto-backup silencioso se estiver configurado. 
+ */
 function saveState() {
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
-  if (!saved.roteiros) saved.roteiros = {};
-  const dk = dateKey(state.currentDate);
-  registrarUndoSeMudou(dk, saved.roteiros[dk], state.roteiro);
-  saved.roteiros[dk] = state.roteiro;
-  saved.pecas     = state.pecas;
-  saved.programas = state.programas;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
-  // FLUXO DE MÃO ÚNICA: o Roteiro NUNCA grava no cadastro (public.pecas /
-  // public.programas). Tudo aqui é local (localStorage + user_data).
-  // Alterações no cadastro só acontecem na tela "Peças e Programas".
-  // Aciona backup automático silenciosamente se pasta estiver configurada
-  if (typeof runAutoBackup === 'function' && _backupDirHandle) {
-    runAutoBackup();
-  }
+    const currentData = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    const lastModifiedInStorage = currentData._lastModified || 0;
+    
+    if (lastModifiedInStorage > (state.lastSync || 0)) {
+        const confirmOverwrite = confirm(
+            "Atenção: Os dados foram modificados recentemente por outra sessão.\n" +
+            "Se você salvar agora, pode sobrescrever as mudanças do outro usuário.\n\n" +
+            "Deseja recarregar os dados mais recentes antes de continuar?"
+        );
+        
+        if (confirmOverwrite) {
+            loadState();
+            return;
+        }
+    }
+
+    const saved = { 
+        ...currentData, 
+        roteiros: { 
+            ...currentData.roteiros, 
+            [dateKey(state.currentDate)]: state.roteiro 
+        },
+        pecas: state.pecas,
+        programas: state.programas
+    };
+    
+    saved._lastModified = Date.now();
+    localStorage.setItem('roteiroApp', JSON.stringify(saved));
+    state.lastSync = Date.now();
+    
+    // Mantém o comportamento original de backup
+    if (typeof runAutoBackup === 'function' && _backupDirHandle) {
+        runAutoBackup();
+    }
 }
 
 // =====================================================
