@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.8.1] — Reverte fix de concorrência malfeito em saveState(); remove patches versionados por engano
+
+### Corrigido
+- **`app.js#saveState()` estava quebrado desde o commit `027f405`**, feito
+  fora do fluxo desta sessão. A intenção (evitar sobrescrita entre usuários)
+  era legítima, mas foi implementada no lugar errado — `saveState()` é do
+  Roteiro e só grava o espelho local do cadastro no `localStorage`; nunca
+  escreveu em `public.pecas`/`public.programas` (só a tela Peças e
+  Programas faz isso). A "correção" trazia três problemas:
+  - Chamava `loadState()`, função que **não existe** no arquivo — clicar
+    "Sim" no `confirm()` novo quebrava a tela (`ReferenceError`).
+  - Removeu a chamada a `registrarUndoSeMudou()` — "Desfazer última ação"
+    parou de funcionar **silenciosamente**, sem nenhum erro visível.
+  - Um `confirm()` bloqueante dentro de `saveState()` (chamada em quase
+    toda ação do usuário) teria interrompido o uso constantemente.
+  Revertido para o comportamento correto. A proteção real contra
+  sobrescrita do cadastro entre usuários já existia antes disso, em
+  `cloud-sync.js` (`RoteiroPecasBridge.mergeCadastro` +
+  `temAlteracoesPendentes()`) e em `pecas-programas.js` (mesmo padrão) —
+  não precisava de nada novo.
+  - Teste de regressão em `tests/unit/appRoteiroFeatures.test.mjs`, agora
+    chamando o `saveState()` de verdade (não só a função pura extraída):
+    confirma que não chama `confirm()`, que `registrarUndoSeMudou()`
+    continua sendo chamada, e que nenhuma função inexistente é referenciada.
+    Verifiquei manualmente que esses testes falham contra o código quebrado
+    e passam contra a correção, antes de considerar concluído.
+
+### Removido
+- Os 6 arquivos `.patch` gerados por `git format-patch` ao longo desta
+  sessão tinham sido commitados por engano no repositório (deveriam só
+  servir para `git am`, não ficar versionados depois). `.gitignore` ganhou
+  uma regra (`*.patch`) para isso não se repetir.
+
 ## [2.8.0] — MVP do cadastro, Fase 1: função da vinheta e identidade estruturada do programa
 
 Implementa a Fase 1 de `MVP-CADASTRO.md` (schema + formulário), aprovada

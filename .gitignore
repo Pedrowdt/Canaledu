@@ -3,3 +3,6 @@ node_modules/
 *.log
 .env
 .env.local
+# Patches gerados por `git format-patch` (fluxo desta sessão) — servem para
+# aplicar com `git am`, não são para ficar versionados depois de aplicados.
+*.patch
