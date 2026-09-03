@@ -1,0 +1,557 @@
+From dce09500d50a44ba179425bf02d1d74a4fe22824 Mon Sep 17 00:00:00 2001
+From: RexB166ER <104926463+Pedrowdt@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 10:41:18 +0000
+Subject: [PATCH 4/4] =?UTF-8?q?feat(ux):=202.7.0=20=E2=80=94=20pe=C3=A7as?=
+ =?UTF-8?q?=20do=20dia=20auto-preenchidas=20do=20cadastro;=20import=20de?=
+ =?UTF-8?q?=20Grade=20Semanal=20simplificado?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A partir de feedback direto de uso:
+
+- Peças do dia: fn_pecas_elegiveis (Postgres) e PecasRepo.pecasElegiveis()
+  existiam desde 001_pecas_programas.sql, documentadas como 'usado pela
+  confecção de roteiros', mas nunca tinham nenhum chamador — e
+  src/core/pecasCatalog.js#selectPecasDoDia (testada) também nunca foi
+  ligada à UI. pecasDoDiaDoCadastro() (réplica não-modular da mesma
+  regra) agora deriva o painel de Peças do Dia automaticamente do
+  cadastro (categoria/dias/validade) quando nada foi importado/limpo
+  para o dia. Importar planilha passa a mesclar por code em vez de
+  substituir tudo — vira complemento para peças avulsas, não
+  pré-requisito diário. 'Limpar' ganhou uma marca persistente
+  (pecasDiaLimpo) para não ser imediatamente desfeito pela
+  auto-derivação, com um link para restaurar. De brinde: changeWeek()
+  agora recarrega state.pecasDia (só selectDate() fazia isso).
+
+- Grade Semanal: a importação por planilha saiu do meio de configurações
+  não relacionadas dentro do modal Admin e passou a viver na própria aba
+  Grade Semanal, junto da visualização — sem modal, resultado imediato.
+  Nenhuma lógica de parsing mudou, só a localização da UI.
+  applyGradeSemanalImport() agora chama renderGrade() além de
+  renderRoteiro().
+
+Testado em tests/unit/pecasDia.test.mjs (12 casos novos: elegibilidade
+por categoria/dias/validade/ativo, mapeamento freq->qtd, e a marca de
+'limpo'). 112 testes passando.
+---
+ CHANGELOG.md                 |  42 +++++++++++
+ app.js                       |  15 +++-
+ index.html                   |  40 +++++------
+ package.json                 |   2 +-
+ pecas_dia.js                 | 132 ++++++++++++++++++++++++++++++++---
+ tests/unit/pecasDia.test.mjs |  95 ++++++++++++++++++++++++-
+ version.js                   |   4 +-
+ version.txt                  |   2 +-
+ 8 files changed, 290 insertions(+), 42 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 08d335d..c7c57fe 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,47 @@
+ # Changelog
+ 
++## [2.7.0] — Peças do dia auto-preenchidas do cadastro, e importação de Grade Semanal simplificada
++
++Duas melhorias de UX a partir de feedback direto de uso.
++
++### Adicionado
++- **Peças do dia não dependem mais só de planilha.** O banco já tinha tudo
++  pronto para isso e nunca era usado: `fn_pecas_elegiveis` (Postgres) e
++  `PecasRepo.pecasElegiveis()` existiam desde `001_pecas_programas.sql` com
++  o comentário *"usado pela confecção de roteiros"*, mas não tinham nenhum
++  chamador em lugar nenhum do app — e `src/core/pecasCatalog.js#selectPecasDoDia`
++  (client-side, testada) também nunca foi ligada à UI. Agora, ao abrir o
++  painel de Peças do Dia sem nada importado/limpo para aquele dia,
++  `pecasDoDiaDoCadastro()` (réplica não-modular da mesma regra) deriva a
++  lista automaticamente a partir do cadastro — categoria elegível
++  (Chamada quente/RCOM/RPOL/Interprograma gov), `dias` compatível com o dia
++  da semana e validade em dia. Itens assim carregados ganham o selo
++  "📋 cadastro" no card.
++  - **Importar Planilha vira complemento, não pré-requisito diário:** agora
++    mescla por `code` no que já está no painel (a versão da planilha
++    prevalece em empate) em vez de substituir tudo — use só para peças
++    avulsas ainda não cadastradas.
++  - **"Limpar" agora é definitivo até o próximo import/adição manual:**
++    antes, limpar e reabrir o painel trazia tudo de volta pela derivação
++    automática — sensação de "o excluir não funciona". Uma marca
++    (`pecasDiaLimpo`) grava a intenção explícita; o painel oferece
++    "↺ Restaurar peças do cadastro" para desfazer.
++  - Corrigido de brinde: `changeWeek()` não recarregava `state.pecasDia` ao
++    trocar de semana (só `selectDate()` fazia isso) — o painel podia ficar
++    mostrando o conteúdo do dia anterior até reabrir a aba manualmente.
++  - Testado em `tests/unit/pecasDia.test.mjs` (categoria elegível, `dias`,
++    validade, inativo, mapeamento `freq`→`qtd`, e a marca de "limpo").
++- **Importação de Grade Semanal saiu do painel de Admin.** O fluxo (abrir
++  Admin → rolar por configurações sem relação → achar a caixa de import →
++  escolher planilha → conferir aba → aplicar → fechar modal → ir na aba
++  Grade Semanal ver o resultado) virou: abrir a aba **Grade Semanal** →
++  "📥 Importar planilha…" → conferir aba/preview → aplicar — o resultado
++  aparece na hora, na mesma tela, sem modal nenhum de permeio.
++  `applyGradeSemanalImport()` agora chama `renderGrade()` além de
++  `renderRoteiro()`, e a barra de importação se fecha sozinha após aplicar
++  com sucesso. Nenhuma lógica de parsing de planilha mudou — só a
++  localização da UI.
++
+ ## [2.6.2] — Correções de segurança, documentação e higiene do repositório
+ 
+ Aplicado a partir da revisão completa do projeto (ver `analise-projeto.md`),
+diff --git a/app.js b/app.js
+index 87299cc..6d80831 100644
+--- a/app.js
++++ b/app.js
+@@ -434,9 +434,12 @@ function changeWeek(delta) {
+   const d = new Date(state.currentDate);
+   d.setDate(d.getDate() + delta * 7);
+   state.currentDate = d;
+-  // Load roteiro for the new date
++  // Load roteiro and pecasDia for the new date (sem isso, o painel de
++  // Peças do Dia ficava mostrando o conteúdo do dia anterior até alguém
++  // reabrir a aba manualmente).
+   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+   state.roteiro = saved.roteiros?.[dateKey(d)] || [];
++  state.pecasDia = saved.pecasDia?.[dateKey(d)] || [];
+   renderWeekSelector();
+   updateDateDisplay();
+   renderRoteiro();
+@@ -4182,7 +4185,7 @@ function handleGradeSemanalImport(ev) {
+       const firstReal = wb.SheetNames.find(n => !/cache/i.test(n)) || wb.SheetNames[0];
+       sel.value = firstReal;
+       sel.onchange = () => _gradePreviewSelectedSheet();
+-      document.getElementById('grade-import-sheets').style.display = 'block';
++      document.getElementById('grade-import-sheets').style.display = 'flex';
+       _gradePreviewSelectedSheet();
+     } catch (err) {
+       console.error(err);
+@@ -4321,7 +4324,13 @@ function applyGradeSemanalImport() {
+   }
+   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+   toast(`✓ Grade aplicada: ${totalDays} dias, ${totalProgs} programas`, 'success');
+-  // Re-renderizar caso a grade do dia atual tenha mudado
++  // Fecha a barra de importação — resultado já fica visível na própria
++  // aba Grade Semanal, sem precisar fechar modal nenhum.
++  const bar = document.getElementById('grade-import-sheets');
++  if (bar) bar.style.display = 'none';
++  // Re-renderiza tanto a grade visual (esta aba) quanto o roteiro do dia
++  // atual (caso a grade dele tenha mudado).
++  if (typeof renderGrade === 'function') renderGrade();
+   if (typeof renderRoteiro === 'function') renderRoteiro();
+ }
+ 
+diff --git a/index.html b/index.html
+index 959473a..22da37a 100644
+--- a/index.html
++++ b/index.html
+@@ -841,13 +841,14 @@
+           <option value="EINT">EINT — Interprograma</option>
+           <option value="EVNH">EVNH — Vinheta</option>
+         </select>
+-        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-pecas-dia').click()">↑ Importar Planilha</button>
++        <button class="btn btn-sm btn-primary" onclick="document.getElementById('file-pecas-dia').click()" title="Complementa as peças já carregadas do cadastro — use para peças avulsas ainda não cadastradas">↑ Importar Planilha</button>
+         <button class="btn btn-sm" onclick="openAddPecaDiaModal()" style="border-color:var(--green);color:var(--green)" title="Adicionar peça manualmente">+ Adicionar</button>
+         <button class="btn btn-sm" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)">⚡ Inserir no roteiro</button>
+-        <button class="btn btn-sm" onclick="clearPecasDia()" style="border-color:var(--red,#ef4444);color:var(--red,#ef4444)" title="Limpar peças do dia importadas">🗑 Limpar</button>
++        <button class="btn btn-sm" onclick="clearPecasDia()" style="border-color:var(--red,#ef4444);color:var(--red,#ef4444)" title="Limpar peças do dia (inclusive as automáticas do cadastro)">🗑 Limpar</button>
+       </div>
+       <div style="padding:8px 20px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;color:var(--muted)">
+-        Importe a planilha <strong style="color:var(--text)">PLANILHA_DE_PEÇAS_DE_INSERÇÃO_2026.xlsx</strong> — a aba correspondente à data selecionada é carregada automaticamente.
++        As peças elegíveis para hoje (categoria/dias/validade do cadastro) são carregadas automaticamente — marcadas com <strong style="color:var(--text)">📋 cadastro</strong>.
++        Use <strong style="color:var(--text)">Importar Planilha</strong> só para peças avulsas que ainda não estão cadastradas.
+         Duplo-clique numa peça para adicionar ao roteiro, ou use <strong style="color:var(--cyan)">⚡ Inserir no roteiro</strong> para distribuição automática inteligente.
+       </div>
+       <div style="flex:1;overflow-y:auto" id="pecas-dia-content">
+@@ -865,6 +866,8 @@
+       <div class="section-header">
+         <h2>Grade Semanal</h2>
+         <span style="font-size:11px;color:var(--muted);flex:1">Horários fixos da programação — dia atual destacado em azul · ✓ no horário · laranja = desvio</span>
++        <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
++        <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)" title="Substitui a grade dos 7 dias a partir de uma planilha semanal (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx)">📥 Importar planilha…</button>
+         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);cursor:pointer" title="Escolha um programa e a cor, depois clique em ✅">
+           <span title="Cor do programa" style="font-size:14px">🎨</span>
+           <input type="color" id="grade-color-picker" value="#3b82f6"
+@@ -875,6 +878,15 @@
+           <button class="btn btn-sm" title="Aplicar cor" style="padding:2px 6px;font-size:14px;line-height:1" onclick="(function(){var p=document.getElementById('grade-color-prog').value.trim();var c=document.getElementById('grade-color-picker').value;if(!p){alert('Informe o nome do programa');return;}setProgramColor(p,c);})()">✅</button>
+         </label>
+       </div>
++      <!-- Aparece só depois de escolher um arquivo — pré-seleciona a aba mais
++           provável, mostra o preview, e some de novo depois de aplicar. -->
++      <div id="grade-import-sheets" style="display:none;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);align-items:center;gap:10px;flex-wrap:wrap">
++        <label style="font-size:10px;color:var(--muted)">Aba da semana</label>
++        <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
++        <span id="grade-import-preview" style="font-size:10px;color:var(--muted)"></span>
++        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
++        <button class="btn btn-sm" onclick="document.getElementById('grade-import-sheets').style.display='none'">Cancelar</button>
++      </div>
+       <div style="flex:1;overflow:auto;padding:0;position:relative" id="grade-visual-container">
+         <div class="empty"><div class="icon">📅</div><p>Clique na aba para carregar a grade.</p></div>
+       </div>
+@@ -1218,25 +1230,9 @@
+       <label>Exibir indicadores de grade no roteiro</label>
+       <input type="checkbox" id="adm-mostrar-grade" checked style="width:18px;height:18px;accent-color:var(--accent)">
+     </div>
+-
+-    <!-- Importar grade semanal a partir de planilha (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx) -->
+-    <div style="padding:10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);margin-top:8px">
+-      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📥 Importar grade da planilha semanal</div>
+-      <p style="font-size:10px;color:var(--muted);margin-bottom:8px;line-height:1.4">
+-        Carrega uma aba (ex.: <b>01 A 07 DE JUNHO</b>) com colunas Seg–Dom em slots de 5 min.
+-        A grade base de cada dia da semana será substituída pelos programas detectados.
+-      </p>
+-      <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
+-      <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)">📂 Selecionar planilha…</button>
+-      <div id="grade-import-sheets" style="display:none;margin-top:8px">
+-        <div class="form-row" style="margin:0 0 6px">
+-          <label style="font-size:10px">Aba da semana</label>
+-          <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
+-        </div>
+-        <div id="grade-import-preview" style="font-size:10px;color:var(--muted);margin-bottom:6px"></div>
+-        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
+-      </div>
+-    </div>
++    <p style="font-size:10px;color:var(--muted);margin:-2px 0 8px">
++      Para importar uma nova grade semanal de planilha, use a aba <strong style="color:var(--text)">Grade Semanal</strong> — o botão fica lá agora, junto com a visualização.
++    </p>
+ 
+     <!-- Seção: Automação -->
+     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Automação</div>
+diff --git a/package.json b/package.json
+index 5b58323..dbcbc14 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "roteiro-canal-educacao",
+-  "version": "2.6.2",
++  "version": "2.7.0",
+   "type": "module",
+   "scripts": {
+     "test": "vitest run",
+diff --git a/pecas_dia.js b/pecas_dia.js
+index 7075fd1..2e2d170 100644
+--- a/pecas_dia.js
++++ b/pecas_dia.js
+@@ -52,7 +52,67 @@ function validadeToISO(v) {
+ }
+ 
+ // -----------------------------------------------------
+-// VH "DAQUI A POUCO" — casamento com o próximo programa
++// PEÇAS DO DIA A PARTIR DO CADASTRO — auto-preenchimento
++// Réplica não-modular de src/core/pecasCatalog.js#selectPecasDoDia/
++// isPecaVigente/isPecaDoDia (mesma regra, coberta pelos testes de lá).
++// Evita depender só da planilha diária: toda peça já cadastrada (com
++// categoria elegível, `dias` compatível com hoje e validade em dia)
++// entra automaticamente no pool de "peças do dia" assim que o painel
++// é aberto, sem esperar ninguém importar um Excel. A planilha continua
++// disponível para o que ainda não está cadastrado (peça avulsa nova) —
++// ver importPecasDiaExcel(), que agora MESCLA em vez de substituir.
++// -----------------------------------------------------
++
++/** Categorias do cadastro (Peças e Programas) elegíveis para "peças do dia", mapeadas para o rótulo de seção usado neste painel. MANUT/BUSSOLA ficam de fora — não fazem parte da rotação diária. */
++const CATEGORIA_CADASTRO_PARA_DIA = {
++  CHAMADA_QUENTE: 'CHAMADA QUENTE',
++  RCOM: 'RCOM',
++  RPOL: 'RPOL',
++  INTGOV: 'INTERPROGRAMAS GOV',
++};
++
++const DIAS_SEMANA_ABREV = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
++
++function isPecaVigenteEm(peca, ref) {
++  if (!peca || !peca.validade) return true;
++  const d = new Date(`${peca.validade}T23:59:59`);
++  if (Number.isNaN(d.getTime())) return true;
++  return d.getTime() >= ref.getTime();
++}
++
++function isPecaDoDiaSemana(peca, dow) {
++  const dias = peca?.dias || [];
++  if (!dias.length) return true; // sem restrição de dia cadastrada => todo dia
++  return dias.map((d) => String(d).toLowerCase()).includes(DIAS_SEMANA_ABREV[dow]);
++}
++
++/**
++ * Deriva o pool de "peças do dia" diretamente do cadastro, para a data
++ * `ref`. Ignora a janela hIni/hFim aqui de propósito — isso é decidido na
++ * hora de inserir no roteiro (ver isPecaNaJanela/smartInsertPecas), não na
++ * hora de montar o pool do dia inteiro.
++ */
++function pecasDoDiaDoCadastro(pecasCadastro, ref) {
++  const dow = ref.getDay();
++  return (pecasCadastro || [])
++    .filter((p) => p && p.ativo !== false && CATEGORIA_CADASTRO_PARA_DIA[p.categoria])
++    .filter((p) => isPecaVigenteEm(p, ref) && isPecaDoDiaSemana(p, dow))
++    .map((p) => ({
++      code: p.code,
++      descricao: p.descricao,
++      tempo: p.tempo || '00:00:00',
++      midia: p.midia || '0OMN',
++      type: p.type || '',
++      validade: p.validade || '',
++      obs: p.obs || '',
++      categoria: CATEGORIA_CADASTRO_PARA_DIA[p.categoria],
++      qtd: Number(p.freq) || 1,
++      restricao: '',
++      usado: 0,
++      _origemCadastro: true, // distingue de itens vindos de planilha/manuais, só para exibir um selo na UI
++    }));
++}
++
+ // Réplica não-modular de src/core/pecasCatalog.js#matchVhDaquiForNext
+ // (mesma regra, coberta pelos testes de lá). Substitui o antigo
+ // critério "1 palavra qualquer casa" — que ignorava pontuação e
+@@ -197,10 +257,20 @@ async function importPecasDiaExcel(file) {
+     return;
+   }
+ 
+-  state.pecasDia = pecasDia;
++  // Mescla com o que já está no painel (inclusive peças carregadas
++  // automaticamente do cadastro) em vez de substituir tudo — a planilha
++  // passa a ser um complemento para o que ainda não está cadastrado, não a
++  // única fonte. Em caso de mesmo code, a versão da planilha prevalece
++  // (mais específica/recente que o cadastro).
++  const atuais = new Map((state.pecasDia || []).map(p => [p.code, p]));
++  pecasDia.forEach(p => atuais.set(p.code, p));
++  state.pecasDia = [...atuais.values()];
++
+   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+   if (!saved.pecasDia) saved.pecasDia = {};
+-  saved.pecasDia[dateKey(d)] = pecasDia;
++  saved.pecasDia[dateKey(d)] = state.pecasDia;
++  // Importar é uma ação explícita — desfaz um "Limpar" anterior deste dia.
++  if (saved.pecasDiaLimpo) delete saved.pecasDiaLimpo[dateKey(d)];
+   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+   // Mescla peças importadas no banco permanente automaticamente
+   if (typeof mergeBancoFromRoteiro === 'function') mergeBancoFromRoteiro(pecasDia);
+@@ -329,9 +399,19 @@ function renderPecasDiaPanel() {
+   const panel = document.getElementById('pecas-dia-content');
+   if (!panel) return;
+ 
++  const diaKey = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
++
+   if (!state.pecasDia || !state.pecasDia.length) {
+     const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+-    state.pecasDia = saved.pecasDia?.[dateKey(state.currentDate)] || [];
++    state.pecasDia = saved.pecasDia?.[diaKey] || [];
++  }
++
++  // Nada foi importado/adicionado manualmente ainda para este dia — deriva
++  // automaticamente do cadastro (Peças e Programas) em vez de deixar o
++  // painel vazio esperando alguém importar uma planilha. Só não faz isso
++  // se o usuário explicitamente limpou as peças deste dia (clearPecasDia).
++  if ((!state.pecasDia || !state.pecasDia.length) && !foiLimpoManualmente(diaKey)) {
++    state.pecasDia = pecasDoDiaDoCadastro(state.pecas, state.currentDate);
+   }
+ 
+   const search     = (document.getElementById('pd-search')?.value || '').toLowerCase();
+@@ -350,8 +430,13 @@ function renderPecasDiaPanel() {
+   }
+ 
+   if (!state.pecasDia?.length) {
+-    panel.innerHTML = `<div class="empty"><div class="icon">📂</div>
+-      <p>Nenhuma peça importada para este dia.<br>Clique em "Importar Planilha" para carregar.</p></div>`;
++    panel.innerHTML = foiLimpoManualmente(diaKey)
++      ? `<div class="empty"><div class="icon">📂</div>
++        <p>Peças do dia limpas.<br>
++        <a href="#" onclick="restaurarPecasDiaDoCadastro();return false" style="color:var(--accent)">↺ Restaurar peças do cadastro</a>
++        ou importe uma planilha para peças avulsas.</p></div>`
++      : `<div class="empty"><div class="icon">📂</div>
++        <p>Nenhuma peça do cadastro é elegível para hoje.<br>Importe uma planilha ou adicione manualmente.</p></div>`;
+     document.getElementById('badge-pecas-dia').textContent = '0';
+     return;
+   }
+@@ -373,6 +458,7 @@ function renderPecasDiaPanel() {
+           <div class="peca-meta">
+             <span class="peca-dur">${p.tempo}</span>
+             <span class="type-badge badge-${p.type}">${p.type}</span>
++            ${p._origemCadastro ? `<span style="font-size:9px;color:var(--muted)" title="Carregada automaticamente do cadastro">📋 cadastro</span>` : ''}
+             ${p.restricao ? `<span style="font-size:9px;color:var(--amber)">${escHtml(p.restricao)}</span>` : ''}
+             ${usageStr ? `<span style="font-size:9px;color:var(--green);margin-left:auto">${usageStr}</span>` : ''}
+           </div>
+@@ -386,16 +472,39 @@ function renderPecasDiaPanel() {
+   document.getElementById('badge-pecas-dia').textContent = total;
+ }
+ 
++/** O usuário clicou explicitamente em "Limpar" para este dia? Enquanto essa marca existir, o painel fica vazio em vez de recompor sozinho a partir do cadastro. */
++function foiLimpoManualmente(diaKey) {
++  if (!diaKey) return false;
++  try {
++    const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
++    return !!(saved.pecasDiaLimpo && saved.pecasDiaLimpo[diaKey]);
++  } catch { return false; }
++}
++
++/** Remove a marca de "limpo manualmente" e re-renderiza — o painel volta a se popular automaticamente a partir do cadastro. */
++function restaurarPecasDiaDoCadastro() {
++  const diaKey = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
++  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
++  if (saved.pecasDiaLimpo) { delete saved.pecasDiaLimpo[diaKey]; localStorage.setItem('roteiroApp', JSON.stringify(saved)); }
++  state.pecasDia = [];
++  renderPecasDiaPanel();
++}
++
++
+ /** Limpa todas as peças do dia importadas para a data selecionada, após confirmação. Remove do state e do localStorage. */
+ function clearPecasDia() {
+-  if (!confirm('Limpar todas as peças do dia importadas?')) return;
++  if (!confirm('Limpar todas as peças do dia (inclusive as carregadas automaticamente do cadastro)?')) return;
+   state.pecasDia = [];
+   const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+-  if (saved.pecasDia) {
+-    const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
+-    if (key) delete saved.pecasDia[key];
+-    localStorage.setItem('roteiroApp', JSON.stringify(saved));
++  const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
++  if (saved.pecasDia && key) delete saved.pecasDia[key];
++  // Marca explicitamente como "limpo" para este dia — sem isso, o painel se
++  // recomporia sozinho a partir do cadastro na próxima renderização.
++  if (key) {
++    if (!saved.pecasDiaLimpo) saved.pecasDiaLimpo = {};
++    saved.pecasDiaLimpo[key] = true;
+   }
++  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+   renderPecasDiaPanel();
+   toast('Peças do dia limpas', 'success');
+ }
+@@ -443,6 +552,7 @@ function saveAddPecaDia() {
+   if (!saved.pecasDia) saved.pecasDia = {};
+   const key = typeof dateKey === 'function' ? dateKey(state.currentDate) : '';
+   if (key) saved.pecasDia[key] = state.pecasDia;
++  if (saved.pecasDiaLimpo && key) delete saved.pecasDiaLimpo[key];
+   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+ 
+   closeModal('modal-add-peca-dia');
+diff --git a/tests/unit/pecasDia.test.mjs b/tests/unit/pecasDia.test.mjs
+index fda8f26..8bbe17f 100644
+--- a/tests/unit/pecasDia.test.mjs
++++ b/tests/unit/pecasDia.test.mjs
+@@ -8,12 +8,23 @@ const src = readFileSync(new URL('../../pecas_dia.js', import.meta.url), 'utf8')
+ 
+ function loadPure() {
+   const g = { window: {} };
++  const store = new Map();
++  const localStorage = {
++    getItem: (k) => (store.has(k) ? store.get(k) : null),
++    setItem: (k, v) => store.set(k, String(v)),
++    removeItem: (k) => store.delete(k),
++  };
+   const factory = new Function(
+     'window',
+     'globalThis',
+-    `${src}\nreturn { parsePecasDiaRows, validadeToISO, parseValidade, matchVhDaquiForNext };`
++    'localStorage',
++    `${src}\nreturn {
++      parsePecasDiaRows, validadeToISO, parseValidade, matchVhDaquiForNext,
++      pecasDoDiaDoCadastro, isPecaVigenteEm, isPecaDoDiaSemana, foiLimpoManualmente,
++    };`
+   );
+-  return factory.call(g, g.window, g);
++  const app = factory.call(g, g.window, g, localStorage);
++  return { ...app, __localStorage: localStorage };
+ }
+ 
+ describe('import de Excel — validade sempre em ISO (bug: peça vencida nunca era detectada no Roteiro)', () => {
+@@ -74,3 +85,83 @@ describe('matchVhDaquiForNext em pecas_dia.js — mesma regra de src/core/pecasC
+     expect(matchVhDaquiForNext('PALALOOS', vhs)).toBeNull();
+   });
+ });
++
++describe('pecasDoDiaDoCadastro — peças do dia auto-preenchidas a partir do cadastro', () => {
++  // Quarta-feira (dow=3), para casar com dias:['qua'] nos exemplos abaixo.
++  const QUARTA = new Date(2026, 7, 26); // 26/08/2026 é uma quarta
++
++  it('inclui peça de categoria elegível sem restrição de dia/validade', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [{ code: 'A1', descricao: 'Chamada X', categoria: 'CHAMADA_QUENTE', tempo: '00:00:30', type: 'ECHE' }];
++    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
++    expect(out).toHaveLength(1);
++    expect(out[0].categoria).toBe('CHAMADA QUENTE'); // mapeado pro rótulo de seção do painel
++    expect(out[0]._origemCadastro).toBe(true);
++  });
++
++  it('categorias fora da rotação diária (MANUT/BUSSOLA) ficam de fora', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [
++      { code: 'M1', descricao: 'Manutenção', categoria: 'MANUT' },
++      { code: 'B1', descricao: 'Bússola', categoria: 'BUSSOLA' },
++    ];
++    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(0);
++  });
++
++  it('peça inativa (ativo:false) nunca entra, mesmo elegível', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [{ code: 'A1', categoria: 'RCOM', ativo: false }];
++    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(0);
++  });
++
++  it('respeita os dias cadastrados — só entra se hoje estiver na lista', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [
++      { code: 'SO_QUA', categoria: 'RPOL', dias: ['qua'] },
++      { code: 'SO_SEG', categoria: 'RPOL', dias: ['seg'] },
++    ];
++    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
++    expect(out.map(p => p.code)).toEqual(['SO_QUA']);
++  });
++
++  it('sem `dias` cadastrado, vale para todo dia', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [{ code: 'TODO_DIA', categoria: 'RCOM', dias: [] }];
++    expect(pecasDoDiaDoCadastro(cadastro, QUARTA)).toHaveLength(1);
++  });
++
++  it('respeita a validade (kill date) — peça vencida não entra', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [
++      { code: 'VENCIDA', categoria: 'RCOM', validade: '2026-08-01' },
++      { code: 'VALIDA',  categoria: 'RCOM', validade: '2026-12-31' },
++    ];
++    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
++    expect(out.map(p => p.code)).toEqual(['VALIDA']);
++  });
++
++  it('mapeia freq/máx do cadastro para qtd, default 1', () => {
++    const { pecasDoDiaDoCadastro } = loadPure();
++    const cadastro = [
++      { code: 'COM_FREQ', categoria: 'RCOM', freq: '3' },
++      { code: 'SEM_FREQ', categoria: 'RCOM' },
++    ];
++    const out = pecasDoDiaDoCadastro(cadastro, QUARTA);
++    expect(out.find(p => p.code === 'COM_FREQ').qtd).toBe(3);
++    expect(out.find(p => p.code === 'SEM_FREQ').qtd).toBe(1);
++  });
++});
++
++describe('foiLimpoManualmente — "Limpar" não pode ser imediatamente desfeito pela auto-derivação', () => {
++  it('sem nada gravado, não está limpo', () => {
++    const { foiLimpoManualmente } = loadPure();
++    expect(foiLimpoManualmente('2026-08-26')).toBe(false);
++  });
++
++  it('reconhece a marca gravada por clearPecasDia() para o dia certo, só para o dia certo', () => {
++    const { foiLimpoManualmente, __localStorage } = loadPure();
++    __localStorage.setItem('roteiroApp', JSON.stringify({ pecasDiaLimpo: { '2026-08-26': true } }));
++    expect(foiLimpoManualmente('2026-08-26')).toBe(true);
++    expect(foiLimpoManualmente('2026-08-27')).toBe(false);
++  });
++});
+diff --git a/version.js b/version.js
+index c00978b..2e65579 100644
+--- a/version.js
++++ b/version.js
+@@ -1,3 +1,3 @@
+ // Gerado automaticamente por "npm run release" — não editar à mão.
+-window.APP_VERSION = "2.6.2";
+-window.APP_RELEASED_AT = "2026-08-30T11:46:58.269Z";
++window.APP_VERSION = "2.7.0";
++window.APP_RELEASED_AT = "2026-08-31T10:40:58.862Z";
+diff --git a/version.txt b/version.txt
+index 097a15a..24ba9a3 100644
+--- a/version.txt
++++ b/version.txt
+@@ -1 +1 @@
+-2.6.2
++2.7.0
+-- 
+2.43.0
+

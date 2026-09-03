@@ -1,0 +1,1538 @@
+From e81b4a3dd337f31c0aa65c61de6c3e2a68292494 Mon Sep 17 00:00:00 2001
+From: RexB166ER <104926463+Pedrowdt@users.noreply.github.com>
+Date: Sun, 30 Aug 2026 11:47:59 +0000
+Subject: [PATCH 3/4] =?UTF-8?q?fix(seguranca):=202.6.2=20=E2=80=94=20XSS?=
+ =?UTF-8?q?=20em=20Pe=C3=A7as=20e=20Programas,=20gap=20de=20anon=20revogad?=
+ =?UTF-8?q?o,=20DEPLOY.md=20e=20versionamento=20corrigidos?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Aplica os 5 itens de maior impacto/menor esforço da revisão completa do
+projeto (ver ANALISE.md, adicionado neste commit):
+
+- XSS armazenado: pecas-programas.js inseria code/descricao/obs/tempo/
+  type/midia direto no innerHTML sem escapar. escapeHtml() (já existia,
+  só não era usada ali) agora cobre os dois branches da tabela e o
+  fallback de assinaturaBadgeHtml(). Testado em pecasProgramasXSS.test.mjs.
+- db/004_autenticacao.sql, referenciado em AUTENTICACAO.md/db/README.md
+  desde a autenticação única mas nunca commitado: revoga privilégio
+  residual do papel anon em pecas/programas/activity_log/
+  log_atividades/shared_data/user_data e nas funções de gravação.
+  Idempotente, validado 2x seguidas contra Postgres real (PGlite).
+- DEPLOY.md apontava para supabase-schema.sql (só cria shared_data,
+  schema legado) em vez de db/001-006 (cadastro relacional, RLS, log,
+  fluxo de mão única). Corrigido; supabase-schema.sql agora se identifica
+  como legado logo no topo do próprio arquivo.
+- .versionrc.json criado conectando postbump a scripts/sync-version.js
+  (referenciado em comentário mas nunca commitado — causa raiz de
+  version.js/version.txt terem ficado presos em 2.2.0 por 4 releases).
+  sync-version.js agora também grava version.txt. Novo teste
+  versaoConsistente.test.mjs trava os 3 arquivos sempre iguais.
+- Dead code removido: activity-log.js (órfão), multiusuario.test.mjs
+  duplicado na raiz, patch-mao-unica.diff e ALTERACOES.diffstat.txt
+  (artefatos de sessão anterior). .gitignore criado (node_modules/).
+
+103 testes passando (17 arquivos).
+---
+ .gitignore                            |   5 +
+ .versionrc.json                       |   5 +
+ ALTERACOES.diffstat.txt               |  12 -
+ ANALISE.md                            | 149 +++++++++
+ AUTENTICACAO.md                       |  11 +-
+ CHANGELOG.md                          |  53 ++++
+ DEPLOY.md                             |  26 +-
+ README.md                             |   2 +
+ activity-log.js                       | 159 ----------
+ db/004_autenticacao.sql               |  71 +++++
+ db/README.md                          |  20 +-
+ multiusuario.test.mjs                 |  97 ------
+ package.json                          |   2 +-
+ patch-mao-unica.diff                  | 435 --------------------------
+ pecas-programas.js                    |  22 +-
+ scripts/sync-version.js               |   9 +-
+ supabase-schema.sql                   |  11 +
+ tests/unit/authRevogacaoAnon.test.mjs |  31 ++
+ tests/unit/pecasProgramasXSS.test.mjs |  99 ++++++
+ tests/unit/versaoConsistente.test.mjs |  37 +++
+ version.js                            |   4 +-
+ version.txt                           |   2 +-
+ 22 files changed, 527 insertions(+), 735 deletions(-)
+ create mode 100644 .gitignore
+ create mode 100644 .versionrc.json
+ delete mode 100644 ALTERACOES.diffstat.txt
+ create mode 100644 ANALISE.md
+ delete mode 100644 activity-log.js
+ create mode 100644 db/004_autenticacao.sql
+ delete mode 100644 multiusuario.test.mjs
+ delete mode 100644 patch-mao-unica.diff
+ create mode 100644 tests/unit/authRevogacaoAnon.test.mjs
+ create mode 100644 tests/unit/pecasProgramasXSS.test.mjs
+ create mode 100644 tests/unit/versaoConsistente.test.mjs
+
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..c79b2e4
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,5 @@
++node_modules/
++.DS_Store
++*.log
++.env
++.env.local
+diff --git a/.versionrc.json b/.versionrc.json
+new file mode 100644
+index 0000000..88ad7f6
+--- /dev/null
++++ b/.versionrc.json
+@@ -0,0 +1,5 @@
++{
++  "scripts": {
++    "postbump": "node scripts/sync-version.js"
++  }
++}
+diff --git a/ALTERACOES.diffstat.txt b/ALTERACOES.diffstat.txt
+deleted file mode 100644
+index e4cea0e..0000000
+--- a/ALTERACOES.diffstat.txt
++++ /dev/null
+@@ -1,12 +0,0 @@
+- app.js                           | 16 +++++++-------
+- banco-manager.js                 | 13 +++++++-----
+- cadastro-sync.js                 | 24 ++++++++++++++++++++-
+- index.html                       |  2 +-
+- multiusuario.test.mjs            | 10 +++++++++
+- pecas-programas.html             |  1 +
+- pecas-programas.js               |  9 ++++++++
+- pecas-repo.js                    | 26 ++++++++---------------
+- roteiro-pecas-bridge.js          | 46 ++++++++++++++++++++++++++++++++--------
+- tests/unit/consistencia.test.mjs | 10 +++++----
+- tests/unit/multiusuario.test.mjs | 10 +++++++++
+- 11 files changed, 122 insertions(+), 45 deletions(-)
+diff --git a/ANALISE.md b/ANALISE.md
+new file mode 100644
+index 0000000..7d155d4
+--- /dev/null
++++ b/ANALISE.md
+@@ -0,0 +1,149 @@
++# Canaledu — Análise do projeto e propostas de melhoria
++
++Revisão de ponta a ponta do repositório (código, banco, documentação e processo de release), feita em 29/08/2026, com o projeto na versão `2.6.1`. Organizada por área, da mais crítica para a mais cosmética, com uma tabela de priorização ao final.
++
++---
++
++## 1. Segurança
++
++### 1.1 XSS armazenado em Peças e Programas (crítico, correção rápida)
++
++A tabela principal do cadastro (`pecas-programas.js`, função `render()`) monta as linhas com `innerHTML` inserindo `code`, `descricao`, `obs`, `tempo`, `type` e `midia` **sem escapar**:
++
++```js
++document.getElementById('tbody').innerHTML = filtered.map(p => isPecas ? `
++  <tr>
++    <td class="code-cell">${p.code}</td>
++    <td><div class="desc-main">${p.descricao}</div>
++        ${p.obs?`<div class="desc-obs">${p.obs}</div>`:''}</td>
++    ...
++```
++
++O arquivo já tem uma função `escapeHtml()` (usada no painel de log), só não é aplicada aqui. Como `descricao`/`obs` são campos de texto livre editáveis por qualquer conta autenticada, isso é um XSS armazenado real: uma conta comprometida/phishada consegue gravar um payload (ex. um `<img onerror=...>` lendo `localStorage` e exfiltrando o token de sessão do Supabase) que executa no navegador de **todo o resto da equipe** assim que a tela de Cadastro é aberta. Não é internet-facing (exige login), mas dentro de uma equipe pequena isso é exatamente o vetor de movimento lateral mais perigoso — uma conta cai, todas caem.
++
++O caminho equivalente no Roteiro (`app.js`) já usa `escHtml()` corretamente. **Proposta:** aplicar `escapeHtml()` nos mesmos campos em `pecas-programas.js`, e adicionar um teste de regressão (renderizar um item com `descricao: '<img src=x onerror=alert(1)>'` e afirmar que o HTML final não contém uma tag executável).
++
++### 1.2 Revogação de acesso anônimo nunca foi commitada
++
++`db/README.md` já sinaliza isso, mas vale destacar: `AUTENTICACAO.md` referencia `db/004_autenticacao.sql` como o script que revoga qualquer `GRANT` residual do papel `anon` em `pecas`/`programas` — **esse arquivo nunca existiu no repositório**. As migrações que existem (`001`, `006`) só concedem a `authenticated`/`service_role`, o que é o comportamento padrão correto do Supabase, mas ninguém confirmou por escrito, num script versionado e reexecutável, que o papel `anon` não tem nenhum `GRANT` herdado de antes (ex. de quando o projeto ainda usava só `shared_data`). **Proposta:** escrever e commitar o `004_autenticacao.sql` que falta (um `REVOKE ALL ... FROM anon` idempotente nas tabelas relevantes), rodá-lo, e então apagar o aviso do `db/README.md`.
++
++### 1.3 `fluxo de mão única` é bem desenhado — vale só reforçar o teste
++
++Ao contrário do que a separação de telas sugere à primeira vista, a restrição "só Peças e Programas grava no cadastro" **é** aplicada no banco (não só por convenção no cliente): `006_pecas_one_way.sql` revoga `INSERT/UPDATE/DELETE` de `authenticated` e usa um trigger de guarda de escopo (`app.cadastro_scope`) que só as funções `fn_salvar_pecas`/`fn_salvar_programas` (SECURITY DEFINER) podem abrir. Isso é defesa em profundidade de verdade, não teatro de segurança client-side. Vale só garantir que `db/testar-schema.mjs` cubra explicitamente "uma sessão tenta fazer UPDATE direto na tabela e recebe 42501" para não regredir silenciosamente numa migração futura.
++
++---
++
++## 2. Confiabilidade de sincronização (o padrão por trás dos últimos 3 bugs corrigidos)
++
++Nas últimas rodadas corrigimos, em sequência: (a) validade em formato inconsistente entre telas, (b) o Roteiro perdendo trabalho ao trocar de tela, (c) Peças e Programas perdendo edições/exclusões ao recarregar. As três vêm da mesma causa estrutural: **cada tela reinventa, de forma um pouco diferente, o mesmo problema de "debounce + localStorage + reload"** — `cloud-sync.js` (Roteiro) e `pecas-programas.js` (Cadastro) têm cada um seu próprio `pushTimer`, sua própria marca de pendência (`roteiroSyncPending` vs. `cadastroSyncPendente`), sua própria função de flush. Funciona, mas é código duplicado que vai precisar da mesma correção de novo na próxima tela nova que a equipe criar.
++
++**Proposta:** extrair um módulo único (`sync-outbox.js`, carregado como os demais scripts não-modulares) com uma API pequena e reaproveitável:
++
++```js
++SyncOutbox.create({ key, debounceMs, push: async (payload) => {...} })
++  .schedule(payload)   // grava local + agenda push, marca pendente
++  .flush()             // cancela debounce, envia agora
++  .isPending()
++  .recoverOnBoot(loadFromCloud)  // decide local vs. nuvem e reenvia se preciso
++```
++
++Isso elimina a duplicação, e a próxima tela (ex. se um dia existir um painel de Admin separado) ganha a proteção de graça em vez de precisar "lembrar" de reimplementá-la.
++
++**Proposta complementar — testar o cenário fim-a-fim:** os testes atuais (`cloudSyncRoteiro.test.mjs`, `pecasProgramasRascunho.test.mjs`) cobrem bem a lógica de merge/pendência isoladamente, mas nenhum teste real de navegador (Playwright, por exemplo) simula "editar → fechar aba no meio do debounce → reabrir → conferir que nada sumiu". Dado que os três bugs recentes só apareceram em uso real, um smoke test E2E desse fluxo específico teria pego pelo menos dois deles antes de chegar em produção.
++
++---
++
++## 3. Arquitetura e organização do código
++
++### 3.1 `app.js` é um monólito de 4.3k linhas
++
++Um único arquivo mistura: renderização do roteiro, drag-and-drop, geração automática de roteiro, painel Admin (regras/grade), exportação XLSX/PDF, alertas de bloco, undo, log, sidebar de peças. Isso já dificultou a implementação das últimas features (era preciso ler centenas de linhas de contexto para achar o ponto certo de gancho) e vai piorar conforme o arquivo cresce. Boa parte da lógica de negócio "pura" (cálculo de horários, geração de roteiro, casamento de VH) já foi corretamente extraída para `src/core/*` nas últimas correções — vale continuar esse movimento e migrar também as partes de `app.js` que não dependem de DOM (ex. a lógica de `buildSmartRoteiro`, `recalcTimes`, undo).
++
++**Proposta, incremental e de baixo risco** (não requer reescrever tudo de uma vez):
++1. Continuar extraindo funções puras para `src/core/` sempre que mexer em algo por outro motivo (já é o padrão adotado nas últimas correções — só formalizar como convenção do time).
++2. Separar por responsabilidade os arquivos que já são só "visual" (ex. `renderRoteiro`, `renderPecasSidebar`, os modais) dos que são "regra de negócio", mesmo mantendo tudo como scripts clássicos por enquanto.
++3. Avaliar, a médio prazo, adotar um bundler leve (esbuild/Vite) só para poder usar `import`/`export` de verdade em `app.js`/`pecas-programas.js`/`cloud-sync.js` — isso eliminaria a necessidade das "réplicas não-modulares" que hoje existem em 3-4 lugares (ex. `parseValidade`/`matchVhDaquiForNext` estão duplicados entre `src/core/*.js` e `app.js`/`pecas_dia.js` porque esses scripts não podem dar `import`). Não é urgente, mas é a raiz de várias duplicações que exigem lembrar de "corrigir nos dois lugares".
++
++### 3.2 Carregamento dinâmico de scripts via `cloud-sync.js`
++
++`SCRIPTS_TO_LOAD` (`api-sync.js`, `grade_base.js`, `data.js`, `parts-store.js`, `pecas_dia.js`, `app.js`, `banco-manager.js`) é injetado via `<script>` dinâmico em vez de tags estáticas no `index.html`. Funciona, mas esconde a ordem de dependência real do HTML (quem olha o `index.html` não vê que `app.js` é carregado) e dificulta debug (o navegador mostra os scripts como injetados, não como parte do documento original). **Proposta:** documentar explicitamente essa lista no topo do `index.html` (um comentário listando a ordem) e, se/quando entrar um bundler, isso desaparece naturalmente.
++
++---
++
++## 4. Higiene do repositório (dead code e arquivos de trabalho commitados)
++
++Achados concretos, todos de baixo risco para remover:
++
++- **`activity-log.js` (159 linhas) está órfão** — não é referenciado em nenhum HTML nem em `SCRIPTS_TO_LOAD`. Foi superado por `canal-log.js` (mencionado no próprio CHANGELOG, entrada 2.4.1: "consolidação do log"). Remover.
++- **`multiusuario.test.mjs` na raiz é uma cópia idêntica** de `tests/unit/multiusuario.test.mjs` — `diff` não mostra nenhuma diferença. Como o `vitest.config.js` só inclui `src/**` e `tests/**`, a cópia da raiz nunca roda; é só ruído. Remover.
++- **`patch-mao-unica.diff` e `ALTERACOES.diffstat.txt`** parecem ser artefatos de uma sessão de trabalho anterior (um patch já aplicado e um dump de `git diff --stat`), não documentação. Remover — se o histórico do patch importa, ele já está no `git log`.
++- **`supabase-schema.sql` (raiz) está desatualizado em relação a `db/00*.sql`** — ver próxima seção, é mais um problema de documentação do que de dead code, mas o arquivo em si compete com a fonte de verdade atual.
++
++**Proposta geral:** depois de remover esses arquivos, adicionar um `.gitignore` (o projeto não tem nenhum!) cobrindo pelo menos `node_modules/` — hoje ele só não está versionado por sorte/disciplina manual, não por configuração.
++
++---
++
++## 5. Documentação e processo de deploy
++
++### 5.1 `DEPLOY.md` manda rodar o schema errado
++
++O guia de deploy, passo a passo 1.4, instrui a colar `supabase-schema.sql` (raiz) no SQL Editor — esse arquivo só cria a tabela legada `shared_data`. A arquitetura atual (tabelas relacionais `pecas`/`programas`, RLS, fluxo de mão única, `activity_log`) vive em `db/001_pecas_programas.sql` até `db/006_pecas_one_way.sql`, que o `DEPLOY.md` não menciona. **Alguém seguindo o guia hoje, do zero, monta um Supabase incompleto** — o sistema ainda funciona (há fallback documentado em `db/README.md` para o formato legado), mas sem o cadastro relacional, sem RLS granular, sem log de atividades e sem o fluxo de mão única reforçado no banco. **Proposta (prioridade alta, é rápido de corrigir):** atualizar o passo 1.4 do `DEPLOY.md` para apontar para a sequência `db/001` → `006`, com uma frase de cada um, e sinalizar `supabase-schema.sql` como legado/obsoleto (ou apagá-lo, se `002_migrar_shared_data.sql` cobre a migração de quem já estava nesse formato).
++
++### 5.2 Automação de versão referenciada mas nunca conectada
++
++Isso explica por que a versão ficou presa em `2.2.0` por 4 releases seguidas, corrigido manualmente duas vezes nesta própria sessão: `scripts/sync-version.js` tem o comentário *"Roda automaticamente depois de cada bump de versão (via `.versionrc.json` → `postbump`)"* — mas **não existe nenhum `.versionrc.json` no repositório**. `npm run release` (que chama `standard-version`) nunca de fato invoca esse script, então toda vez que alguém rodou (ou devia ter rodado) o release, `version.js`/`version.txt` ficaram para trás manualmente. **Proposta:**
++
++```json
++// .versionrc.json
++{
++  "scripts": {
++    "postbump": "node scripts/sync-version.js && node -e \"require('fs').writeFileSync('version.txt', require('./package.json').version)\""
++  }
++}
++```
++
++Isso resolve a causa raiz de um problema que já tivemos que corrigir manualmente duas vezes. Complementar: um teste simples (`tests/unit/versaoConsistente.test.mjs`) que falha se `package.json.version`, `version.js` e `version.txt` não baterem — pega o problema no CI antes de virar mais um "a versão está errada de novo".
++
++### 5.3 Muitos `.md` na raiz, sem um índice
++
++`README.md`, `AUTENTICACAO.md`, `CONSISTENCIA.md`, `DEPLOY.md`, `DOCUMENTACAO.md`, `COMMITS.md`, `CHANGELOG.md`, `db/README.md` — todos com conteúdo válido e não-redundante entre si (bom sinal), mas sem nenhum apontando para os outros. Quem chega no projeto não sabe por onde começar. **Proposta:** um índice curto no topo do `README.md` linkando cada um pelo que ele resolve ("quer publicar? DEPLOY.md" / "quer entender por que uma escrita pode falhar? CONSISTENCIA.md" / etc.).
++
++---
++
++## 6. Testes
++
++O projeto foi de ~30 para 94 testes ao longo desta sessão, cobrindo bem a lógica pura (`src/core/*`) e, cada vez mais, os scripts clássicos via extração com `new Function` (padrão que se consolidou e vale documentar em `COMMITS.md` ou num `CONTRIBUTING.md` para quem for escrever o próximo teste seguir o mesmo molde). Lacunas que ficaram:
++
++- **Nada de `app.js` além do que foi extraído nas últimas correções** (`registrarUndoSeMudou`, `popUndoEntry`, `sortPecasByTempo`) tem cobertura — `buildSmartRoteiro`, `recalcTimes`, a geração de roteiro a partir da Grade Semanal e o parsing de importação CSV/XLSX continuam sem teste automatizado, apesar de serem o núcleo do produto.
++- **Nenhum teste de RLS/trigger "negativo"** (confirmar que uma escrita indevida é *rejeitada* pelo banco) — só o caminho feliz é validado hoje em `db/testar-schema.mjs`.
++- **Nenhum E2E** (já mencionado na seção 2).
++
++**Proposta de ordem de prioridade:** (1) teste negativo de RLS/one-way-guard, é barato e protege a garantia de segurança mais importante do sistema; (2) extrair e testar `buildSmartRoteiro`/`recalcTimes` como funções puras (mesmo padrão já usado); (3) E2E como investimento maior, só quando o time achar que vale a manutenção de um Playwright.
++
++---
++
++## 7. Performance e UX (achados menores)
++
++- `renderPecasSidebar()` e `renderRoteiro()` recriam o `innerHTML` inteiro da lista a cada chamada — plenamente aceitável no volume de dados atual (dezenas/poucas centenas de itens), mas se o banco de peças crescer para milhares de itens, vale considerar paginação ou virtualização na sidebar.
++- O painel de log (`openLog`) busca até 200 entradas da nuvem toda vez que é aberto, sem paginação nem filtro de data — hoje é rápido, mas cresce sem limite com o tempo de uso da equipe; um filtro de período (últimas 24h/7 dias) evitaria a consulta ficar pesada daqui a alguns meses.
++- Não há indicação visual de "salvando..." além do rodapé de status (`setSyncStatus`) — em conexões lentas, um usuário pode não perceber que uma exclusão ainda está em trânsito e fechar a aba achando que já foi salva. Como a rede de segurança de rascunho pendente (seção 2) já cobre a perda de dados, isso é mais uma melhoria de clareza do que de correção.
++
++---
++
++## 8. Priorização sugerida
++
++| # | Item | Impacto | Esforço | Categoria |
++|---|------|---------|---------|-----------|
++| 1 | Escapar `descricao`/`obs`/etc. no render de Peças e Programas (XSS) | Alto | Baixo | Segurança |
++| 2 | Corrigir `DEPLOY.md` para apontar `db/001`–`006` em vez de `supabase-schema.sql` | Alto | Baixo | Documentação |
++| 3 | Criar `.versionrc.json` conectando `postbump` a `sync-version.js` + `version.txt` | Médio | Baixo | Processo |
++| 4 | Escrever o `db/004_autenticacao.sql` que falta (revogação de `anon`) | Alto | Baixo/Médio | Segurança |
++| 5 | Remover dead code (`activity-log.js`, duplicata de teste, `.diff`/`.diffstat` soltos) + `.gitignore` | Baixo | Baixo | Higiene |
++| 6 | Teste negativo de RLS/one-way-guard | Médio | Baixo | Testes |
++| 7 | Extrair `sync-outbox.js` reaproveitável (Roteiro + Cadastro) | Médio | Médio | Arquitetura |
++| 8 | Extrair/testar `buildSmartRoteiro`/`recalcTimes` como funções puras | Médio | Médio | Testes |
++| 9 | Índice cruzado nos `.md` da raiz | Baixo | Baixo | Documentação |
++| 10 | Smoke test E2E do fluxo "editar → reload → nada some" | Alto (previne regressão) | Alto | Testes |
++| 11 | Modularizar `app.js` com bundler (Vite/esbuild) | Alto (a longo prazo) | Alto | Arquitetura |
++
++Os itens 1–5 são todos de baixo esforço e alto valor imediato — dá para fazer numa única sessão de trabalho. Os itens 7, 8, 10 e 11 são investimentos estruturais que valem a pena, mas fazem mais sentido conforme o time/o produto cresce, não como urgência.
+diff --git a/AUTENTICACAO.md b/AUTENTICACAO.md
+index eeb8af4..8a73627 100644
+--- a/AUTENTICACAO.md
++++ b/AUTENTICACAO.md
+@@ -29,8 +29,10 @@ Regras de acesso a **Peças e Programas**:
+ 2. a sessão é a mesma do Roteiro: quem já entrou no Roteiro abre o cadastro
+    direto;
+ 3. logout em qualquer tela derruba a outra (`onAuthChange` → `SIGNED_OUT`);
+-4. no banco, `db/004_autenticacao.sql` revoga qualquer acesso do papel
+-   anônimo e registra `created_by` / `updated_by` em cada linha do cadastro.
++4. no banco, `db/004_autenticacao.sql` revoga qualquer acesso residual do
++   papel anônimo às tabelas de cadastro/log (a autoria `created_by` /
++   `updated_by` já é registrada pelas funções de gravação, ver
++   `003_consistencia.sql`/`006_pecas_one_way.sql`).
+ 
+ ### Persistência garantida no roteiro (`roteiro-pecas-bridge.js`)
+ A tela de confecção lê o banco de peças do `localStorage` (`roteiroApp`),
+@@ -56,7 +58,10 @@ A ponte torna o cadastro a **fonte da verdade**:
+ \i db/001_pecas_programas.sql
+ \i db/002_migrar_shared_data.sql
+ \i db/003_consistencia.sql
+-\i db/004_autenticacao.sql   -- NOVO: fecha o acesso anônimo + autoria
++\i db/004_autenticacao.sql   -- fecha o acesso anônimo (created_by/updated_by já vêm de 003/006)
++\i db/004_activity_log.sql   -- opcional: log de atividades
++\i db/005_log_atividades.sql -- opcional: evolução do log acima
++\i db/006_pecas_one_way.sql  -- só "Peças e Programas" grava no cadastro
+ ```
+ 
+ Crie os usuários da equipe em **Authentication → Users** (e-mail + senha).
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 3295a1a..08d335d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,58 @@
+ # Changelog
+ 
++## [2.6.2] — Correções de segurança, documentação e higiene do repositório
++
++Aplicado a partir da revisão completa do projeto (ver `analise-projeto.md`),
++os 5 itens de maior impacto/menor esforço:
++
++### Corrigido
++- **XSS armazenado em Peças e Programas.** A tabela principal
++  (`pecas-programas.js`) inseria `code`/`descricao`/`obs`/`tempo`/`type`/
++  `midia` direto no `innerHTML`, sem escapar — texto livre editável por
++  qualquer conta autenticada virava HTML executado no navegador de toda a
++  equipe. `escapeHtml()` (já existia, só não era usada aqui) agora envolve
++  todos esses campos nos dois branches (peças e programas), e o fallback de
++  `assinaturaBadgeHtml()` também passou a escapar. Testado em
++  `tests/unit/pecasProgramasXSS.test.mjs`.
++- **`db/004_autenticacao.sql` nunca tinha sido commitado**, apesar de
++  referenciado em `AUTENTICACAO.md`/`db/README.md` desde a introdução da
++  autenticação única — o gap ficava documentado mas nunca fechado. Escrito
++  agora: revoga qualquer privilégio residual do papel `anon` em
++  `pecas`/`programas`/`activity_log`/`log_atividades`/`shared_data`/
++  `user_data` e nas funções de gravação/leitura do cadastro. Idempotente —
++  validado rodando duas vezes seguidas contra um Postgres real (PGlite).
++  A autoria (`created_by`/`updated_by`) já era coberta por
++  `003_consistencia.sql`/`006_pecas_one_way.sql`, então este arquivo ficou
++  focado só na revogação.
++- **`DEPLOY.md` mandava rodar o schema errado.** O passo 1.4 apontava para
++  `supabase-schema.sql` (raiz), que só cria a tabela legada `shared_data` —
++  quem seguisse o guia hoje montaria um Supabase sem o cadastro relacional,
++  sem RLS granular, sem log de atividades e sem o fluxo de mão única.
++  Corrigido para apontar, em ordem, para `db/001` → `006`; `supabase-schema.sql`
++  passou a se identificar como legado logo no topo do próprio arquivo.
++- **Versão do sistema podia voltar a dessincronizar.** `scripts/sync-version.js`
++  já existia e tinha o comentário "roda via `.versionrc.json` → `postbump`",
++  mas esse arquivo de configuração nunca tinha sido commitado — por isso
++  `package.json`/`version.js`/`version.txt` ficaram presos em `2.2.0` por
++  quatro releases seguidas (corrigido manualmente em `2.6.0`/`2.6.1`). Criado
++  `.versionrc.json` conectando o `postbump` ao script, que agora também
++  grava `version.txt` (antes só atualizava `version.js`). Novo teste,
++  `tests/unit/versaoConsistente.test.mjs`, falha se os três arquivos
++  voltarem a divergir — pega o problema no `npm test`, não manualmente.
++
++### Removido
++- `activity-log.js` (órfão — não referenciado em nenhum HTML nem na lista
++  de scripts dinâmicos de `cloud-sync.js`; superado por `canal-log.js`).
++- `multiusuario.test.mjs` na raiz (cópia idêntica de
++  `tests/unit/multiusuario.test.mjs`; fora do `include` do `vitest.config.js`,
++  nunca rodava).
++- `patch-mao-unica.diff` e `ALTERACOES.diffstat.txt` (artefatos de uma
++  sessão de trabalho anterior, não documentação).
++
++### Adicionado
++- `.gitignore` (o projeto não tinha nenhum — `node_modules/` só não estava
++  versionado por disciplina manual, não por configuração).
++
+ ## [2.6.1] — Peças e Programas não perde mais alterações (inclusive exclusões) ao recarregar a página
+ 
+ ### Corrigido
+diff --git a/DEPLOY.md b/DEPLOY.md
+index 3d4c26c..22428bb 100644
+--- a/DEPLOY.md
++++ b/DEPLOY.md
+@@ -16,9 +16,29 @@ a equipe; **o roteiro do dia é isolado por usuário** (cada um só vê e edita
+    senha para o banco (guarde-a, mas não precisará dela no dia a dia) e a região
+    mais próxima (ex: São Paulo). Aguarde ~2 minutos até o projeto ficar pronto.
+ 3. No menu lateral, vá em **SQL Editor** → **New query**.
+-4. Abra o arquivo `supabase-schema.sql` (está junto com o seu sistema), copie todo
+-   o conteúdo, cole no editor e clique em **Run**. Isso cria as tabelas e as regras
+-   de segurança automaticamente.
++4. Rode, **em ordem**, os arquivos da pasta `db/` (cada um copiado e colado
++   inteiro, um de cada vez, clicando **Run** antes de passar para o próximo):
++   1. `db/001_pecas_programas.sql` — cria as tabelas de peças/programas, tipos,
++      índices, GRANTs, RLS, views e os triggers que espelham tudo em
++      `shared_data` (para o código que ainda lê esse formato continuar
++      funcionando).
++   2. `db/002_migrar_shared_data.sql` — se você já vinha de uma instalação
++      antiga (só com `shared_data`), importa o que já existia para as tabelas
++      novas. Se é uma instalação nova, pode rodar mesmo assim — não faz nada.
++   3. `db/003_consistencia.sql` — trava por versão (`row_version`) para
++      detectar quando duas pessoas editam a mesma peça ao mesmo tempo.
++   4. `db/004_activity_log.sql` e `db/005_log_atividades.sql` — criam o log de
++      atividades (quem editou o quê, e quando) usado pelo botão de log das
++      duas telas. Opcional: sem eles o sistema continua funcionando.
++   5. `db/006_pecas_one_way.sql` — só a tela "Peças e Programas" pode alterar
++      o cadastro; o Roteiro só lê. Reforçado no próprio banco (não é só uma
++      regra do site).
++
++   > O arquivo `supabase-schema.sql` na raiz do projeto é **legado**: cria só
++   > a tabela antiga `shared_data`, sem o cadastro relacional, sem RLS
++   > granular e sem o fluxo de mão única acima. Use-o apenas se por algum
++   > motivo você não puder rodar as migrações de `db/`; nesse caso, o sistema
++   > funciona no modo de compatibilidade, mas sem essas proteções.
+ 5. No menu lateral, vá em **Project Settings** → **API**. Copie:
+    - **Project URL** (algo como `https://xxxxxxxx.supabase.co`)
+    - **anon public key** (uma chave longa)
+diff --git a/README.md b/README.md
+index 0ffdc3b..d7e9c0d 100644
+--- a/README.md
++++ b/README.md
+@@ -14,6 +14,8 @@ com backend Supabase (Postgres + Auth + Realtime).
+ | [AUTENTICACAO.md](AUTENTICACAO.md) | Detalhes do fluxo de login único |
+ | [db/README.md](db/README.md) | Migrações SQL — o que cada uma faz e como aplicar |
+ | [CHANGELOG.md](CHANGELOG.md) | Histórico de versões |
++| [ANALISE.md](ANALISE.md) | Revisão do projeto e propostas de melhoria futura, por área e priorizadas |
++| [COMMITS.md](COMMITS.md) | Convenção de mensagens de commit usada no projeto |
+ 
+ ## Início rápido (desenvolvimento)
+ 
+diff --git a/activity-log.js b/activity-log.js
+deleted file mode 100644
+index fe9f0a0..0000000
+--- a/activity-log.js
++++ /dev/null
+@@ -1,159 +0,0 @@
+-// =====================================================
+-// ActivityLog — log de atividades multiusuário
+-// Roteiro Canal Educação
+-//
+-// Registra ações relevantes (criar/editar/excluir peça ou
+-// programa, conflitos de edição simultânea, sincronização
+-// adiada por segurança) em dois lugares:
+-//   1) console (sempre, mesmo offline ou sem tabela ainda
+-//      migrada — nunca trava a tela por causa do log);
+-//   2) tabela public.log_atividades no Supabase, quando
+-//      disponível (ver db/005_log_atividades.sql), para dar
+-//      visibilidade real do que a equipe fez, útil para
+-//      investigar relatos como "uma peça sumiu".
+-//
+-// Uso:
+-//   ActivityLog.init(supabaseClient, { workspaceId, user });
+-//   ActivityLog.registrar('editar', 'peca', { codigo: 'X1', ... });
+-//   const entradas = await ActivityLog.listar(50);
+-//   ActivityLog.onNovaEntrada((entrada) => { ... });
+-// =====================================================
+-(function (global) {
+-  'use strict';
+-
+-  let client = null;
+-  let workspaceId = 'workspace';
+-  let user = null;
+-  let tableDisponivel = null; // null = ainda não checou; true/false depois
+-
+-  /** Atalho para registrar um erro (`entidade` default 'sistema'). Aceita um
+-   * objeto Error, uma string, ou detalhes já prontos. */
+-  function erro(mensagem, entidade = 'sistema', extra = {}) {
+-    const err = mensagem instanceof Error ? mensagem : null;
+-    return registrar('erro', entidade, {
+-      mensagem: err ? err.message : String(mensagem),
+-      stack: err && err.stack ? String(err.stack).split('\n').slice(0, 6).join('\n') : undefined,
+-      ...extra,
+-    });
+-  }
+-
+-  let capturaGlobalAtiva = false;
+-
+-  /**
+-   * Liga a captura automática de erros não tratados (exceções síncronas e
+-   * promises rejeitadas sem catch) direto no log — sem precisar espalhar
+-   * try/catch pelo código só para registrar. Chamado uma vez por init().
+-   */
+-  function ativarCapturaGlobal() {
+-    if (capturaGlobalAtiva || typeof window === 'undefined') return;
+-    capturaGlobalAtiva = true;
+-
+-    window.addEventListener('error', (event) => {
+-      erro(event.error || event.message || 'Erro desconhecido', 'sistema', {
+-        origem: 'window.onerror',
+-        arquivo: event.filename,
+-        linha: event.lineno,
+-      });
+-    });
+-
+-    window.addEventListener('unhandledrejection', (event) => {
+-      const reason = event.reason;
+-      erro(reason instanceof Error ? reason : String(reason), 'sistema', {
+-        origem: 'unhandledrejection',
+-      });
+-    });
+-  }
+-
+-  function init(supabaseClient, opts = {}) {
+-    client = supabaseClient;
+-    workspaceId = opts.workspaceId || 'workspace';
+-    user = opts.user || null;
+-    ativarCapturaGlobal();
+-  }
+-
+-  function setUser(u) {
+-    user = u;
+-  }
+-
+-  /**
+-   * Registra uma entrada de log. Nunca lança erro — uma falha ao gravar o
+-   * log não pode impedir a ação real do usuário (salvar, excluir, etc).
+-   */
+-  async function registrar(acao, entidade, detalhes = {}) {
+-    const entrada = {
+-      workspace_id: workspaceId,
+-      user_id: user?.id || null,
+-      user_email: user?.email || null,
+-      acao,
+-      entidade,
+-      codigo: detalhes.codigo || detalhes.code || null,
+-      detalhes,
+-      created_at: new Date().toISOString(),
+-    };
+-
+-    // Sempre visível no console, com prefixo fácil de filtrar.
+-    console.info(`[log] ${acao}/${entidade}`, entrada);
+-
+-    if (!client || tableDisponivel === false) return;
+-
+-    try {
+-      const { error } = await client.from('log_atividades').insert({
+-        workspace_id: entrada.workspace_id,
+-        user_id: entrada.user_id,
+-        user_email: entrada.user_email,
+-        acao: entrada.acao,
+-        entidade: entrada.entidade,
+-        codigo: entrada.codigo,
+-        detalhes: entrada.detalhes,
+-      });
+-      if (error) {
+-        // Tabela ainda não migrada (db/004) — não insiste, só loga localmente.
+-        tableDisponivel = false;
+-        console.warn('[log] tabela log_atividades indisponível, mantendo log só no console:', error.message);
+-      } else {
+-        tableDisponivel = true;
+-      }
+-    } catch (e) {
+-      console.warn('[log] falha ao gravar log remoto:', e.message || e);
+-    }
+-  }
+-
+-  /** Últimas N entradas do log (mais recentes primeiro). */
+-  async function listar(limit = 50) {
+-    if (!client) return [];
+-    try {
+-      const { data, error } = await client
+-        .from('log_atividades')
+-        .select('*')
+-        .eq('workspace_id', workspaceId)
+-        .order('created_at', { ascending: false })
+-        .limit(limit);
+-      if (error) throw error;
+-      return data || [];
+-    } catch (e) {
+-      console.warn('[log] falha ao listar log:', e.message || e);
+-      return [];
+-    }
+-  }
+-
+-  /** Assina novas entradas em tempo real (para uma tela de log aberta). */
+-  function onNovaEntrada(handler) {
+-    if (!client) return () => {};
+-    const channel = client
+-      .channel('log_atividades_changes')
+-      .on(
+-        'postgres_changes',
+-        { event: 'INSERT', schema: 'public', table: 'log_atividades', filter: `workspace_id=eq.${workspaceId}` },
+-        (payload) => handler(payload.new)
+-      )
+-      .subscribe();
+-    return () => client.removeChannel(channel);
+-  }
+-
+-  global.ActivityLog = { init, setUser, registrar, erro, listar, onNovaEntrada };
+-
+-  // Ativa a captura de erros globais assim que o script carrega — não
+-  // precisa esperar o login/init para começar a registrar (mesmo que só no
+-  // console até o Supabase estar disponível).
+-  ativarCapturaGlobal();
+-})(typeof window !== 'undefined' ? window : globalThis);
+diff --git a/db/004_autenticacao.sql b/db/004_autenticacao.sql
+new file mode 100644
+index 0000000..8ee7c3d
+--- /dev/null
++++ b/db/004_autenticacao.sql
+@@ -0,0 +1,71 @@
++-- =====================================================
++-- 004 · AUTENTICAÇÃO — fecha o acesso anônimo ao cadastro
++-- GNU GPL v3 · Canal Educação / MEC · 2026
++--
++-- Referenciado em AUTENTICACAO.md desde a introdução da autenticação
++-- única (auth.js / window.CanalAuth), mas nunca tinha sido commitado —
++-- gap sinalizado em db/README.md. Só a autoria (created_by/updated_by)
++-- já era coberta por 003_consistencia.sql/006_pecas_one_way.sql via
++-- fn_uid(); o que faltava era garantir, de forma explícita e
++-- reexecutável, que o papel `anon` (chamadas sem sessão logada) não
++-- tem NENHUM privilégio herdado de uma configuração anterior do
++-- projeto Supabase — a equipe é toda autenticada, não deveria existir
++-- acesso público às tabelas de cadastro nem ao log de atividades.
++--
++-- Idempotente: pode ser rodado quantas vezes for preciso, inclusive em
++-- bancos onde `anon` já não tinha nenhum grant (REVOKE de um privilégio
++-- inexistente não é erro no Postgres).
++-- =====================================================
++
++-- ── 1. Cadastro relacional (fonte da verdade) ────────────────
++revoke all privileges on public.pecas     from anon;
++revoke all privileges on public.programas from anon;
++
++-- ── 2. Log de atividades (auditoria da equipe — não é dado público) ──
++revoke all privileges on public.activity_log   from anon;
++revoke all privileges on public.log_atividades from anon;
++
++-- ── 3. Espelho legado / dados por usuário (compatibilidade) ──
++-- Podem não existir em instalações que já migraram totalmente para o
++-- cadastro relacional — o "if exists" evita erro nesse caso.
++do $$
++begin
++  if to_regclass('public.shared_data') is not null then
++    execute 'revoke all privileges on public.shared_data from anon';
++  end if;
++  if to_regclass('public.user_data') is not null then
++    execute 'revoke all privileges on public.user_data from anon';
++  end if;
++end $$;
++
++-- ── 4. Sequences associadas (SELECT em sequence também vaza informação) ──
++do $$
++begin
++  if to_regclass('public.activity_log_id_seq') is not null then
++    execute 'revoke all privileges on sequence public.activity_log_id_seq from anon';
++  end if;
++  if to_regclass('public.log_atividades_id_seq') is not null then
++    execute 'revoke all privileges on sequence public.log_atividades_id_seq from anon';
++  end if;
++end $$;
++
++-- ── 5. Funções de gravação/leitura — anon não deve poder executá-las ──
++do $$
++begin
++  if to_regprocedure('public.fn_salvar_pecas(jsonb, text[])') is not null then
++    execute 'revoke execute on function public.fn_salvar_pecas(jsonb, text[]) from anon';
++  end if;
++  if to_regprocedure('public.fn_salvar_programas(jsonb, text[])') is not null then
++    execute 'revoke execute on function public.fn_salvar_programas(jsonb, text[]) from anon';
++  end if;
++  if to_regprocedure('public.fn_pecas_elegiveis(integer, text, date)') is not null then
++    execute 'revoke execute on function public.fn_pecas_elegiveis(integer, text, date) from anon';
++  end if;
++end $$;
++
++-- Nada disso afeta `authenticated`/`service_role` — os GRANTs para essas
++-- roles continuam exatamente como definidos em 001/003/006. O efeito
++-- observável é só: uma chamada à Data API sem um JWT de sessão válido
++-- (ou seja, usando implicitamente o papel `anon`) passa a receber
++-- "permission denied" em vez de, na melhor das hipóteses, uma leitura
++-- que nunca deveria ter sido possível.
+diff --git a/db/README.md b/db/README.md
+index 86dc371..d6a735c 100644
+--- a/db/README.md
++++ b/db/README.md
+@@ -30,17 +30,21 @@ antigo que lia `shared_data` continua funcionando.
+    telas (peças/programas salvos, sincronizações adiadas, erros não
+    tratados...). Opcional: sem ela o log continua funcionando só em
+    console + `localStorage` (best-effort, nunca bloqueia a ação do usuário).
++5. `005_log_atividades.sql` — evolução de `004_activity_log.sql` (tabela
++   `log_atividades`, mesma finalidade).
++6. `006_pecas_one_way.sql` — fluxo de mão única: só a tela "Peças e
++   Programas" pode gravar em `pecas`/`programas` (REVOKE + RLS + trigger de
++   escopo). O Roteiro passa a ser somente leitura no banco.
++7. `004_autenticacao.sql` — revoga qualquer privilégio residual do papel
++   `anon` nas tabelas de cadastro, log e espelho legado. Reexecutável a
++   qualquer momento (todo `REVOKE` é seguro mesmo que o privilégio já não
++   exista). Numerado como "004" porque foi planejado antes de
++   `004_activity_log.sql`/`005_log_atividades.sql` existirem — a ordem de
++   aplicação não importa entre este e os dois de log, mas aplique depois de
++   `001`/`003`/`006` (precisa que `pecas`/`programas` já existam).
+ 
+ Nada precisa ser apagado: `shared_data` continua existindo como espelho.
+ 
+-> ⚠️ **Gap conhecido, não relacionado ao log:** `AUTENTICACAO.md` menciona um
+-> `db/004_autenticacao.sql` que revogaria o acesso do papel anônimo às
+-> tabelas de cadastro — esse arquivo nunca foi commitado neste repositório.
+-> As colunas de auditoria (`created_by`/`updated_by`) já existem (criadas em
+-> `001`), mas a revogação de acesso anônimo em si não está em nenhum script
+-> versionado. Confirme manualmente no painel do Supabase (Database →
+-> Policies) se o papel `anon` tem algum `GRANT` residual em `pecas`/`programas`.
+-
+ ## Estrutura
+ 
+ **`pecas`** — `code` (único), `descricao`, `tempo` (`HH:MM:SS` validado),
+diff --git a/multiusuario.test.mjs b/multiusuario.test.mjs
+deleted file mode 100644
+index a2c8392..0000000
+--- a/multiusuario.test.mjs
++++ /dev/null
+@@ -1,97 +0,0 @@
+-// Cenário relatado: dois usuários trabalhando ao mesmo tempo.
+-// Quando o usuário B salva no cadastro, o tempo real atualiza a tela do
+-// usuário A. Antes, isso substituía state.pecas pelo cadastro da nuvem e
+-// apagava as peças que A tinha criado localmente ("as peças estão sumindo").
+-// Estes testes travam o comportamento correto da ponte.
+-import { describe, it, expect } from 'vitest';
+-import { readFileSync } from 'node:fs';
+-
+-function loadBridge(pendentes) {
+-  const src = readFileSync(new URL('../../roteiro-pecas-bridge.js', import.meta.url), 'utf8');
+-  const g = { CadastroSync: pendentes ? { pendentes: () => pendentes } : undefined };
+-  new Function('window', 'globalThis', 'module', src).call(g, g, g, undefined);
+-  return g.RoteiroPecasBridge;
+-}
+-
+-const peca = (code, extra = {}) => ({ code, descricao: 'peça ' + code, ativo: true, ...extra });
+-
+-describe('atualização de um usuário não apaga as peças do outro', () => {
+-  it('preserva peça local pendente ao aplicar o cadastro da nuvem', () => {
+-    const bridge = loadBridge({ pecas: [peca('LOCAL1')], programas: [], excluidos: { pecas: [], programas: [] } });
+-    const state = { pecas: [peca('NUVEM1'), peca('LOCAL1')], programas: [] };
+-
+-    const mudou = bridge.aplicarNoEstado(state, { pecas: [peca('NUVEM1'), peca('NUVEM2')], programas: [] });
+-
+-    expect(mudou).toBe(true);
+-    const codes = state.pecas.map((p) => p.code).sort();
+-    expect(codes).toEqual(['LOCAL1', 'NUVEM1', 'NUVEM2']); // nada sumiu
+-  });
+-
+-  it('mergeCadastro mantém pendências e respeita exclusões explícitas', () => {
+-    const bridge = loadBridge({
+-      pecas: [peca('LOCAL1')],
+-      programas: [],
+-      excluidos: { pecas: ['NUVEM2'], programas: [] },
+-    });
+-
+-    const app = bridge.mergeCadastro(
+-      { pecas: [peca('LOCAL1')], roteiros: { '2026-01-01': [] } },
+-      { pecas: [peca('NUVEM1'), peca('NUVEM2')], programas: [] }
+-    );
+-
+-    expect(app.pecas.map((p) => p.code).sort()).toEqual(['LOCAL1', 'NUVEM1']);
+-    expect(app.roteiros).toEqual({ '2026-01-01': [] }); // dados do roteiro intactos
+-  });
+-
+-  it('sem pendências, o cadastro da nuvem continua mandando', () => {
+-    const bridge = loadBridge({ pecas: [], programas: [], excluidos: { pecas: [], programas: [] } });
+-    const state = { pecas: [peca('ANTIGA')], programas: [] };
+-    bridge.aplicarNoEstado(state, { pecas: [peca('NOVA')], programas: [] });
+-    expect(state.pecas.map((p) => p.code)).toEqual(['NOVA']);
+-  });
+-});
+-
+-describe('fila de pendências (CadastroSync)', () => {
+-  function loadSync() {
+-    const src = readFileSync(new URL('../../cadastro-sync.js', import.meta.url), 'utf8');
+-    const store = new Map();
+-    const g = {
+-      localStorage: {
+-        getItem: (k) => (store.has(k) ? store.get(k) : null),
+-        setItem: (k, v) => store.set(k, String(v)),
+-        removeItem: (k) => store.delete(k),
+-      },
+-      setTimeout: () => 0,
+-      clearTimeout: () => {},
+-      console,
+-    };
+-    g.window = g;
+-    new Function('window', 'globalThis', 'localStorage', 'setTimeout', 'clearTimeout', 'module', src)
+-      .call(g, g, g, g.localStorage, g.setTimeout, g.clearTimeout, undefined);
+-    return g.CadastroSync;
+-  }
+-
+-  it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
+-    const sync = loadSync();
+-    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
+-    sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
+-    expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+-
+-    // Estado local perdeu B (ex.: snapshot antigo) -> NÃO gera exclusão.
+-    sync.sincronizarEstado({ pecas: [peca('A')], programas: [] });
+-    expect(sync.pendentes().excluidos.pecas).toEqual([]);
+-
+-    sync.marcarExclusao('pecas', ['A']);
+-    expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
+-    expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+-  });
+-
+-  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
+-    const sync = loadSync();
+-    sync.init({});
+-    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
+-    sync.marcarUpsert('pecas', [peca('Y')]);
+-    sync.marcarExclusao('pecas', ['Z']);
+-    expect(sync.total()).toBe(0);
+-  });
+-});
+diff --git a/package.json b/package.json
+index 24f8780..5b58323 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "roteiro-canal-educacao",
+-  "version": "2.6.1",
++  "version": "2.6.2",
+   "type": "module",
+   "scripts": {
+     "test": "vitest run",
+diff --git a/patch-mao-unica.diff b/patch-mao-unica.diff
+deleted file mode 100644
+index 13e3e29..0000000
+--- a/patch-mao-unica.diff
++++ /dev/null
+@@ -1,435 +0,0 @@
+-diff --git a/app.js b/app.js
+-index 576faad..1c42c7c 100644
+---- a/app.js
+-+++ b/app.js
+-@@ -240,10 +240,9 @@ function saveState() {
+-   saved.pecas     = state.pecas;
+-   saved.programas = state.programas;
+-   localStorage.setItem('roteiroApp', JSON.stringify(saved));
+--  // Envia para o cadastro compartilhado o que foi criado/editado aqui.
+--  // Sem isso a peça existia só neste navegador e desaparecia da tela na
+--  // primeira atualização vinda de outro usuário.
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.sincronizarEstado(state);
+-+  // FLUXO DE MÃO ÚNICA: o Roteiro NUNCA grava no cadastro (public.pecas /
+-+  // public.programas). Tudo aqui é local (localStorage + user_data).
+-+  // Alterações no cadastro só acontecem na tela "Peças e Programas".
+-   // Aciona backup automático silenciosamente se pasta estiver configurada
+-   if (typeof runAutoBackup === 'function' && _backupDirHandle) {
+-     runAutoBackup();
+-@@ -1094,7 +1093,7 @@ function saveNewPeca() {
+-   const val  = document.getElementById('np-val').value.trim();
+-   const obs  = document.getElementById('np-obs').value.trim();
+-   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+--  state.pecas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
+-+  state.pecas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
+-                      type, validade: val, obs: sanitizeText(obs), categoria: 'MANUAL' });
+-   saveState();
+-   renderPecasSidebar();
+-@@ -1148,8 +1147,7 @@ function deletePeca(idx) {
+-   if (!item) return;
+-   if (!confirm(`Excluir "${item.descricao.substring(0,50)}" do banco de peças?\n\nEsta ação não pode ser desfeita.`)) return;
+-   state.pecas.splice(idx, 1);
+--  // Exclusão explícita: autoriza o DELETE no cadastro compartilhado.
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [item.code]);
+-+  // Exclusão apenas local do roteiro — o cadastro compartilhado não é tocado.
+-   saveState();
+-   renderPecasSidebar();
+-   renderPecasPanel();
+-@@ -1181,6 +1179,7 @@ function importBanco(e) {
+-           if (p.code && p.descricao) {
+-             if (!existing.has(p.code)) {
+-               state.pecas.push({
+-+          _localOnly: true,
+-                 code: p.code, descricao: sanitizeText(p.descricao),
+-                 tempo: p.tempo || '00:01:00', midia: p.midia || '0OMN',
+-                 type: p.type || 'EVNH', validade: p.validade || '',
+-@@ -1240,6 +1239,7 @@ function importBanco(e) {
+-           }
+-           if (!/^\d{2}:\d{2}:\d{2}$/.test(tempo)) tempo = '00:01:00';
+-           state.pecas.push({
+-+          _localOnly: true,
+-             code, descricao: sanitizeText(desc), tempo, midia: '0OMN',
+-             type:     ci.type >= 0 ? String(r[ci.type]||'EVNH').trim() : 'EVNH',
+-             validade: ci.val  >= 0 ? String(r[ci.val] ||'').trim()     : '',
+-@@ -1330,7 +1330,7 @@ function saveNewProg() {
+-   const desc = document.getElementById('npp-desc').value.trim();
+-   const dur  = document.getElementById('npp-dur').value.trim() || '00:25:00';
+-   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+--  state.programas.push({ code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
+-+  state.programas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
+-   saveState();
+-   renderProgramas();
+-   document.getElementById('badge-prog').textContent = state.programas.length;
+-diff --git a/banco-manager.js b/banco-manager.js
+-index 118b0fa..60c3c0f 100644
+---- a/banco-manager.js
+-+++ b/banco-manager.js
+-@@ -148,6 +148,7 @@ function _bmImportPecasJSON(file) {
+-         const desc = (typeof sanitizeText === 'function') ? sanitizeText(p.descricao) : p.descricao;
+-         const obs  = (typeof sanitizeText === 'function') ? sanitizeText(p.obs || '') : (p.obs || '');
+-         state.pecas.push({
+-+          _localOnly: true,
+-           code:      String(p.code),
+-           descricao: desc,
+-           tempo:     p.tempo     || '00:01:00',
+-@@ -233,6 +234,7 @@ function _bmImportPecasXLSX(file) {
+-           : '';
+- 
+-         state.pecas.push({
+-+          _localOnly: true,
+-           code,
+-           descricao: desc2,
+-           tempo,
+-@@ -311,6 +313,7 @@ function _bmImportProgramasJSON(file) {
+- 
+-         const desc = (typeof sanitizeText === 'function') ? sanitizeText(p.descricao) : p.descricao;
+-         state.programas.push({
+-+          _localOnly: true,
+-           code:      String(p.code),
+-           descricao: desc,
+-           tempo:     p.tempo || '00:30:00',
+-@@ -380,6 +383,7 @@ function _bmImportProgramasXLSX(file) {
+-         const desc2 = (typeof sanitizeText === 'function') ? sanitizeText(desc) : desc;
+- 
+-         state.programas.push({
+-+          _localOnly: true,
+-           code,
+-           descricao: desc2,
+-           tempo,
+-@@ -467,8 +471,7 @@ function deletePecaByCode(code) {
+- 
+-   // Remove a peça do array pelo code
+-   state.pecas = state.pecas.filter(p => p.code !== code);
+--  // Exclusão explícita -> autoriza o DELETE no cadastro compartilhado.
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [code]);
+-+  // Somente local: para excluir do cadastro, use a tela "Peças e Programas".
+-   if (typeof saveState === 'function') saveState();
+-   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
+-   if (typeof renderPecasPanel === 'function') renderPecasPanel();
+-@@ -509,7 +512,7 @@ function deleteAllPecasFiltradas() {
+-   // Mantém somente as peças que não estão no conjunto a excluir
+-   const alvoCodes = new Set(alvo.map(p => p.code));
+-   state.pecas = state.pecas.filter(p => !alvoCodes.has(p.code));
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('pecas', [...alvoCodes]);
+-+  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+-   if (typeof saveState === 'function') saveState();
+-   if (typeof renderPecasSidebar === 'function') renderPecasSidebar();
+-   if (typeof renderPecasPanel === 'function') renderPecasPanel();
+-@@ -535,7 +538,7 @@ function deletePrograma(code) {
+-   if (!confirm(msg)) return;
+- 
+-   state.programas = state.programas.filter(p => p.code !== code);
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [code]);
+-+  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+-   if (typeof saveState === 'function') saveState();
+-   if (typeof renderProgramas === 'function') renderProgramas();
+-   if (typeof toast === 'function') toast(`🗑 Programa ${code} excluído`, 'success');
+-@@ -568,7 +571,7 @@ function deleteAllProgramasFiltrados() {
+- 
+-   const alvoCodes = new Set(alvo.map(p => p.code));
+-   state.programas = state.programas.filter(p => !alvoCodes.has(p.code));
+--  if (typeof CadastroSync !== 'undefined') CadastroSync.marcarExclusao('programas', [...alvoCodes]);
+-+  // Somente local: o cadastro compartilhado não é alterado pelo Roteiro.
+-   if (typeof saveState === 'function') saveState();
+-   if (typeof renderProgramas === 'function') renderProgramas();
+-   if (typeof toast === 'function') toast(`🗑 ${alvo.length} programas excluídos`, 'success');
+-diff --git a/cadastro-sync.js b/cadastro-sync.js
+-index b27663a..4d4a6f1 100644
+---- a/cadastro-sync.js
+-+++ b/cadastro-sync.js
+-@@ -34,6 +34,19 @@
+-   let repo = null;
+-   let timer = null;
+-   let enviando = false;
+-+  // FLUXO DE MÃO ÚNICA: só a tela de Cadastro (pecas-programas.js) pode
+-+  // escrever no cadastro. Sem allowWrite:true todas as funções de escrita
+-+  // viram no-op e apenas avisam no console.
+-+  let allowWrite = false;
+-+
+-+  function podeEscrever(fn) {
+-+    if (allowWrite) return true;
+-+    console.warn(
+-+      `[cadastro-sync] ${fn}() ignorado: esta tela não tem permissão de escrita no cadastro. ` +
+-+      'O fluxo é de mão única — só "Peças e Programas" grava em public.pecas/programas.'
+-+    );
+-+    return false;
+-+  }
+- 
+-   const vazio = () => ({
+-     pecas: {},
+-@@ -93,17 +106,23 @@
+-     };
+-   }
+- 
+--  function init({ client: c, user: u, workspaceId: w, repo: r } = {}) {
+-+  function init({ client: c, user: u, workspaceId: w, repo: r, allowWrite: aw } = {}) {
+-+    allowWrite = aw === true;
+-     if (c) client = c;
+-     if (u) user = u;
+-     if (w) workspaceId = w;
+-     repo = r || global.PecasRepo || null;
+-+    if (!allowWrite) {
+-+      console.info('[cadastro-sync] modo somente leitura (allowWrite ausente): nada será enviado ao cadastro.');
+-+      return api;
+-+    }
+-     if (total()) agendar(0); // reenvia o que ficou pendente da sessão anterior
+-     return api;
+-   }
+- 
+-   /** Marca itens criados/editados no Roteiro para subirem ao cadastro. */
+-   function marcarUpsert(kind, itens) {
+-+    if (!podeEscrever('marcarUpsert')) return;
+-     const alvo = kind === 'programas' ? 'programas' : 'pecas';
+-     const fila = ler();
+-     const codes = [];
+-@@ -122,6 +141,7 @@
+- 
+-   /** Marca exclusões explícitas — a única coisa que autoriza DELETE na nuvem. */
+-   function marcarExclusao(kind, codes) {
+-+    if (!podeEscrever('marcarExclusao')) return;
+-     const alvo = kind === 'programas' ? 'programas' : 'pecas';
+-     const fila = ler();
+-     const lista = (Array.isArray(codes) ? codes : [codes]).filter(Boolean).map(String);
+-@@ -149,6 +169,7 @@
+-    */
+-   async function flush() {
+-     if (enviando) return { enviados: 0, pendentes: total() };
+-+    if (!allowWrite) return { enviados: 0, pendentes: total() };
+-     const repositorio = repo || global.PecasRepo;
+-     if (!repositorio || !client || !user) return { enviados: 0, pendentes: total() };
+- 
+-@@ -230,6 +251,7 @@
+-    */
+-   function sincronizarEstado(state) {
+-     if (!state) return;
+-+    if (!podeEscrever('sincronizarEstado')) return;
+-     marcarUpsert('pecas', mudados('pecas', state.pecas));
+-     marcarUpsert('programas', mudados('programas', state.programas));
+-   }
+-diff --git a/index.html b/index.html
+-index 57deea8..648a450 100644
+---- a/index.html
+-+++ b/index.html
+-@@ -1313,7 +1313,7 @@
+- <script src="auth.js"></script>
+- <script src="canal-log.js"></script>
+- <script src="pecas-repo.js"></script>
+--<script src="cadastro-sync.js"></script>
+-+<!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
+- <script src="roteiro-pecas-bridge.js"></script>
+- <script src="cloud-sync.js"></script>
+- </body>
+-diff --git a/multiusuario.test.mjs b/multiusuario.test.mjs
+-index a6c4a6d..a2c8392 100644
+---- a/multiusuario.test.mjs
+-+++ b/multiusuario.test.mjs
+-@@ -73,6 +73,7 @@ describe('fila de pendências (CadastroSync)', () => {
+- 
+-   it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
+-     const sync = loadSync();
+-+    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
+-     sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
+-     expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+- 
+-@@ -84,4 +85,13 @@ describe('fila de pendências (CadastroSync)', () => {
+-     expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
+-     expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+-   });
+-+
+-+  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
+-+    const sync = loadSync();
+-+    sync.init({});
+-+    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
+-+    sync.marcarUpsert('pecas', [peca('Y')]);
+-+    sync.marcarExclusao('pecas', ['Z']);
+-+    expect(sync.total()).toBe(0);
+-+  });
+- });
+-diff --git a/pecas-programas.html b/pecas-programas.html
+-index d64802d..e932b96 100644
+---- a/pecas-programas.html
+-+++ b/pecas-programas.html
+-@@ -13,6 +13,7 @@
+- <script src="auth.js"></script>
+- <script src="canal-log.js"></script>
+- <script src="pecas-repo.js"></script>
+-+<script src="cadastro-sync.js"></script>
+- <style>
+- *{box-sizing:border-box;margin:0;padding:0}
+- body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+-diff --git a/pecas-programas.js b/pecas-programas.js
+-index e1faaea..4d0ec5a 100644
+---- a/pecas-programas.js
+-+++ b/pecas-programas.js
+-@@ -141,6 +141,15 @@ async function startApp(user) {
+-       CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
+-     }
+-     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
+-+    if (window.CadastroSync) {
+-+      // Única tela autorizada a gravar no cadastro (fluxo de mão única).
+-+      CadastroSync.init({
+-+        client: supabaseClient,
+-+        user: currentUser,
+-+        workspaceId: WORKSPACE_ID,
+-+        allowWrite: true,
+-+      });
+-+    }
+-     console.info('[Peças e Programas] modo de banco:', modo);
+-     await loadFromCloud();
+-     setupRealtime();
+-diff --git a/pecas-repo.js b/pecas-repo.js
+-index 59b4033..27d1470 100644
+---- a/pecas-repo.js
+-+++ b/pecas-repo.js
+-@@ -176,27 +176,19 @@
+-     return msg.includes('does not exist') || msg.includes('could not find the function') || error?.code === 'PGRST202';
+-   }
+- 
+--  /** Fallback sem RPC: upsert linha a linha + delete SÓ dos codes informados. */
+--  async function salvarSemRpc(table, upserts, deletes) {
+--    if (upserts.length) {
+--      const payload = upserts.map(({ row_version, ...rest }) => rest);
+--      const { error } = await client.from(table).upsert(payload, { onConflict: 'code' });
+--      if (error) throw error;
+--    }
+--    if (deletes.length) {
+--      const { error } = await client.from(table).delete().in('code', deletes);
+--      if (error) throw error;
+--    }
+--    return { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
+--  }
+--
+-   async function salvarTabela(kind, rpcName, upserts, deletes) {
+-     if (!upserts.length && !deletes.length) return { aplicados: 0, removidos: 0, conflitos: [] };
+--    const table = kind;
+-     const { data, error } = await client.rpc(rpcName, { p_upserts: upserts, p_deletes: deletes });
+-     if (error) {
+--      if (!rpcAusente(error)) throw error;
+--      return await salvarSemRpc(table, upserts, deletes);
+-+      // Não existe mais caminho de escrita direta: as RPCs SECURITY DEFINER
+-+      // são as ÚNICAS portas de gravação do cadastro (migração 006).
+-+      if (rpcAusente(error)) {
+-+        throw new Error(
+-+          'As funções de gravação do cadastro (fn_salvar_pecas / fn_salvar_programas) ' +
+-+          'não estão instaladas no banco. Aplique as migrações em db/ antes de salvar.'
+-+        );
+-+      }
+-+      throw error;
+-     }
+-     return data || { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
+-   }
+-diff --git a/roteiro-pecas-bridge.js b/roteiro-pecas-bridge.js
+-index 428e8e9..d06a0cf 100644
+---- a/roteiro-pecas-bridge.js
+-+++ b/roteiro-pecas-bridge.js
+-@@ -63,21 +63,49 @@
+-     };
+-   }
+- 
+-+  /** Carimbo de recência de um item (row_version > updated_at > 0). */
+-+  function versao(item) {
+-+    if (!item || typeof item !== 'object') return -1;
+-+    const rv = Number(item.row_version);
+-+    if (Number.isFinite(rv)) return rv * 1e13; // row_version domina o timestamp
+-+    const ts = Date.parse(item.updated_at || item.updatedAt || item.atualizado_em || '');
+-+    return Number.isFinite(ts) ? ts : 0;
+-+  }
+-+
+-   /**
+--   * Une o cadastro da nuvem com o que este usuário ainda não sincronizou.
+--   * Regras (nesta ordem):
+--   *   1) a nuvem manda em tudo que já está sincronizado;
+--   *   2) itens pendentes deste usuário (criados/editados aqui e ainda não
+--   *      confirmados) permanecem em tela, sobrepondo a versão da nuvem;
+--   *   3) itens que este usuário excluiu explicitamente saem, mesmo que a
+--   *      nuvem ainda os traga (a exclusão está na fila de envio).
+--   * Sem isso, uma atualização feita por outro usuário apagava da tela peças
+--   * que só existiam localmente.
+-+   * Une o cadastro da nuvem com o snapshot local desta máquina.
+-+   *
+-+   * FLUXO DE MÃO ÚNICA: o Roteiro nunca escreve de volta no cadastro. Para
+-+   * que uma atualização vinda de outro usuário não apague da tela algo mais
+-+   * recente que este navegador já tem, a escolha é feita por RECÊNCIA
+-+   * (row_version / updated_at), e não sincronizando de volta para a nuvem:
+-+   *   1) o cadastro da nuvem é a base;
+-+   *   2) quando o item local é comprovadamente mais novo (versão maior),
+-+   *      ele prevalece em tela até a nuvem alcançá-lo;
+-+   *   3) itens que existem só localmente permanecem visíveis (rascunho local
+-+   *      do roteiro), sem nunca subirem ao cadastro;
+-+   *   4) a fila legada de pendências, quando existir, ainda é respeitada.
+-    */
+-   function combinar(remotos, locais, pendentes, kind) {
+-     const pend = lerPendentes(pendentes);
+-     const mapa = new Map();
+-     (remotos || []).forEach((item) => { if (item && item.code) mapa.set(String(item.code), item); });
+-+
+-+    // Snapshot local: mantém o que é só local e o que é mais recente.
+-+    (locais || []).forEach((item) => {
+-+      if (!item || !item.code) return;
+-+      const code = String(item.code);
+-+      const remoto = mapa.get(code);
+-+      if (remoto) {
+-+        if (versao(item) > versao(remoto)) mapa.set(code, item);
+-+        return;
+-+      }
+-+      // Ausente na nuvem: só permanece se for um rascunho criado no
+-+      // Roteiro (marcado com _localOnly). Itens que vieram do cadastro e
+-+      // sumiram de lá foram realmente excluídos no cadastro.
+-+      if (item._localOnly === true) mapa.set(code, item);
+-+    });
+-+
+-     apenasAtivos(pend[kind]).forEach((item) => mapa.set(String(item.code), item));
+-     pend.excluidos[kind].forEach((code) => mapa.delete(String(code)));
+-     return [...mapa.values()];
+-diff --git a/tests/unit/consistencia.test.mjs b/tests/unit/consistencia.test.mjs
+-index 427ad23..c87a1be 100644
+---- a/tests/unit/consistencia.test.mjs
+-+++ b/tests/unit/consistencia.test.mjs
+-@@ -97,15 +97,17 @@ describe('gravação por delta', () => {
+-     expect(calls.rpc[0].args.p_deletes).toEqual(['90001']);
+-   });
+- 
+--  it('fallback sem RPC usa upsert + delete in(), sem apagar o resto', async () => {
+-+  it('sem as RPCs instaladas, falha em vez de gravar direto na tabela', async () => {
+-     const repo = loadRepo();
+-     const { client, calls } = fakeClient({ pecas: [], programas: [] });
+-     client.rpc = async () => ({ data: null, error: { message: 'Could not find the function' } });
+-     await repo.init(client);
+-     await repo.loadAll();
+--    await repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] });
+--    expect(calls.upserts[0].payload[0].code).toBe('55555');
+--    expect(calls.deletes[0].val).toEqual(['11111']);
+-+    await expect(
+-+      repo.saveDelta({ pecas: [PECA({ code: '55555' })], programas: [], deletedPecas: ['11111'] })
+-+    ).rejects.toThrow(/fn_salvar_pecas/);
+-+    expect(calls.upserts.length).toBe(0);
+-+    expect(calls.deletes.length).toBe(0);
+-   });
+- 
+-   it('modo legado mescla com o estado remoto atual (não sobrescreve outros)', async () => {
+-diff --git a/tests/unit/multiusuario.test.mjs b/tests/unit/multiusuario.test.mjs
+-index a6c4a6d..a2c8392 100644
+---- a/tests/unit/multiusuario.test.mjs
+-+++ b/tests/unit/multiusuario.test.mjs
+-@@ -73,6 +73,7 @@ describe('fila de pendências (CadastroSync)', () => {
+- 
+-   it('enfileira criações do Roteiro e nunca deduz exclusões', () => {
+-     const sync = loadSync();
+-+    sync.init({ allowWrite: true }); // só a tela de cadastro pode escrever
+-     sync.sincronizarEstado({ pecas: [peca('A'), peca('B')], programas: [] });
+-     expect(sync.pendentes().pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+- 
+-@@ -84,4 +85,13 @@ describe('fila de pendências (CadastroSync)', () => {
+-     expect(sync.pendentes().excluidos.pecas).toEqual(['A']);
+-     expect(sync.pendentes().pecas.map((p) => p.code)).toEqual(['B']);
+-   });
+-+
+-+  it('sem allowWrite (Roteiro) nada é enfileirado — fluxo de mão única', () => {
+-+    const sync = loadSync();
+-+    sync.init({});
+-+    sync.sincronizarEstado({ pecas: [peca('X')], programas: [] });
+-+    sync.marcarUpsert('pecas', [peca('Y')]);
+-+    sync.marcarExclusao('pecas', ['Z']);
+-+    expect(sync.total()).toBe(0);
+-+  });
+- });
+diff --git a/pecas-programas.js b/pecas-programas.js
+index 7de636a..85f74df 100644
+--- a/pecas-programas.js
++++ b/pecas-programas.js
+@@ -469,7 +469,7 @@ function assinaturaBadgeHtml(list){
+   if(!list||!list.length)return'—';
+   return list.map(a=>{
+     const m=ASSINATURA_META[a]||{label:a,text:'#555',bg:'#eee',border:'#ccc'};
+-    return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${m.label}</span>`;
++    return`<span class="badge" style="color:${m.text};background:${m.bg};border-color:${m.border};margin-right:3px">${escapeHtml(m.label)}</span>`;
+   }).join('');
+ }
+ 
+@@ -533,13 +533,13 @@ function render(){
+ 
+   document.getElementById('tbody').innerHTML=filtered.map(p=> isPecas ? `
+     <tr>
+-      <td class="code-cell">${p.code}</td>
++      <td class="code-cell">${escapeHtml(p.code)}</td>
+       <td>
+-        <div class="desc-main">${p.descricao}</div>
+-        ${p.obs?`<div class="desc-obs">${p.obs}</div>`:''}
++        <div class="desc-main">${escapeHtml(p.descricao)}</div>
++        ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
+       </td>
+-      <td class="tempo-cell">${p.tempo}</td>
+-      <td class="type-cell">${p.type}</td>
++      <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
++      <td class="type-cell">${escapeHtml(p.type)}</td>
+       <td>${catBadgeHtml(p.categoria)}</td>
+       <td>${kBadgeHtml(p.validade)}</td>
+       <td class="hor-cell">${horLabel(p)}</td>
+@@ -551,11 +551,11 @@ function render(){
+       </td>
+     </tr>` : `
+     <tr>
+-      <td class="code-cell">${p.code}</td>
+-      <td><div class="desc-main">${p.descricao}</div></td>
+-      <td class="tempo-cell">${p.tempo}</td>
+-      <td class="type-cell">${p.type}</td>
+-      <td class="hor-cell">${p.midia||''}</td>
++      <td class="code-cell">${escapeHtml(p.code)}</td>
++      <td><div class="desc-main">${escapeHtml(p.descricao)}</div></td>
++      <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
++      <td class="type-cell">${escapeHtml(p.type)}</td>
++      <td class="hor-cell">${escapeHtml(p.midia||'')}</td>
+       <td>${assinaturaBadgeHtml(p.assinatura)}</td>
+       <td>
+         <div class="row-actions">
+diff --git a/scripts/sync-version.js b/scripts/sync-version.js
+index 2886c9f..e9a97a6 100644
+--- a/scripts/sync-version.js
++++ b/scripts/sync-version.js
+@@ -1,6 +1,8 @@
+ // Roda automaticamente depois de cada bump de versão (via .versionrc.json → postbump).
+-// Copia a versão do package.json para version.js, que é o arquivo que o
+-// index.html carrega para exibir a versão no rodapé do sistema.
++// Copia a versão do package.json para version.js (que o index.html carrega
++// para exibir a versão no rodapé) e version.txt (referência simples em
++// texto puro, usada por scripts/checagens externas) — os três arquivos
++// precisam sempre bater; ver tests/unit/versaoConsistente.test.mjs.
+ import { readFileSync, writeFileSync } from 'node:fs';
+ 
+ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
+@@ -11,4 +13,5 @@ window.APP_RELEASED_AT = ${JSON.stringify(new Date().toISOString())};
+ `;
+ 
+ writeFileSync(new URL('../version.js', import.meta.url), content);
+-console.log(`version.js atualizado para v${pkg.version}`);
++writeFileSync(new URL('../version.txt', import.meta.url), `${pkg.version}\n`);
++console.log(`version.js e version.txt atualizados para v${pkg.version}`);
+diff --git a/supabase-schema.sql b/supabase-schema.sql
+index c056de9..d50fde9 100644
+--- a/supabase-schema.sql
++++ b/supabase-schema.sql
+@@ -1,5 +1,16 @@
+ -- =====================================================
+ -- Roteiro Canal Educação — Schema Supabase
++--
++-- ⚠️ LEGADO — não é mais o schema recomendado para novas instalações.
++-- Cria só a tabela antiga `shared_data`, sem o cadastro relacional
++-- (pecas/programas), sem RLS granular e sem o fluxo de mão única.
++-- Para uma instalação nova, rode em ordem os arquivos em db/:
++-- 001_pecas_programas.sql, 002_migrar_shared_data.sql,
++-- 003_consistencia.sql, 004_activity_log.sql, 005_log_atividades.sql,
++-- 006_pecas_one_way.sql — ver db/README.md e DEPLOY.md.
++-- Este arquivo continua funcionando como modo de compatibilidade caso
++-- você não possa rodar as migrações de db/.
++--
+ -- Cole este arquivo inteiro em: Supabase → SQL Editor → New query → Run
+ -- =====================================================
+ 
+diff --git a/tests/unit/authRevogacaoAnon.test.mjs b/tests/unit/authRevogacaoAnon.test.mjs
+new file mode 100644
+index 0000000..b9d50a0
+--- /dev/null
++++ b/tests/unit/authRevogacaoAnon.test.mjs
+@@ -0,0 +1,31 @@
++// db/004_autenticacao.sql era referenciado em AUTENTICACAO.md/db/README.md
++// mas nunca tinha sido commitado (gap de segurança sinalizado na revisão do
++// projeto). Este teste é rápido (não sobe um Postgres) e só garante que o
++// arquivo existe e tem a forma esperada; a validação de verdade (aplica
++// contra um Postgres real via PGlite e confere idempotência) foi feita
++// manualmente ao escrever o arquivo — ver db/testar-schema.mjs para o
++// padrão de teste completo contra banco real, caso a suíte de `npm run
++// test:db` seja estendida no futuro para incluir esta migração.
++import { describe, it, expect } from 'vitest';
++import { readFileSync, existsSync } from 'node:fs';
++
++const path = new URL('../../db/004_autenticacao.sql', import.meta.url);
++
++describe('db/004_autenticacao.sql — revogação de acesso anônimo (gap fechado)', () => {
++  it('o arquivo existe (não é mais só uma referência em Markdown)', () => {
++    expect(existsSync(path)).toBe(true);
++  });
++
++  it('revoga privilégios do papel anon nas tabelas de cadastro', () => {
++    const sql = readFileSync(path, 'utf8').toLowerCase();
++    expect(sql).toContain('revoke all privileges on public.pecas');
++    expect(sql).toContain('revoke all privileges on public.programas');
++    expect(sql).toContain('from anon');
++  });
++
++  it('não contém nenhum DROP TABLE/TRUNCATE — só revogação de privilégios', () => {
++    const sql = readFileSync(path, 'utf8').toLowerCase();
++    expect(sql).not.toMatch(/drop\s+table/);
++    expect(sql).not.toMatch(/truncate/);
++  });
++});
+diff --git a/tests/unit/pecasProgramasXSS.test.mjs b/tests/unit/pecasProgramasXSS.test.mjs
+new file mode 100644
+index 0000000..9a1eabb
+--- /dev/null
++++ b/tests/unit/pecasProgramasXSS.test.mjs
+@@ -0,0 +1,99 @@
++// Achado da revisão do projeto: a tabela principal de Peças e Programas
++// inseria `descricao`/`obs`/`code`/`tempo`/`type`/`midia` direto no
++// innerHTML, sem escapar — um XSS armazenado real, já que esses campos são
++// texto livre editável por qualquer conta autenticada e o HTML resultante é
++// executado no navegador de toda a equipe que abrir a tela. O arquivo já
++// tinha `escapeHtml()` (usada no log); só não era aplicada aqui.
++//
++// Mesmo padrão de extração dos outros testes deste arquivo (new Function +
++// mocks mínimos de DOM).
++import { describe, it, expect } from 'vitest';
++import { readFileSync } from 'node:fs';
++
++const src = readFileSync(new URL('../../pecas-programas.js', import.meta.url), 'utf8');
++
++function makeFakeElement(id) {
++  return {
++    id,
++    value: '',
++    textContent: '',
++    innerHTML: '',
++    style: {},
++    classList: { add() {}, remove() {}, toggle() {} },
++    addEventListener() {},
++  };
++}
++
++function loadApp() {
++  const elements = new Map();
++  const document = {
++    getElementById(id) {
++      if (!elements.has(id)) elements.set(id, makeFakeElement(id));
++      return elements.get(id);
++    },
++    querySelectorAll: () => [],
++  };
++  const g = { addEventListener() {}, removeEventListener() {} };
++  g.window = g;
++  const localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
++  const factory = new Function(
++    'window', 'globalThis', 'document', 'localStorage', 'console', 'setTimeout', 'clearTimeout',
++    `${src}\nreturn {
++      render,
++      __test_setActiveTab: (t) => { activeTab = t; },
++      __test_setPecas: (v) => { pecas = v; },
++      __test_setProgramas: (v) => { programas = v; },
++    };`
++  );
++  const app = factory.call(g, g.window, g, document, localStorage, console, setTimeout, clearTimeout);
++  return { app, elements };
++}
++
++const PAYLOAD = '<img src=x onerror=alert(1)>';
++
++describe('render() escapa campos de texto livre (peças e programas) — regressão de XSS armazenado', () => {
++  it('peças: descricao, obs, code, tempo e type não viram HTML executável', () => {
++    const { app, elements } = loadApp();
++    app.__test_setActiveTab('pecas');
++    app.__test_setPecas([{
++      id: 'p1', code: PAYLOAD, descricao: PAYLOAD, obs: PAYLOAD,
++      tempo: PAYLOAD, type: PAYLOAD, categoria: null, validade: null,
++    }]);
++
++    app.render();
++
++    const html = elements.get('tbody').innerHTML;
++    expect(html).not.toContain('<img'); // sem tag executável — só o texto escapado
++    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
++  });
++
++  it('programas: descricao, code, tempo, type e midia não viram HTML executável', () => {
++    const { app, elements } = loadApp();
++    app.__test_setActiveTab('programas');
++    app.__test_setProgramas([{
++      id: 'g1', code: PAYLOAD, descricao: PAYLOAD, tempo: PAYLOAD,
++      type: PAYLOAD, midia: PAYLOAD, assinatura: [],
++    }]);
++
++    app.render();
++
++    const html = elements.get('tbody').innerHTML;
++    expect(html).not.toContain('<img'); // sem tag executável — só o texto escapado
++    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
++  });
++
++  it('conteúdo normal (sem payload) continua aparecendo legível na tabela', () => {
++    const { app, elements } = loadApp();
++    app.__test_setActiveTab('pecas');
++    app.__test_setPecas([{
++      id: 'p1', code: 'VH0001', descricao: 'Vinheta de abertura', obs: '',
++      tempo: '00:00:10', type: 'VH', categoria: null, validade: null,
++    }]);
++
++    app.render();
++
++    const html = elements.get('tbody').innerHTML;
++    expect(html).toContain('VH0001');
++    expect(html).toContain('Vinheta de abertura');
++  });
++});
+diff --git a/tests/unit/versaoConsistente.test.mjs b/tests/unit/versaoConsistente.test.mjs
+new file mode 100644
+index 0000000..68bfe5d
+--- /dev/null
++++ b/tests/unit/versaoConsistente.test.mjs
+@@ -0,0 +1,37 @@
++// A versão do sistema ficou presa em 2.2.0 por quatro releases seguidas
++// (2.3.0/2.4.1/2.5.0 nunca existiram nos arquivos de versão, só no
++// CHANGELOG) porque a automação que deveria manter tudo sincronizado
++// (scripts/sync-version.js, referenciada como rodando via
++// `.versionrc.json` -> `postbump`) nunca teve esse arquivo de config
++// commitado — ou seja, nunca rodou de verdade. Corrigido com o
++// .versionrc.json; este teste é a rede de segurança para não regredir:
++// falha assim que os três arquivos voltarem a divergir.
++import { describe, it, expect } from 'vitest';
++import { readFileSync } from 'node:fs';
++
++const root = new URL('../../', import.meta.url);
++
++function read(path) {
++  return readFileSync(new URL(path, root), 'utf8');
++}
++
++describe('versão consistente entre package.json, version.js e version.txt', () => {
++  const pkgVersion = JSON.parse(read('package.json')).version;
++
++  it('version.js declara a mesma versão do package.json', () => {
++    const versionJs = read('version.js');
++    const match = versionJs.match(/APP_VERSION\s*=\s*"([^"]+)"/);
++    expect(match).not.toBeNull();
++    expect(match[1]).toBe(pkgVersion);
++  });
++
++  it('version.txt declara a mesma versão do package.json', () => {
++    const versionTxt = read('version.txt').trim();
++    expect(versionTxt).toBe(pkgVersion);
++  });
++
++  it('.versionrc.json existe e conecta o bump de versão a scripts/sync-version.js (evita a regressão de novo)', () => {
++    const versionrc = JSON.parse(read('.versionrc.json'));
++    expect(versionrc.scripts?.postbump || '').toContain('scripts/sync-version.js');
++  });
++});
+diff --git a/version.js b/version.js
+index 1765b2f..c00978b 100644
+--- a/version.js
++++ b/version.js
+@@ -1,3 +1,3 @@
+ // Gerado automaticamente por "npm run release" — não editar à mão.
+-window.APP_VERSION = "2.6.1";
+-window.APP_RELEASED_AT = "2026-08-28T00:00:00.000Z";
++window.APP_VERSION = "2.6.2";
++window.APP_RELEASED_AT = "2026-08-30T11:46:58.269Z";
+diff --git a/version.txt b/version.txt
+index 6a6a3d8..097a15a 100644
+--- a/version.txt
++++ b/version.txt
+@@ -1 +1 @@
+-2.6.1
++2.6.2
+-- 
+2.43.0
+

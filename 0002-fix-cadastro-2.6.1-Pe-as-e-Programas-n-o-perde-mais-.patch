@@ -1,0 +1,447 @@
+From 8bd48e0c37b5710dee9d86f696f6f52713a6a45c Mon Sep 17 00:00:00 2001
+From: RexB166ER <104926463+Pedrowdt@users.noreply.github.com>
+Date: Sat, 29 Aug 2026 02:47:41 +0000
+Subject: [PATCH 2/4] =?UTF-8?q?fix(cadastro):=202.6.1=20=E2=80=94=20Pe?=
+ =?UTF-8?q?=C3=A7as=20e=20Programas=20n=C3=A3o=20perde=20mais=20altera?=
+ =?UTF-8?q?=C3=A7=C3=B5es=20ao=20recarregar=20a=20p=C3=A1gina?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bug relatado: editar/excluir em Peças e Programas e, antes do envio (as
+primeiras 700ms), a página recarregar por qualquer motivo — o caso citado
+foi outra pessoa logando no mesmo navegador, disparando SIGNED_OUT e o
+location.reload() automático que já existia — descartava silenciosamente
+tudo que ainda não tinha sido confirmado no banco, inclusive exclusões:
+como o DELETE nunca chegava a sair, a peça excluída voltava depois do
+reload.
+
+- scheduleSync() agora grava um rascunho em localStorage de forma
+  síncrona, antes do debounce de 700ms (persistirRascunho()).
+- startApp() restaura esse rascunho por cima do que a nuvem acabou de
+  mandar quando a marca de pendência ainda existir
+  (restaurarRascunhoPendenteSeExistir()), e reagenda o envio na hora.
+- SIGNED_OUT tenta flushPendingSync() (melhor esforço) antes do reload;
+  um listener de pagehide cobre fechar a aba/navegar para fora.
+- limparRascunho() roda assim que pushToCloud() confirma a gravação.
+
+Testado em tests/unit/pecasProgramasRascunho.test.mjs, incluindo o
+cenário exato do bug relatado.
+
+Também reconcilia package.json/version.js/version.txt para 2.6.1.
+---
+ CHANGELOG.md                               |  32 +++++
+ package.json                               |   2 +-
+ pecas-programas.js                         | 127 ++++++++++++++++-
+ tests/unit/pecasProgramasRascunho.test.mjs | 154 +++++++++++++++++++++
+ version.js                                 |   2 +-
+ version.txt                                |   2 +-
+ 6 files changed, 313 insertions(+), 6 deletions(-)
+ create mode 100644 tests/unit/pecasProgramasRascunho.test.mjs
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index b0906c7..3295a1a 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,5 +1,37 @@
+ # Changelog
+ 
++## [2.6.1] — Peças e Programas não perde mais alterações (inclusive exclusões) ao recarregar a página
++
++### Corrigido
++- **Exclusões e edições revertidas quando a página recarrega antes do envio.**
++  Em `pecas-programas.js`, tudo que ainda não tinha sido gravado no banco
++  (`pecas`, `programas`, `deletedPecas`, `deletedProgramas`) só existia em
++  memória, e `scheduleSync()` só envia 700ms depois da última mudança. Se a
++  página recarregasse nesse meio-tempo — o caso relatado foi **outra pessoa
++  fazendo login no mesmo navegador**, o que troca a sessão do Supabase Auth
++  e dispara `SIGNED_OUT`, que já tinha um `location.reload()` automático e
++  incondicional — tudo que ainda não tinha sido confirmado no banco era
++  descartado em silêncio. Como o `DELETE` nunca chegava a sair, a peça
++  excluída simplesmente "voltava" depois do reload.
++  - `scheduleSync()` agora grava um rascunho (`persistirRascunho()`) em
++    `localStorage` de forma **síncrona**, antes do debounce — sobrevive a
++    um reload porque não depende de nada em memória.
++  - `startApp()` verifica essa marca ao carregar
++    (`restaurarRascunhoPendenteSeExistir()`): se houver um rascunho não
++    confirmado, ele **prevalece** sobre o que acabou de vir da nuvem, e o
++    reenvio é agendado na hora — em vez de a peça excluída reaparecer, a
++    exclusão pendente é recuperada e reenviada. Qualquer edição concorrente
++    de outra pessoa nesse meio-tempo continua protegida pelo controle de
++    conflito por `row_version` que `pushToCloud()` já tinha.
++  - O handler de `SIGNED_OUT` agora tenta `flushPendingSync()` (cancela o
++    debounce e envia na hora) antes do `location.reload()` — melhor esforço,
++    já que a sessão pode não ser mais válida nesse ponto; a proteção real é
++    o rascunho em `localStorage`, não essa tentativa. Um listener de
++    `pagehide` cobre fechar a aba/navegar para fora com algo ainda agendado.
++  - `limparRascunho()` some assim que `pushToCloud()` confirma a gravação.
++  - Testado em `tests/unit/pecasProgramasRascunho.test.mjs`, incluindo o
++    cenário exato do bug (exclusão pendente recuperada em vez de "voltar").
++
+ ## [2.6.0] — Validade em ISO ponta a ponta, VH "Daqui a Pouco" correta, Roteiro não perde mais trabalho ao trocar de tela, e log/desfazer/ordenação no Roteiro
+ 
+ > **Nota de versionamento:** `package.json`, `version.js` e `version.txt` estavam
+diff --git a/package.json b/package.json
+index c26a83b..24f8780 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "roteiro-canal-educacao",
+-  "version": "2.6.0",
++  "version": "2.6.1",
+   "type": "module",
+   "scripts": {
+     "test": "vitest run",
+diff --git a/pecas-programas.js b/pecas-programas.js
+index 4234854..7de636a 100644
+--- a/pecas-programas.js
++++ b/pecas-programas.js
+@@ -38,6 +38,74 @@ let pushTimer = null;
+ let lastPushAt = 0;
+ let pushInFlight = false; // true durante o await do pushToCloud (grava + recarrega)
+ 
++// =====================================================
++// RASCUNHO PENDENTE — persistência local de segurança
++//
++// Bug corrigido aqui: `pecas`/`programas`/`deletedPecas`/`deletedProgramas`
++// só existiam em memória, e `scheduleSync()` só envia 700ms depois da
++// última mudança. Qualquer recarregamento de página nesse meio-tempo —
++// principalmente o `location.reload()` automático em SIGNED_OUT, que
++// dispara sempre que a sessão do Supabase Auth deste navegador muda (por
++// exemplo, outra pessoa fazendo login no MESMO navegador/computador) —
++// descartava silenciosamente tudo que ainda não tinha sido confirmado no
++// banco, inclusive exclusões: a peça "voltava", porque o DELETE nunca
++// chegou a sair, e o reload só truxe de volta o que já estava no banco.
++//
++// Aqui a marca de pendência é gravada de forma SÍNCRONA a cada mudança —
++// antes do debounce — e sobrevive a um reload porque fica em localStorage,
++// não em memória. `startApp()` verifica essa marca ao carregar e, se
++// existir, restaura o rascunho por cima do que acabou de vir da nuvem e
++// tenta reenviar na hora, em vez de descartar.
++// =====================================================
++const RASCUNHO_KEY  = 'cadastroRascunho';
++const PENDENTE_KEY  = 'cadastroSyncPendente';
++
++function persistirRascunho() {
++  try {
++    localStorage.setItem(RASCUNHO_KEY, JSON.stringify({
++      pecas, programas, deletedPecas, deletedProgramas,
++      email: currentUser && currentUser.email,
++      salvoEm: new Date().toISOString(),
++    }));
++    localStorage.setItem(PENDENTE_KEY, '1');
++  } catch (e) {
++    console.warn('[Peças e Programas] não foi possível salvar rascunho local', e);
++  }
++}
++
++function limparRascunho() {
++  try {
++    localStorage.removeItem(RASCUNHO_KEY);
++    localStorage.setItem(PENDENTE_KEY, '0');
++  } catch (e) { /* localStorage indisponível — nada a fazer */ }
++}
++
++function haRascunhoPendente() {
++  try { return localStorage.getItem(PENDENTE_KEY) === '1'; }
++  catch (e) { return false; }
++}
++
++function lerRascunho() {
++  try {
++    const raw = JSON.parse(localStorage.getItem(RASCUNHO_KEY) || 'null');
++    if (!raw || typeof raw !== 'object') return null;
++    return {
++      pecas: Array.isArray(raw.pecas) ? raw.pecas : [],
++      programas: Array.isArray(raw.programas) ? raw.programas : [],
++      deletedPecas: Array.isArray(raw.deletedPecas) ? raw.deletedPecas : [],
++      deletedProgramas: Array.isArray(raw.deletedProgramas) ? raw.deletedProgramas : [],
++      email: raw.email || null,
++    };
++  } catch (e) { return null; }
++}
++
++/** Cancela o debounce e envia agora — usado antes do reload automático em SIGNED_OUT, como melhor esforço (a sessão pode já não ser mais válida nesse ponto; a rede de segurança de verdade é o rascunho em localStorage). */
++function flushPendingSync() {
++  if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
++  if (!currentUser) return Promise.resolve();
++  return pushToCloud();
++}
++
+ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+ 
+ function items(){ return activeTab === 'pecas' ? pecas : programas; }
+@@ -81,9 +149,21 @@ function showGateLogin(errorMsg){
+   // Guarda para onde voltar depois do login (esta própria página).
+   CanalAuth.rememberReturnTo('pecas-programas.html');
+ 
+-  // Sessão expirada/logout em outra aba -> recarrega e cai no gate.
+-  CanalAuth.onAuthChange((event) => {
+-    if (event === 'SIGNED_OUT') location.reload();
++  // Sessão expirada/logout em outra aba -> recarrega e cai no gate. Se
++  // houver algo pendente de envio (ex.: outra pessoa logando neste mesmo
++  // navegador no meio de uma edição), tenta enviar agora — melhor esforço,
++  // já que a sessão pode não ser mais válida neste ponto; a rede de
++  // segurança de verdade é o rascunho em localStorage (ver startApp).
++  CanalAuth.onAuthChange(async (event) => {
++    if (event !== 'SIGNED_OUT') return;
++    try { await flushPendingSync(); } catch (e) { /* ver comentário acima */ }
++    location.reload();
++  });
++
++  // Rede de segurança para fechar a aba/navegar para fora com algo
++  // agendado ainda não enviado.
++  window.addEventListener('pagehide', () => {
++    if (pushTimer) flushPendingSync();
+   });
+ 
+   const user = await CanalAuth.requireUser();
+@@ -152,6 +232,7 @@ async function startApp(user) {
+     }
+     console.info('[Peças e Programas] modo de banco:', modo);
+     await loadFromCloud();
++    restaurarRascunhoPendenteSeExistir();
+     setupRealtime();
+   } catch (e) {
+     // Nunca deixar a tela travada no gate por causa de uma falha de rede/banco.
+@@ -178,6 +259,39 @@ async function loadFromCloud() {
+   }
+ }
+ 
++/**
++ * Se a marca de "sincronização pendente" ainda estiver presente ao abrir a
++ * tela, é sinal de que uma sessão anterior (deste ou de outro usuário, no
++ * mesmo navegador) fez alterações — inclusive exclusões — que nunca
++ * chegaram a ser confirmadas no banco antes da página recarregar. Em vez de
++ * descartar (o bug relatado: "as alterações que fiz, inclusive exclusão de
++ * peças, voltaram"), o rascunho local vence o que acabou de vir da nuvem, e
++ * o envio é refeito na hora — o mecanismo normal de conflito por
++ * row_version em pushToCloud() cobre qualquer edição de terceiros que
++ * porventura tenha acontecido nesse meio-tempo.
++ */
++function restaurarRascunhoPendenteSeExistir() {
++  if (!haRascunhoPendente()) return;
++  const rascunho = lerRascunho();
++  if (!rascunho) { limparRascunho(); return; }
++
++  pecas             = rascunho.pecas;
++  programas         = rascunho.programas;
++  deletedPecas      = rascunho.deletedPecas;
++  deletedProgramas  = rascunho.deletedProgramas;
++
++  const deEmail = rascunho.email && rascunho.email !== currentUser.email ? ` (feitas por ${rascunho.email})` : '';
++  showToast(`Alterações não sincronizadas de uma sessão anterior${deEmail} foram recuperadas e estão sendo enviadas agora.`, false);
++  if (window.CanalLog) {
++    CanalLog.registrar('cadastro_rascunho_recuperado', {
++      email_original: rascunho.email,
++      exclusoesPecas: deletedPecas.length,
++      exclusoesProgramas: deletedProgramas.length,
++    }, { nivel: 'warn' });
++  }
++  scheduleSync();
++}
++
+ // Codes excluídos explicitamente nesta tela (a única coisa que autoriza um
+ // DELETE no banco compartilhado). Sem isso, um snapshot velho apagaria o que
+ // outro usuário acabou de cadastrar.
+@@ -211,6 +325,9 @@ async function pushToCloud() {
+     });
+     deletedPecas = deletedPecas.filter((c) => !delP.includes(c));
+     deletedProgramas = deletedProgramas.filter((c) => !delG.includes(c));
++    // O delta foi gravado no banco com sucesso (mesmo que parte tenha vindo
++    // como conflito, abaixo) — não há mais nada pendente para proteger.
++    limparRascunho();
+     if (window.CanalLog) {
+       CanalLog.registrar('cadastro_salvo', {
+         aplicados: res && res.aplicados,
+@@ -243,6 +360,10 @@ async function pushToCloud() {
+ }
+ 
+ function scheduleSync() {
++  // Grava o rascunho ANTES do debounce — se a página recarregar nos
++  // próximos 700ms (ou a qualquer momento antes do envio confirmar), essa
++  // cópia em localStorage é o que garante que a mudança não se perde.
++  persistirRascunho();
+   clearTimeout(pushTimer);
+   pushTimer = setTimeout(() => {
+     pushTimer = null;
+diff --git a/tests/unit/pecasProgramasRascunho.test.mjs b/tests/unit/pecasProgramasRascunho.test.mjs
+new file mode 100644
+index 0000000..437f4e4
+--- /dev/null
++++ b/tests/unit/pecasProgramasRascunho.test.mjs
+@@ -0,0 +1,154 @@
++// Bug relatado: em Peças e Programas, editar/excluir e, antes do envio (nas
++// primeiras 700ms), a página recarregar por qualquer motivo — o caso citado
++// foi outra pessoa logando no MESMO navegador, o que dispara SIGNED_OUT e um
++// location.reload() automático — descartava silenciosamente tudo que ainda
++// não tinha sido confirmado no banco. Como a exclusão nunca chegou a sair,
++// o reload trazia de volta exatamente a peça "excluída".
++//
++// pecas-programas.js é um script clássico (sem `import`/`export`); extraímos
++// as funções relevantes com o mesmo padrão usado nos outros arquivos desta
++// suíte (new Function + mocks mínimos). O IIFE `boot()` do topo do arquivo é
++// assíncrono e, sem CanalAuth definido, ele mesmo cai no catch e retorna sem
++// nenhum efeito colateral — não precisa ser removido do texto do script.
++import { describe, it, expect, beforeEach } from 'vitest';
++import { readFileSync } from 'node:fs';
++
++const src = readFileSync(new URL('../../pecas-programas.js', import.meta.url), 'utf8');
++
++function makeFakeElement() {
++  return {
++    style: {},
++    classList: { add() {}, remove() {}, toggle() {} },
++    addEventListener() {},
++    textContent: '',
++    value: '',
++  };
++}
++
++function makeLocalStorage() {
++  const store = new Map();
++  return {
++    getItem: (k) => (store.has(k) ? store.get(k) : null),
++    setItem: (k, v) => store.set(k, String(v)),
++    removeItem: (k) => store.delete(k),
++    _store: store,
++  };
++}
++
++function loadApp({ localStorage, saveDeltaImpl } = {}) {
++  const ls = localStorage || makeLocalStorage();
++  const savedCalls = [];
++  const PecasRepo = {
++    async saveDelta(payload) {
++      savedCalls.push(payload);
++      if (saveDeltaImpl) return saveDeltaImpl(payload);
++      return { aplicados: 1, removidos: (payload.deletedPecas || []).length + (payload.deletedProgramas || []).length, conflitos: [] };
++    },
++    async loadAll() {
++      // Estado "atual" do banco: sem os itens que a sessão anterior tinha
++      // tentado excluir (porque o DELETE nunca chegou a sair).
++      return { pecas: [{ id: 'x1', code: 'PEC_QUE_DEVERIA_TER_SIDO_EXCLUIDA', descricao: 'Ainda no banco', tempo: '00:00:30' }], programas: [] };
++    },
++  };
++  const g = { addEventListener() {}, removeEventListener() {} };
++  g.window = g;
++  const document = { getElementById: () => makeFakeElement(), querySelectorAll: () => [] };
++  const factory = new Function(
++    'window', 'globalThis', 'document', 'localStorage', 'console', 'setTimeout', 'clearTimeout', 'PecasRepo',
++    `${src}\nreturn {
++      persistirRascunho, limparRascunho, haRascunhoPendente, lerRascunho,
++      restaurarRascunhoPendenteSeExistir, flushPendingSync, scheduleSync, loadFromCloud,
++      __test_setCurrentUser: (u) => { currentUser = u; },
++      __test_getPecas: () => pecas,
++      __test_setPecas: (v) => { pecas = v; },
++      __test_getDeletedPecas: () => deletedPecas,
++      __test_setDeletedPecas: (v) => { deletedPecas = v; },
++      __test_getPushTimer: () => pushTimer,
++      __test_getSavedCalls: () => savedCalls,
++    };`
++  );
++  const app = factory.call(g, g.window, g, document, ls, console, setTimeout, clearTimeout, PecasRepo);
++  app.__test_setCurrentUser({ id: 'user-1', email: 'user@teste.com' });
++  return { app, localStorage: ls, savedCalls };
++}
++
++describe('rascunho pendente — persistência local de segurança em Peças e Programas', () => {
++  it('scheduleSync() grava o rascunho de forma síncrona, antes do debounce de 700ms', () => {
++    const { app } = loadApp();
++    app.__test_setPecas([{ code: 'A', descricao: 'Peça A' }]);
++    app.__test_setDeletedPecas(['B']); // peça B acabou de ser excluída
++    expect(app.haRascunhoPendente()).toBe(false);
++
++    app.scheduleSync();
++
++    expect(app.haRascunhoPendente()).toBe(true); // já marcado, sem esperar o timer
++    const rascunho = app.lerRascunho();
++    expect(rascunho.deletedPecas).toEqual(['B']);
++    expect(rascunho.pecas).toEqual([{ code: 'A', descricao: 'Peça A' }]);
++    clearTimeout(app.__test_getPushTimer());
++  });
++
++  it('pushToCloud() bem-sucedido limpa a marca de pendência', async () => {
++    const { app } = loadApp();
++    app.__test_setPecas([{ code: 'A' }]);
++    app.__test_setDeletedPecas(['B']);
++    app.scheduleSync();
++    clearTimeout(app.__test_getPushTimer()); // não precisamos esperar os 700ms neste teste
++
++    await app.flushPendingSync();
++
++    expect(app.haRascunhoPendente()).toBe(false);
++    expect(app.lerRascunho()).toBeNull();
++  });
++
++  it('bug original: uma exclusão pendente não confirmada é recuperada em vez de "voltar"', async () => {
++    const local = makeLocalStorage();
++    // Simula o estado deixado pela sessão anterior: exclusão feita, mas o
++    // reload (SIGNED_OUT de outra pessoa logando) aconteceu antes do envio.
++    local.setItem('cadastroRascunho', JSON.stringify({
++      pecas: [], // a sessão anterior já tinha removido a peça da lista local
++      programas: [],
++      deletedPecas: ['PEC_QUE_DEVERIA_TER_SIDO_EXCLUIDA'],
++      deletedProgramas: [],
++      email: 'sessao-anterior@teste.com',
++    }));
++    local.setItem('cadastroSyncPendente', '1');
++
++    const { app, savedCalls } = loadApp({ localStorage: local });
++
++    // startApp() faria loadFromCloud() e depois isso:
++    await app.loadFromCloud();
++    expect(app.__test_getPecas().some((p) => p.code === 'PEC_QUE_DEVERIA_TER_SIDO_EXCLUIDA')).toBe(true); // "voltou" da nuvem
++
++    app.restaurarRascunhoPendenteSeExistir();
++    clearTimeout(app.__test_getPushTimer());
++
++    // O rascunho (sem a peça) prevalece sobre o que a nuvem tinha mandado.
++    expect(app.__test_getPecas().some((p) => p.code === 'PEC_QUE_DEVERIA_TER_SIDO_EXCLUIDA')).toBe(false);
++    expect(app.__test_getDeletedPecas()).toEqual(['PEC_QUE_DEVERIA_TER_SIDO_EXCLUIDA']);
++
++    // E o reenvio foi agendado (rascunho gravado de novo, pronto pro pushToCloud do timer).
++    expect(app.haRascunhoPendente()).toBe(true);
++  });
++
++  it('sem rascunho pendente, loadFromCloud() não é alterado por restaurarRascunhoPendenteSeExistir()', async () => {
++    const { app } = loadApp();
++    await app.loadFromCloud();
++    const antes = app.__test_getPecas();
++    app.restaurarRascunhoPendenteSeExistir();
++    expect(app.__test_getPecas()).toBe(antes); // nenhuma mutação — nada pendente para restaurar
++  });
++
++  it('flushPendingSync() cancela o timer e envia imediatamente', async () => {
++    const { app, savedCalls } = loadApp();
++    app.__test_setDeletedPecas(['X']);
++    app.scheduleSync();
++    expect(app.__test_getPushTimer()).not.toBeNull();
++
++    await app.flushPendingSync();
++
++    expect(savedCalls).toHaveLength(1);
++    expect(savedCalls[0].deletedPecas).toEqual(['X']);
++    expect(app.haRascunhoPendente()).toBe(false);
++  });
++});
+diff --git a/version.js b/version.js
+index 3eb9c77..1765b2f 100644
+--- a/version.js
++++ b/version.js
+@@ -1,3 +1,3 @@
+ // Gerado automaticamente por "npm run release" — não editar à mão.
+-window.APP_VERSION = "2.6.0";
++window.APP_VERSION = "2.6.1";
+ window.APP_RELEASED_AT = "2026-08-28T00:00:00.000Z";
+diff --git a/version.txt b/version.txt
+index e70b452..6a6a3d8 100644
+--- a/version.txt
++++ b/version.txt
+@@ -1 +1 @@
+-2.6.0
++2.6.1
+-- 
+2.43.0
+
