@@ -64,6 +64,51 @@ describe('assinatura-programa (UMD, navegador)', () => {
   });
 });
 
+describe('[Fase 2] assinatura específica por programa (peça EVNH cadastrada com funcao=assinatura_<faixa>)', () => {
+  const PECAS = [
+    { code: 'VHESP1', descricao: 'ASSINATURA_INFANTIL PALALOOS ESPECIAL', tempo: '00:00:07', type: 'EVNH', funcao: 'assinatura_infantil', programaRelacionado: 'PALALOOS', ativo: true },
+  ];
+
+  it('peça cadastrada com funcao/programaRelacionado vence o código genérico da faixa (PADRAO/Admin)', () => {
+    const vh = AP.montarVhAssinatura({ code: '70001', descricao: 'PALALOOS' }, REGRAS, CADASTRO, PECAS);
+    expect(vh.code).toBe('VHESP1');
+    expect(vh.descricao).toBe('ASSINATURA_INFANTIL PALALOOS ESPECIAL');
+    expect(vh._assinaturaOrigem).toBe('cadastro-especifico');
+  });
+
+  it('sem o 4º argumento (pecas), comportamento idêntico a antes da Fase 2 — chamador antigo não quebra', () => {
+    const vh = AP.montarVhAssinatura({ code: '70001', descricao: 'PALALOOS' }, REGRAS, CADASTRO);
+    expect(vh.code).toBe('85331'); // code genérico da faixa infantil (REGRAS), não a peça específica
+  });
+
+  it('peça cadastrada para OUTRO programa não interfere', () => {
+    const pecasOutroPrograma = [{ ...PECAS[0], programaRelacionado: 'OUTRO PROGRAMA' }];
+    const vh = AP.montarVhAssinatura({ code: '70001', descricao: 'PALALOOS' }, REGRAS, CADASTRO, pecasOutroPrograma);
+    expect(vh.code).toBe('85331'); // cai no genérico, já que a peça cadastrada não é para PALALOOS
+  });
+
+  it('peça cadastrada com funcao de outra faixa não interfere (funcao=assinatura_adulto não serve para faixa infantil)', () => {
+    const pecasFaixaErrada = [{ ...PECAS[0], funcao: 'assinatura_adulto' }];
+    const vh = AP.montarVhAssinatura({ code: '70001', descricao: 'PALALOOS' }, REGRAS, CADASTRO, pecasFaixaErrada);
+    expect(vh.code).toBe('85331');
+  });
+
+  it('peça inativa (ativo:false) não é escolhida — cai no genérico', () => {
+    const pecasInativa = [{ ...PECAS[0], ativo: false }];
+    const vh = AP.montarVhAssinatura({ code: '70001', descricao: 'PALALOOS' }, REGRAS, CADASTRO, pecasInativa);
+    expect(vh.code).toBe('85331');
+  });
+
+  it('assinaturaEspecificaDoCadastro desempata por `ordem`', () => {
+    const duasOpcoes = [
+      { code: 'SEGUNDA', type: 'EVNH', funcao: 'assinatura_infantil', programaRelacionado: 'PALALOOS', ordem: 5 },
+      { code: 'PRIMEIRA', type: 'EVNH', funcao: 'assinatura_infantil', programaRelacionado: 'PALALOOS', ordem: 1 },
+    ];
+    const r = AP.assinaturaEspecificaDoCadastro('PALALOOS', 'infantil', duasOpcoes);
+    expect(r.code).toBe('PRIMEIRA');
+  });
+});
+
 describe('roteiroBuilder.pickAssinatura (módulo puro)', () => {
   it('usa a tag do cadastro no lugar da regra do Admin', () => {
     const vh = pickAssinatura({ code: '70001', descricao: 'PGM PALALOOS - BL 03' }, REGRAS, CADASTRO);

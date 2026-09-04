@@ -1,5 +1,15 @@
 # Prompt de implementação — Fase 2: Motor de distribuição (Cadastro)
 
+> ✅ **CONCLUÍDA** (`2.9.0`). Este arquivo fica como registro do que foi
+> pedido e do que foi de fato entregue — não precisa ser reaplicado. A
+> única correção em relação ao que foi pedido abaixo: a função de
+> assinatura não se chama `getVhAssinaturaFor` (não existe) — é
+> `assinatura-programa.js#montarVhAssinatura`, atualizada da mesma forma.
+> Achado adicional durante a implementação: existe uma terceira cópia
+> dessas 4 funções em `src/core/roteiroBuilder.js`, testada mas **não usada
+> pelo app** — não foi tocada (fora do escopo desta fase; ver
+> `CHANGELOG.md [2.9.0]`).
+
 > **Pré-requisito:** Fase 1 já concluída e em produção (ver
 > `PROMPT-FASE-1-SCHEMA-FORMULARIO.md`) — `pecas.funcao`/
 > `pecas.programa_relacionado`/`programas.programa_titulo` etc. já existem

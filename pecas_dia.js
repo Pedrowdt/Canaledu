@@ -141,14 +141,26 @@ function vhSignificantWords(normalized) {
 
 /**
  * Escolhe, dentre as VHs "DAQUI A POUCO" candidatas, a que melhor casa com o
- * próximo programa. Exige cobertura mínima das palavras significativas do
- * título (>= minCoverage) e desempata pela maior cobertura; sem candidata
- * boa o bastante, ou empate real, não escolhe nenhuma.
+ * próximo programa. Primeiro tenta resolver direto por
+ * `funcao`/`programaRelacionado` (Fase 2 do MVP de cadastro, ver
+ * PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md); sem isso preenchido, cai na
+ * cobertura mínima das palavras significativas do título (>= minCoverage)
+ * e desempata pela maior cobertura; sem candidata boa o bastante, ou
+ * empate real, não escolhe nenhuma. Réplica não-modular de
+ * src/core/pecasCatalog.js#matchVhDaquiForNext (mesma regra, coberta pelos
+ * testes de lá — atualize os dois lugares juntos).
  */
 function matchVhDaquiForNext(nextProgramTitle, vhCandidates, minCoverage = 0.7) {
   if (!nextProgramTitle || !vhCandidates || !vhCandidates.length) return null;
 
   const normTitle = normalizeForVhMatch(nextProgramTitle);
+
+  const doCadastro = vhCandidates.find((vh) =>
+    vh.funcao === 'vh_daqui_a_pouco' && vh.ativo !== false &&
+    vh.programaRelacionado && normalizeForVhMatch(vh.programaRelacionado) === normTitle
+  );
+  if (doCadastro) return doCadastro;
+
   const keywords = vhSignificantWords(normTitle);
   if (!keywords.length) return null;
 

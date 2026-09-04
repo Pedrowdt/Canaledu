@@ -1,5 +1,49 @@
 # Changelog
 
+## [2.9.0] — MVP do cadastro, Fase 2: motor de distribuição usa os campos estruturados
+
+Implementa `PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md`. Aditivo — nenhuma peça
+sem `funcao`/`programa_relacionado` cadastrados muda de comportamento; o
+mecanismo hardcoded (`VH_SEGUIR_MAP`/`VH_ASSISTINDO_MAP`, casamento por
+palavra-chave) continua como fallback, não foi removido (isso é a Fase 4).
+
+### Adicionado
+- **`findVhSeguir`/`findVhAssistindo`** (`app.js`): antes de consultar
+  `VH_SEGUIR_MAP`/`VH_ASSISTINDO_MAP`, procuram em `state.pecas` uma peça
+  `type=EVNH` com `funcao='vh_a_seguir'`/`'vh_voce_esta_assistindo'` e
+  `programa_relacionado` batendo com o programa atual/próximo. Nova função
+  auxiliar `findVhPorFuncaoNoCadastro()`, reaproveitada pelas duas.
+  Desempate por `ordem` quando há mais de uma peça cadastrada igual;
+  `CanalLog.registrar('vh_resolvida_por_cadastro', ...)` quando o caminho
+  novo resolve, para medir quanto do catálogo já migrou.
+- **`matchVhDaquiForNext`** (`src/core/pecasCatalog.js`, replicado em
+  `pecas_dia.js`): mesmo princípio — resolve direto por
+  `funcao='vh_daqui_a_pouco'`/`programaRelacionado` antes de rodar o
+  casamento por cobertura de palavras.
+- **Assinatura** (`assinatura-programa.js#montarVhAssinatura`): nova
+  função `assinaturaEspecificaDoCadastro()` — uma peça EVNH cadastrada com
+  `funcao=assinatura_<faixa>` e `programa_relacionado` apontando para um
+  programa específico agora pode sobrescrever o código genérico da faixa
+  (`PADRAO`/config do Admin). Ganhou um 4º parâmetro opcional (`pecas`);
+  chamadas antigas sem esse argumento continuam idênticas a antes desta
+  release. `app.js#getAssinatura` passou a enviar `state.pecas`.
+
+### Observado (sem alteração nesta fase)
+- `src/core/roteiroBuilder.js` tem uma terceira implementação de
+  `findVhSeguir`/`findVhAssistindo`/`pickAssinatura`, testada mas **não
+  usada pelo app** (nenhuma referência em `app.js`/`index.html`) — mesmo
+  padrão de infraestrutura pronta e desconectada já visto em
+  `fn_pecas_elegiveis`/`selectPecasDoDia`. Fora do escopo desta fase;
+  decisão futura (virar a implementação real via bundler, ou remover na
+  Fase 4).
+
+Testado em `tests/unit/appRoteiroFeatures.test.mjs` (8 casos novos),
+`src/core/pecasCatalog.test.js` (3 casos), `tests/unit/pecasDia.test.mjs`
+(1 caso) e `tests/unit/assinaturaPrograma.test.mjs` (6 casos) — sempre
+cobrindo o caminho novo (resolve pelo cadastro) e o de sempre (cai no
+fallback sem os campos novos, idêntico a antes). 150 testes passando.
+`node db/testar-schema.mjs` continua validando limpo.
+
 ## [2.8.1] — Reverte fix de concorrência malfeito em saveState(); remove patches versionados por engano
 
 ### Corrigido

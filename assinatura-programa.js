@@ -21,6 +21,12 @@
 // Nova ordem de decisão:
 //
 //     0) TAG do cadastro do programa            <- NOVO (decisório)
+//     0.5) peça EVNH cadastrada com funcao=assinatura_<faixa> e
+//          programaRelacionado apontando para este programa específico
+//                                                <- Fase 2 do MVP de cadastro,
+//                                                   ver PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md
+//                                                   (opcional — só entra em
+//                                                   jogo se cadastrado assim)
 //     1) mapa `classificacaoPrograma` (Admin)   <- fallback
 //     2) palavras-chave (Admin)                 <- fallback
 //     3) padrão "jovem"                         <- fallback
@@ -182,14 +188,65 @@
   };
 
   /**
+   * Fase 2 do MVP de cadastro (ver PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md):
+   * uma peça EVNH cadastrada com `funcao='assinatura_<faixa>'` E
+   * `programaRelacionado` apontando para ESTE programa específico vence
+   * sobre o código genérico da faixa (PADRAO/config do Admin) — permite
+   * uma assinatura diferente só para um programa, sem mexer em código.
+   * Sem peça cadastrada assim (ou sem o parâmetro `pecas` — chamadores
+   * antigos não quebram), devolve `null` e quem chama usa o caminho de
+   * sempre (genérico por faixa).
+   *
+   * @param {Object|string} item bloco do roteiro
+   * @param {string} faixa 'infantil'|'jovem'|'adulto', já resolvida
+   * @param {Array} pecas cadastro de peças (state.pecas)
+   * @returns {{code:string, descricao:string, tempo:string}|null}
+   */
+  function assinaturaEspecificaDoCadastro(item, faixa, pecas) {
+    if (!pecas || !pecas.length) return null;
+    const obj = typeof item === 'string' ? { descricao: item } : item || {};
+    const baseTitle = progKey(obj.descricao);
+    if (!baseTitle) return null;
+
+    const funcaoAlvo = 'assinatura_' + faixa;
+    const candidatas = pecas.filter((p) =>
+      p && p.type === 'EVNH' && p.funcao === funcaoAlvo && p.ativo !== false &&
+      p.programaRelacionado && progKey(p.programaRelacionado) === baseTitle
+    );
+    if (!candidatas.length) return null;
+
+    candidatas.sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0));
+    const p = candidatas[0];
+    return { code: p.code, descricao: p.descricao, tempo: p.tempo || '00:00:05' };
+  }
+
+  /**
    * Monta o item de VH de assinatura pronto para entrar no roteiro.
    * Respeita `ativo:false` da faixa (nesse caso nada é inserido).
    *
+   * @param {Array} [pecas] cadastro de peças (state.pecas) — opcional, só
+   *   habilita a Fase 2 (assinatura específica por programa) quando
+   *   informado; chamadores antigos (sem este 4º argumento) continuam
+   *   com o comportamento de sempre.
    * @returns {Object|null} item do roteiro ou null
    */
-  function montarVhAssinatura(item, regras, programas) {
+  function montarVhAssinatura(item, regras, programas, pecas) {
     const r = regras || {};
     const { faixa, origem } = resolverFaixa(item, regras, programas);
+
+    const doCadastro = assinaturaEspecificaDoCadastro(item, faixa, pecas);
+    if (doCadastro) {
+      return {
+        code: doCadastro.code,
+        descricao: doCadastro.descricao,
+        tempo: doCadastro.tempo,
+        midia: '0OMN',
+        type: 'EVNH',
+        _assinaturaFaixa: faixa,
+        _assinaturaOrigem: 'cadastro-especifico',
+      };
+    }
+
     const meta = PADRAO[faixa] || PADRAO.jovem;
     const cfg = r[meta.chave] || {};
     if (cfg.ativo === false) return null;
@@ -214,6 +271,7 @@
     buildIndex,
     faixaDoCadastro,
     resolverFaixa,
+    assinaturaEspecificaDoCadastro,
     montarVhAssinatura,
   };
 

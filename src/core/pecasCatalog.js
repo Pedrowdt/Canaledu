@@ -145,13 +145,15 @@ function significantWords(normalized) {
 /**
  * Escolhe, dentre as VHs "DAQUI A POUCO" cadastradas, a que melhor casa com o
  * título do próximo programa — nunca a primeira que compartilhar uma palavra
- * qualquer. Exige cobertura mínima das palavras significativas do programa
- * (todas, ou ao menos `minCoverage`, o que for menor) e desempata pela maior
- * cobertura; sem VH suficientemente boa, ou em empate real, não insere nada
- * (comportamento conservador — melhor pular do que inserir a VH errada).
+ * qualquer. Primeiro tenta resolver direto por `funcao`/`programaRelacionado`
+ * (Fase 2 do MVP de cadastro); sem isso preenchido, cai no casamento por
+ * cobertura de palavras significativas do programa (todas, ou ao menos
+ * `minCoverage`, o que for menor) e desempata pela maior cobertura; sem VH
+ * suficientemente boa, ou em empate real, não insere nada (comportamento
+ * conservador — melhor pular do que inserir a VH errada).
  *
  * @param {string} nextProgramTitle título do próximo programa (idealmente já passado por baseProgramTitle)
- * @param {Array<{descricao:string}>} vhCandidates peças EVNH cujo texto contém "DAQUI A POUCO"
+ * @param {Array<{descricao:string, funcao?:string, programaRelacionado?:string, ativo?:boolean}>} vhCandidates peças EVNH cujo texto contém "DAQUI A POUCO"
  * @param {number} minCoverage fração mínima de cobertura exigida (default 0.7)
  * @returns {object|null} a melhor VH candidata, ou null
  */
@@ -159,6 +161,18 @@ export function matchVhDaquiForNext(nextProgramTitle, vhCandidates, minCoverage 
   if (!nextProgramTitle || !vhCandidates || !vhCandidates.length) return null;
 
   const normTitle = normalizeForMatch(nextProgramTitle);
+
+  // Passo 0 (Fase 2 do MVP de cadastro, ver PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md):
+  // peça cadastrada com funcao='vh_daqui_a_pouco' e programaRelacionado
+  // batendo exatamente com o próximo programa tem prioridade sobre o
+  // casamento por cobertura de palavras abaixo — que continua sendo o
+  // fallback para peças sem os campos novos preenchidos.
+  const doCadastro = vhCandidates.find((vh) =>
+    vh.funcao === 'vh_daqui_a_pouco' && vh.ativo !== false &&
+    vh.programaRelacionado && normalizeForMatch(vh.programaRelacionado) === normTitle
+  );
+  if (doCadastro) return doCadastro;
+
   const keywords = significantWords(normTitle);
   if (!keywords.length) return null;
 

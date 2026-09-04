@@ -18,8 +18,8 @@ com backend Supabase (Postgres + Auth + Realtime).
 | [MVP-CADASTRO.md](MVP-CADASTRO.md) | Proposta de consolidação do modelo de dados do cadastro e das regras de distribuição automática — aguardando aprovação |
 | [PROMPT-IMPLEMENTACAO-CADASTRO.md](PROMPT-IMPLEMENTACAO-CADASTRO.md) | Índice dos prompts de implementação do MVP acima, um por fase |
 | [PROMPT-FASE-1-SCHEMA-FORMULARIO.md](PROMPT-FASE-1-SCHEMA-FORMULARIO.md) | Fase 1 — ✅ concluída (`2.8.0`) |
-| [PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md](PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md) | Fase 2 — aguardando aprovação |
-| [PROMPT-FASE-3-IMPORT-ESTRUTURADO.md](PROMPT-FASE-3-IMPORT-ESTRUTURADO.md) | Fase 3 — aguardando Fase 2 |
+| [PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md](PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md) | ✅ Concluída (`2.9.0`) |
+| [PROMPT-FASE-3-IMPORT-ESTRUTURADO.md](PROMPT-FASE-3-IMPORT-ESTRUTURADO.md) | Fase 3 — aguardando aprovação |
 | [PROMPT-FASE-4-LIMPEZA.md](PROMPT-FASE-4-LIMPEZA.md) | Fase 4 — aguardando Fase 3 em produção por um tempo |
 | [COMMITS.md](COMMITS.md) | Convenção de mensagens de commit usada no projeto |
 

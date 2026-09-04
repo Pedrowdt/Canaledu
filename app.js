@@ -1687,7 +1687,8 @@ function getAssinatura(item) {
     const vh = AssinaturaPrograma.montarVhAssinatura(
       bloco,
       REGRAS,
-      (typeof state !== 'undefined' && state && state.programas) || []
+      (typeof state !== 'undefined' && state && state.programas) || [],
+      (typeof state !== 'undefined' && state && state.pecas) || []
     );
     // montarVhAssinatura já aplica TODA a cadeia (cadastro -> admin ->
     // keywords -> padrão), portanto o bloco legado abaixo só roda se o
@@ -1798,12 +1799,49 @@ const VH_ASSISTINDO_MAP = [
 ];
 
 // Find VH A SEGUIR or VH VC ESTA ASSISTINDO for a given program description
+/**
+ * Fase 2 do MVP de cadastro (ver PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md):
+ * procura em `state.pecas` uma peça `type=EVNH` com a `funcao` pedida cujo
+ * `programaRelacionado` (normalizado) bata com o título-base do programa
+ * atual/próximo. Quem chama usa isso como primeira tentativa, caindo no
+ * mapa hardcoded (`VH_SEGUIR_MAP`/`VH_ASSISTINDO_MAP`) só se não achar
+ * nada aqui — nenhuma peça cadastrada sem os campos novos muda de
+ * comportamento.
+ *
+ * Desempate se houver mais de uma peça cadastrada com a mesma `funcao` +
+ * `programaRelacionado`: a de menor `ordem` vence; empatando também,
+ * a primeira encontrada (ordem de cadastro) vence — sempre uma única
+ * resposta determinística, nunca aleatória.
+ *
+ * @param {string} funcao ex.: 'vh_a_seguir', 'vh_voce_esta_assistindo'
+ * @param {string} baseTitleNormalizado título do programa já passado por `_normalizeProgKey(baseProgramTitle(desc))`
+ * @returns {Object|null} item pronto para o roteiro, ou null se nada cadastrado bater
+ */
+function findVhPorFuncaoNoCadastro(funcao, baseTitleNormalizado) {
+  if (!baseTitleNormalizado) return null;
+  const candidatas = (state.pecas || []).filter(p =>
+    p && p.type === 'EVNH' && p.funcao === funcao && p.ativo !== false &&
+    p.programaRelacionado && _normalizeProgKey(p.programaRelacionado) === baseTitleNormalizado
+  );
+  if (!candidatas.length) return null;
+
+  candidatas.sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0));
+  const p = candidatas[0];
+  if (window.CanalLog) {
+    CanalLog.registrar('vh_resolvida_por_cadastro', { funcao, programa: baseTitleNormalizado, code: p.code });
+  }
+  return { code: p.code, descricao: p.descricao, tempo: p.tempo || '00:00:05', midia: p.midia || '0OMN', type: 'EVNH' };
+}
+
 /** Busca em VH_SEGUIR_MAP a vinheta "VH A SEGUIR" correspondente ao programa pela descrição. Retorna null se vhSeguirAtivo=false nas REGRAS. */
 function findVhSeguir(desc) {
   if (REGRAS.vhSeguirAtivo === false) return null;
   
   const baseTitle = _normalizeProgKey(baseProgramTitle(desc));
   if (!baseTitle) return null;
+
+  const doCadastro = findVhPorFuncaoNoCadastro('vh_a_seguir', baseTitle);
+  if (doCadastro) return doCadastro;
 
   for (const vh of VH_SEGUIR_MAP) {
     if (vh.keywords.some(k => _normalizeProgKey(k) === baseTitle)) return {...vh};
@@ -1817,6 +1855,9 @@ function findVhAssistindo(desc) {
   
   const baseTitle = _normalizeProgKey(baseProgramTitle(desc));
   if (!baseTitle) return null;
+
+  const doCadastro = findVhPorFuncaoNoCadastro('vh_voce_esta_assistindo', baseTitle);
+  if (doCadastro) return doCadastro;
 
   for (const vh of VH_ASSISTINDO_MAP) {
     if (vh.keywords.some(k => _normalizeProgKey(k) === baseTitle)) return {...vh};

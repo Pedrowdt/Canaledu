@@ -102,6 +102,43 @@ describe('matchVhDaquiForNext — VH "DAQUI A POUCO" do programa certo', () => {
   it('sem VH cadastrada, não insere nada (sem fallback genérico)', () => {
     expect(matchVhDaquiForNext('SCIENTIA', [])).toBeNull();
   });
+
+  it('[Fase 2] resolve direto por funcao/programaRelacionado, sem rodar o casamento por cobertura', () => {
+    const vhs = [
+      // Cobertura por palavra escolheria esta (tem "PALALOOS")...
+      { descricao: 'VH DAQUI A POUCO PALALOOS ANTIGO', funcao: null, programaRelacionado: null },
+      // ...mas o campo estruturado aponta explicitamente para esta outra.
+      { descricao: 'VH DAQUI A POUCO PALALOOS NOVO', funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS' },
+    ];
+    const match = matchVhDaquiForNext('PALALOOS', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO PALALOOS NOVO');
+  });
+
+  it('[Fase 2] funcao errada não conta como match estruturado — cai no fallback de texto', () => {
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO PALALOOS', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS' }, // funcao errada para este caminho
+    ];
+    const match = matchVhDaquiForNext('PALALOOS', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO PALALOOS'); // ainda acha, mas via cobertura de texto, não pelo campo estruturado
+  });
+
+  it('[Fase 2] peça inativa (ativo:false) não é escolhida pelo campo estruturado, mesmo com funcao/programaRelacionado certos', () => {
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO PALALOOS', funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS', ativo: false },
+    ];
+    // Sem a peça inativa contando como match estruturado, cai no fallback de
+    // texto — que a acha do mesmo jeito (o filtro de `ativo` é só do passo
+    // estruturado; times de exibição de peças inativas ficam por conta de
+    // quem monta `vhCandidates`, não desta função).
+    const match = matchVhDaquiForNext('PALALOOS', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO PALALOOS');
+  });
+
+  it('[Fase 2] peça sem os campos novos (funcao/programaRelacionado undefined) continua indo pelo fallback, sem erro', () => {
+    const vhs = [{ descricao: 'VH DAQUI A POUCO SCIENTIA' }]; // como sempre foi, antes da Fase 2
+    const match = matchVhDaquiForNext('SCIENTIA', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO SCIENTIA');
+  });
 });
 
 describe('baseProgramTitle/getEpisodeId/parseEpisodioInfo — identidade estruturada (MVP-CADASTRO.md, Fase 1)', () => {

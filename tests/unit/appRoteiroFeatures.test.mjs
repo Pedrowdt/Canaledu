@@ -28,7 +28,7 @@ function loadPure({ localStorage } = {}) {
   // Se saveState() (ou qualquer outra função testada aqui) chamar confirm(),
   // o teste falha na hora em vez de travar esperando um clique que nunca
   // vem — é exatamente o tipo de regressão que já aconteceu uma vez (ver
-  // tests/unit/appSaveStateRegressao.test.mjs).
+  // describe 'saveState() — regressão travada' mais abaixo neste arquivo).
   const confirm = () => { throw new Error('confirm() não deveria ser chamado aqui'); };
   const factory = new Function(
     'window',
@@ -38,10 +38,12 @@ function loadPure({ localStorage } = {}) {
     'confirm',
     `${srcSemBoot}\nreturn {
       registrarUndoSeMudou, popUndoEntry, sortPecasByTempo, dateKey, timeToSec, saveState,
+      findVhSeguir, findVhAssistindo, findVhPorFuncaoNoCadastro, baseProgramTitle, _normalizeProgKey,
       __test_getUndoStack: () => undoStack,
       __test_setUndoStack: (v) => { undoStack = v; },
       __test_getState: () => state,
       __test_setState: (v) => { Object.assign(state, v); },
+      __test_setRegras: (v) => { Object.assign(REGRAS, v); },
     };`
   );
   return factory.call(g, g.window, g, ls, document, confirm);
@@ -210,5 +212,86 @@ describe('saveState() — regressão travada (commit 027f405 quebrou isso uma ve
 
     const saved = JSON.parse(ls.getItem('roteiroApp'));
     expect(saved.roteiros[app.dateKey(dia)]).toEqual([{ code: 'X' }]);
+  });
+});
+
+describe('findVhPorFuncaoNoCadastro / findVhSeguir / findVhAssistindo — Fase 2 do MVP de cadastro', () => {
+  it('findVhPorFuncaoNoCadastro acha peça type=EVNH com funcao e programaRelacionado batendo', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [{ code: 'VH001', descricao: 'VH A SEGUIR PALALOOS', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS', ativo: true }],
+    });
+    const r = app.findVhPorFuncaoNoCadastro('vh_a_seguir', app._normalizeProgKey('PALALOOS'));
+    expect(r).not.toBeNull();
+    expect(r.code).toBe('VH001');
+  });
+
+  it('findVhPorFuncaoNoCadastro ignora peça inativa, com funcao diferente, ou de outro type', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [
+        { code: 'A', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS', ativo: false },
+        { code: 'B', type: 'EVNH', funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS' },
+        { code: 'C', type: 'RCOM', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS' },
+      ],
+    });
+    expect(app.findVhPorFuncaoNoCadastro('vh_a_seguir', app._normalizeProgKey('PALALOOS'))).toBeNull();
+  });
+
+  it('findVhPorFuncaoNoCadastro desempata por `ordem` quando há mais de uma peça cadastrada igual', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [
+        { code: 'SEGUNDA', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS', ordem: 2 },
+        { code: 'PRIMEIRA', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS', ordem: 1 },
+      ],
+    });
+    const r = app.findVhPorFuncaoNoCadastro('vh_a_seguir', app._normalizeProgKey('PALALOOS'));
+    expect(r.code).toBe('PRIMEIRA');
+  });
+
+  it('findVhSeguir: peça cadastrada com funcao/programaRelacionado tem prioridade sobre VH_SEGUIR_MAP', () => {
+    const app = loadPure();
+    // SCIENTIA existe no VH_SEGUIR_MAP hardcoded (code 90359) — cadastrar
+    // uma peça nova para o mesmo programa tem que vencer o mapa antigo.
+    app.__test_setState({
+      pecas: [{ code: 'NOVO123', descricao: 'VH A SEGUIR SCIENTIA (nova)', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'SCIENTIA', ativo: true }],
+    });
+    const r = app.findVhSeguir('PGM SCIENTIA - T01 EP01');
+    expect(r.code).toBe('NOVO123');
+  });
+
+  it('findVhSeguir: sem peça cadastrada com os campos novos, cai no VH_SEGUIR_MAP de sempre (nada regride)', () => {
+    const app = loadPure();
+    app.__test_setState({ pecas: [] });
+    const r = app.findVhSeguir('PGM SCIENTIA - T01 EP01');
+    expect(r).not.toBeNull();
+    expect(r.code).toBe('90359'); // code do VH_SEGUIR_MAP hardcoded para SCIENTIA
+  });
+
+  it('findVhSeguir: respeita REGRAS.vhSeguirAtivo=false mesmo com peça cadastrada', () => {
+    const app = loadPure();
+    app.__test_setRegras({ vhSeguirAtivo: false });
+    app.__test_setState({
+      pecas: [{ code: 'X', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'SCIENTIA', ativo: true }],
+    });
+    expect(app.findVhSeguir('PGM SCIENTIA - T01 EP01')).toBeNull();
+  });
+
+  it('findVhAssistindo: peça cadastrada tem prioridade sobre VH_ASSISTINDO_MAP', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [{ code: 'NOVO456', descricao: 'VH VC ESTA ASSISTINDO SCIENTIA (nova)', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_voce_esta_assistindo', programaRelacionado: 'SCIENTIA', ativo: true }],
+    });
+    const r = app.findVhAssistindo('PGM SCIENTIA - T01 EP01');
+    expect(r.code).toBe('NOVO456');
+  });
+
+  it('findVhAssistindo: sem peça cadastrada, cai no VH_ASSISTINDO_MAP de sempre', () => {
+    const app = loadPure();
+    app.__test_setState({ pecas: [] });
+    const r = app.findVhAssistindo('PGM SCIENTIA - T01 EP01');
+    expect(r).not.toBeNull();
+    expect(r.code).toBe('90360'); // code do VH_ASSISTINDO_MAP hardcoded para SCIENTIA
   });
 });

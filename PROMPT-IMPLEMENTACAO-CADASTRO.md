@@ -11,8 +11,8 @@ justifica cada fase). Depois, use o prompt da fase correspondente:
 | Fase | Arquivo | Status |
 |---|---|---|
 | 1 — Schema + Formulário | [PROMPT-FASE-1-SCHEMA-FORMULARIO.md](PROMPT-FASE-1-SCHEMA-FORMULARIO.md) | ✅ Concluída (`2.8.0`) |
-| 2 — Motor de distribuição | [PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md](PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md) | Aguardando aprovação |
-| 3 — Import estruturado | [PROMPT-FASE-3-IMPORT-ESTRUTURADO.md](PROMPT-FASE-3-IMPORT-ESTRUTURADO.md) | Aguardando Fase 2 |
+| 2 — Motor de distribuição | [PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md](PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md) | ✅ Concluída (`2.9.0`) |
+| 3 — Import estruturado | [PROMPT-FASE-3-IMPORT-ESTRUTURADO.md](PROMPT-FASE-3-IMPORT-ESTRUTURADO.md) | Aguardando aprovação |
 | 4 — Limpeza | [PROMPT-FASE-4-LIMPEZA.md](PROMPT-FASE-4-LIMPEZA.md) | Aguardando Fase 3 em produção por um tempo |
 
 Cada prompt é escrito para ser colado inteiro numa conversa nova (com esta

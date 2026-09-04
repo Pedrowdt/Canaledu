@@ -84,6 +84,16 @@ describe('matchVhDaquiForNext em pecas_dia.js — mesma regra de src/core/pecasC
     const vhs = [{ descricao: 'VH DAQUI A POUCO ESCOLA DE TODOS' }];
     expect(matchVhDaquiForNext('PALALOOS', vhs)).toBeNull();
   });
+
+  it('[Fase 2] resolve direto por funcao/programaRelacionado, sem depender do casamento por cobertura', () => {
+    const { matchVhDaquiForNext } = loadPure();
+    const vhs = [
+      { descricao: 'VH DAQUI A POUCO PALALOOS ANTIGO' }, // casaria por cobertura...
+      { descricao: 'VH DAQUI A POUCO PALALOOS NOVO', funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS' },
+    ];
+    const match = matchVhDaquiForNext('PALALOOS', vhs);
+    expect(match.descricao).toBe('VH DAQUI A POUCO PALALOOS NOVO');
+  });
 });
 
 describe('pecasDoDiaDoCadastro — peças do dia auto-preenchidas a partir do cadastro', () => {
