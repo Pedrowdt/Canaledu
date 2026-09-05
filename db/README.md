@@ -76,17 +76,42 @@ para que back-end e front-end nunca divirjam.
 ## Segurança
 
 RLS habilitada nas duas tabelas. A equipe **autenticada** lê e grava; o papel
-anônimo não recebe nenhum GRANT. As funções de espelho são `security definer`
+anônimo não recebe nenhum GRANT (reforçado explicitamente em
+`004_autenticacao.sql`). As funções de espelho são `security definer`
 com `search_path` fixo.
 
 ## Testes
 
 ```bash
 npm test        # regras de catálogo, roteiro, normalização e repositório
-npm run test:db # aplica 001 + 002 em um Postgres real (WASM) e valida os triggers
+npm run test:db # aplica 001 a 007 em um Postgres real (WASM) e valida os triggers
 ```
 
-`npm run test:db` verifica: aplicação dos dois scripts, migração do JSONB legado,
-enum desconhecido caindo em `OUTROS`, espelho após insert/update/delete,
-`updated_at` automático, elegibilidade por dia/hora/validade, idempotência,
-`check` de formato de tempo e unicidade de `code`.
+`npm run test:db` verifica: aplicação de todos os scripts em ordem, migração
+do JSONB legado, enum desconhecido caindo em `OUTROS`, espelho após
+insert/update/delete, `updated_at` automático, elegibilidade por dia/hora/
+validade, idempotência, `check` de formato de tempo, unicidade de `code`, o
+fluxo de mão única bloqueando escrita fora de `fn_salvar_*`, e os campos
+estruturados de `funcao`/`programa_relacionado`/`programa_titulo` (Fase 1
+do MVP de cadastro).
+
+## ⚠️ Depois de aplicar `006`/`007` em produção: recarregue o cache do PostgREST
+
+**Incidente real, 2026-09-04:** `006_pecas_one_way.sql` e `007_funcao_peca.sql`
+redefinem `fn_salvar_pecas`/`fn_salvar_programas` (`create or replace
+function`). Isso já existia no banco corretamente, mas o app passou a
+receber `PGRST202` ("could not find the function") como se as migrações
+nunca tivessem rodado — o **cache de schema do PostgREST** (a Data API do
+Supabase) não tinha sido avisado da mudança, e não recarrega sozinho na
+hora em todos os casos.
+
+Os dois arquivos já terminam com `notify pgrst, 'reload schema';` — se
+mesmo assim o erro aparecer depois de aplicar uma migração que mexe em
+função/view, force manualmente:
+1. SQL Editor do Supabase: `select pg_notify('pgrst', 'reload schema');`
+2. Se não resolver, **Project Settings → General → Restart project** (mais
+   lento, mas garantido).
+
+`tests/unit/notifyPgrstSchemaReload.test.mjs` trava esse `notify` nas
+migrações que redefinem `fn_salvar_*`, para o próximo reset de banco não
+cair na mesma pegadinha.

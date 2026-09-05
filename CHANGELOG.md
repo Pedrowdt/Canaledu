@@ -1,5 +1,38 @@
 # Changelog
 
+## [2.9.1] — Incidente de produção: cadastro parava de salvar (PGRST202) — corrigido de forma permanente
+
+### Corrigido
+- **`fn_salvar_pecas`/`fn_salvar_programas` "sumiam" da Data API mesmo
+  existindo corretamente no banco.** Incidente real em produção
+  (2026-09-04): salvar uma peça/programa passou a falhar com *"As funções
+  de gravação do cadastro... não estão instaladas no banco"*. Causa: as
+  migrações `003`/`006`/`007` — que redefinem essas duas funções via
+  `create or replace function` — nunca avisam o **cache de schema do
+  PostgREST** (a Data API do Supabase) sobre a mudança; sem esse aviso, a
+  API pode continuar respondendo `PGRST202` ("could not find the
+  function") por tempo indeterminado mesmo com tudo aplicado certinho no
+  Postgres. Confirmei que o conteúdo aplicado em produção era **idêntico,
+  byte a byte**, ao que já estava versionado em `db/003_consistencia.sql`/
+  `006_pecas_one_way.sql`/`007_funcao_peca.sql` — não houve nenhuma
+  divergência de dados ou lógica, só a Data API desatualizada.
+  - `006_pecas_one_way.sql` e `007_funcao_peca.sql` passam a terminar com
+    `notify pgrst, 'reload schema';` — assim, aplicar essas migrações (num
+    reset de banco, numa instalação nova, ou reaplicando em produção)
+    nunca mais deixa a Data API defasada em relação ao banco.
+  - `006_pecas_one_way.sql` também fecha explicitamente a concessão
+    implícita de `EXECUTE` a `PUBLIC`/`anon` em `fn_salvar_pecas`/
+    `fn_salvar_programas` (Postgres concede isso por padrão em toda
+    função nova) — já era seguro na prática (a própria função barra
+    chamada não-autenticada), mas fica explícito, mesma linha de defesa
+    em profundidade de `004_autenticacao.sql`.
+  - `db/README.md` ganhou uma seção de troubleshooting para este sintoma
+    exato, com o comando manual de recarga
+    (`select pg_notify('pgrst', 'reload schema');`) para quem precisar
+    depois de uma migração futura que mexa em função/view.
+  - Teste de regressão em `tests/unit/notifyPgrstSchemaReload.test.mjs`
+    trava o `notify` nas migrações que redefinem `fn_salvar_*`.
+
 ## [2.9.0] — MVP do cadastro, Fase 2: motor de distribuição usa os campos estruturados
 
 Implementa `PROMPT-FASE-2-MOTOR-DISTRIBUICAO.md`. Aditivo — nenhuma peça

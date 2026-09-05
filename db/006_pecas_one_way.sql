@@ -198,6 +198,26 @@ end $$;
 grant execute on function public.fn_salvar_pecas(jsonb, text[])     to authenticated;
 grant execute on function public.fn_salvar_programas(jsonb, text[]) to authenticated;
 
--- ── 5. Espelho shared_data continua funcionando ──────────────
+-- ── 5. Fecha a concessão implícita a PUBLIC ──────────────────
+-- Postgres concede EXECUTE a PUBLIC por padrão em toda função nova, a
+-- menos que seja revogado explicitamente. Funcionalmente já era seguro
+-- (fn_uid() is null barra qualquer chamada não-autenticada, ver acima),
+-- mas fica explícito em vez de depender só disso — mesma linha de defesa
+-- em profundidade de 004_autenticacao.sql.
+revoke execute on function public.fn_salvar_pecas(jsonb, text[])     from public, anon;
+revoke execute on function public.fn_salvar_programas(jsonb, text[]) from public, anon;
+grant  execute on function public.fn_salvar_pecas(jsonb, text[])     to service_role;
+grant  execute on function public.fn_salvar_programas(jsonb, text[]) to service_role;
+
+-- ── 6. Espelho shared_data continua funcionando ──────────────
 -- fn_sync_shared_pecas/programas são SECURITY DEFINER e não tocam
 -- pecas/programas, apenas leem — nada a alterar.
+
+-- ── 7. Avisa a Data API (PostgREST) para recarregar o cache de schema ──
+-- Sem isso, fn_salvar_pecas/fn_salvar_programas podem ficar "invisíveis"
+-- para a API por um tempo (às vezes minutos, às vezes só depois de um
+-- restart manual do projeto no painel do Supabase) mesmo já existindo no
+-- banco — o app recebe PGRST202 ("could not find the function") como se
+-- a migração nunca tivesse rodado. Incidente real: 2026-09-04, corrigido
+-- em produção com este mesmo passo (ver CHANGELOG.md).
+notify pgrst, 'reload schema';

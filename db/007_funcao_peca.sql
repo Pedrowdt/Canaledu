@@ -243,3 +243,10 @@ create or replace view public.v_programas_roteiro as
    where p.ativo;
 
 grant select on public.v_programas_roteiro to authenticated;
+
+-- ── 7. Avisa a Data API (PostgREST) para recarregar o cache de schema ──
+-- Mesmo motivo de 006_pecas_one_way.sql — esta migração também redefine
+-- fn_salvar_pecas/fn_salvar_programas (para reconhecer os campos novos).
+-- Sem isso, o app pode receber PGRST202 mesmo com tudo aplicado
+-- corretamente. Ver incidente de 2026-09-04 no CHANGELOG.md.
+notify pgrst, 'reload schema';
