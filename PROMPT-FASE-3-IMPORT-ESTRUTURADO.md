@@ -1,5 +1,8 @@
 # Prompt de implementação — Fase 3: Import estruturado (Cadastro)
 
+> ✅ **CONCLUÍDA** (`2.10.0`). Este arquivo fica como registro do que foi
+> pedido e do que foi de fato entregue — não precisa ser reaplicado.
+
 > **Pré-requisito:** Fases 1 e 2 concluídas e em produção. Use este prompt
 > só depois de aprovação. Cole inteiro numa conversa nova.
 

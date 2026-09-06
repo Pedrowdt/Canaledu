@@ -52,6 +52,109 @@ function validadeToISO(v) {
 }
 
 // -----------------------------------------------------
+// RESTRIÇÃO DE HORÁRIO/FREQUÊNCIA (MVP-CADASTRO.md, Fase 3)
+// Réplica não-modular de src/core/normalize.js#parseRestricaoObs (mesma
+// regra, coberta pelos testes de lá — atualize os dois lugares juntos).
+// Reconhece os MESMOS padrões que parsePecasDiaRows já usa para montar
+// os campos de exibição `qtd`/`restricao` (não muda essa exibição), só
+// que em forma estruturada — usada por
+// atualizarCadastroComRestricoesDoImport() para gravar de volta no
+// cadastro em vez de morrer no fim do dia.
+// -----------------------------------------------------
+function _horaLivreParaHHMM(s) {
+  const m = String(s || '').toUpperCase().match(/^(\d{1,2})H(\d{0,2})$/);
+  if (!m) return '';
+  const h = String(m[1]).padStart(2, '0');
+  const min = m[2] ? m[2].padStart(2, '0') : '00';
+  return `${h}:${min}`;
+}
+
+function parseRestricaoObs(texto) {
+  const upper = String(texto || '').toUpperCase();
+  let freq = null, hIni = null, hFim = null;
+
+  const qtdMatch = upper.match(/PROGRAMAR\s+(\d+)X/);
+  if (qtdMatch) freq = String(parseInt(qtdMatch[1], 10));
+
+  const entreMatch = upper.match(/ENTRE\s+(\d+H\d*)\s+E\s+(\d+H\d*)/);
+  const ateMatch = upper.match(/ATÉ\s+(\d+H\d*)/);
+  const aposMatch = upper.match(/APÓS\s+(\d+H\d*)/);
+
+  if (entreMatch) {
+    hIni = _horaLivreParaHHMM(entreMatch[1]) || null;
+    hFim = _horaLivreParaHHMM(entreMatch[2]) || null;
+  } else if (ateMatch) {
+    hFim = _horaLivreParaHHMM(ateMatch[1]) || null;
+  } else if (aposMatch) {
+    hIni = _horaLivreParaHHMM(aposMatch[1]) || null;
+  }
+
+  return { freq, hIni, hFim };
+}
+
+/**
+ * Fase 3 do MVP de cadastro: para peças do import diário que JÁ EXISTEM
+ * no cadastro (`state.pecas`) e cuja observação (`obs`, coluna livre da
+ * planilha) tiver freq/hIni/hFim estruturáveis, atualiza esses campos no
+ * cadastro de verdade — via `PecasRepo.saveDelta()`, o MESMO caminho que
+ * `pecas-programas.js` usa (nunca um atalho: passa por `fn_salvar_pecas`,
+ * respeitando o fluxo de mão única de `006_pecas_one_way.sql` e o
+ * controle de conflito por `row_version`).
+ *
+ * Peças que ainda não existem no cadastro NÃO são criadas aqui — ficam só
+ * na sessão do dia, como já acontecia antes desta fase (decisão explícita
+ * do MVP, ver PROMPT-FASE-3-IMPORT-ESTRUTURADO.md).
+ *
+ * `PecasRepo` já está inicializado nesta página pelo próprio carregamento
+ * do cadastro (`RoteiroPecasBridge.carregarCadastro()`, chamado por
+ * `cloud-sync.js`), então `saveDelta()` aqui usa a mesma baseline/
+ * `row_version` que o resto do app — não é um cliente à parte.
+ */
+async function atualizarCadastroComRestricoesDoImport(pecasDia) {
+  if (!window.PecasRepo || typeof window.PecasRepo.saveDelta !== 'function') return;
+  if (!pecasDia || !pecasDia.length) return;
+
+  const porCodigo = new Map((state.pecas || []).map((p) => [p.code, p]));
+  const atualizacoes = [];
+
+  for (const item of pecasDia) {
+    const existente = porCodigo.get(item.code);
+    if (!existente) continue; // fora de escopo: só atualiza o que já está cadastrado
+
+    const { freq, hIni, hFim } = parseRestricaoObs(item.obs);
+    if (freq == null && hIni == null && hFim == null) continue; // nada estruturável nesta linha
+
+    const mudou =
+      (freq != null && freq !== existente.freq) ||
+      (hIni != null && hIni !== existente.hIni) ||
+      (hFim != null && hFim !== existente.hFim);
+    if (!mudou) continue;
+
+    atualizacoes.push({
+      ...existente,
+      freq: freq != null ? freq : existente.freq,
+      hIni: hIni != null ? hIni : existente.hIni,
+      hFim: hFim != null ? hFim : existente.hFim,
+    });
+  }
+
+  if (!atualizacoes.length) return;
+
+  try {
+    const r = await window.PecasRepo.saveDelta({ pecas: atualizacoes, programas: [], deletedPecas: [], deletedProgramas: [] });
+    if (r.conflitos && r.conflitos.length) {
+      toast(`${r.conflitos.length} peça(s) do cadastro não puderam ser atualizadas — editadas por outra pessoa nesse meio-tempo`, 'error');
+    }
+    if (r.aplicados > 0) {
+      toast(`${r.aplicados} peça(s) do cadastro atualizada(s) com horário/frequência da planilha`, 'success');
+      if (window.CanalLog) CanalLog.registrar('cadastro_atualizado_por_import_diario', { quantidade: r.aplicados });
+    }
+  } catch (e) {
+    console.warn('[pecas_dia] falha ao atualizar cadastro a partir do import diário', e);
+  }
+}
+
+// -----------------------------------------------------
 // PEÇAS DO DIA A PARTIR DO CADASTRO — auto-preenchimento
 // Réplica não-modular de src/core/pecasCatalog.js#selectPecasDoDia/
 // isPecaVigente/isPecaDoDia (mesma regra, coberta pelos testes de lá).
@@ -286,6 +389,10 @@ async function importPecasDiaExcel(file) {
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
   // Mescla peças importadas no banco permanente automaticamente
   if (typeof mergeBancoFromRoteiro === 'function') mergeBancoFromRoteiro(pecasDia);
+  // Fase 3 do MVP de cadastro: peças que JÁ existem no cadastro ganham
+  // freq/hIni/hFim atualizados a partir da planilha (não aguarda — não
+  // bloqueia a UI; sucesso/conflito aparecem em toasts próprios).
+  if (typeof atualizarCadastroComRestricoesDoImport === 'function') atualizarCadastroComRestricoesDoImport(pecasDia);
 
   renderPecasDiaPanel();
   toast(`${pecasDia.length} peças importadas da aba "${foundName}"`, 'success');

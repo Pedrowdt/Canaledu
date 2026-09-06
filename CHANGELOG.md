@@ -1,5 +1,49 @@
 # Changelog
 
+## [2.10.0] — MVP do cadastro, Fase 3: import diário grava freq/hIni/hFim de volta no cadastro
+
+Implementa `PROMPT-FASE-3-IMPORT-ESTRUTURADO.md`. Aditivo — peças que
+ainda não existem no cadastro continuam só na sessão do dia, como antes
+(criar peça nova automaticamente a partir da planilha segue fora de
+escopo, decisão explícita do MVP).
+
+### Adicionado
+- **`src/core/normalize.js#parseRestricaoObs(texto)`** — extrai
+  `freq`/`hIni`/`hFim` estruturados dos MESMOS padrões que
+  `pecas_dia.js#parsePecasDiaRows` já reconhece na coluna de observação
+  da planilha diária (`"PROGRAMAR Nx"`, `"ENTRE XhY E XhY"`, `"ATÉ XhY"`,
+  `"APÓS XhY"`) — sem inventar formato novo, só passa a guardar a mesma
+  leitura de forma estruturada em vez de só texto solto que morria no
+  fim do dia. Testada com 8 casos (`src/core/normalize.test.js`).
+  Replicada de forma não-modular em `pecas_dia.js`.
+- **`pecas_dia.js#atualizarCadastroComRestricoesDoImport()`** — ao
+  importar a planilha diária, se uma peça já existir no cadastro
+  (`state.pecas`) e a observação tiver `freq`/`hIni`/`hFim`
+  estruturáveis diferentes do que já está cadastrado, atualiza e envia
+  via `PecasRepo.saveDelta()` — o MESMO caminho que
+  `pecas-programas.js` usa (`fn_salvar_pecas`, respeitando o fluxo de
+  mão única de `006_pecas_one_way.sql` e o controle de conflito por
+  `row_version`; nenhum caminho de escrita paralelo). `PecasRepo` já vem
+  inicializado nesta página por `RoteiroPecasBridge.carregarCadastro()`
+  (chamado por `cloud-sync.js`), então usa a mesma baseline/`row_version`
+  do resto do app. Conflito de `row_version` (peça editada por outra
+  pessoa nesse meio-tempo) gera aviso, não erro. Chamada a partir de
+  `importPecasDiaExcel()`, sem bloquear a UI.
+- Ao implementar os testes, um bug real foi pego antes de qualquer
+  commit: a função checava `typeof PecasRepo.saveDelta` (identificador
+  solto) em vez de `typeof window.PecasRepo.saveDelta` — teria lançado
+  `ReferenceError` na primeira vez que rodasse de verdade no navegador.
+  Corrigido antes de qualquer release.
+
+Testado em `tests/unit/pecasDia.test.mjs` (7 casos novos): peça existente
+atualizada corretamente, peça inexistente ignorada, nada estruturável não
+dispara escrita, valor igual ao já cadastrado não dispara escrita
+desnecessária, campos não detectados são preservados (só sobrescreve o
+que veio estruturado), conflito de `row_version` vira aviso, e ausência
+de `PecasRepo` não lança erro. 168 testes passando.
+`node db/testar-schema.mjs` continua validando limpo (nenhuma mudança de
+schema nesta fase).
+
 ## [2.9.1] — Incidente de produção: cadastro parava de salvar (PGRST202) — corrigido de forma permanente
 
 ### Corrigido

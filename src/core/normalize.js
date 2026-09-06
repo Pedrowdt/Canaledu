@@ -143,3 +143,61 @@ export function isValidadeExpired(v, ref = new Date()) {
   const fimDoDia = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
   return fimDoDia.getTime() < ref.getTime();
 }
+
+// =====================================================
+// RESTRIÇÃO DE HORÁRIO/FREQUÊNCIA (MVP-CADASTRO.md, Fase 3)
+// O import diário de peças (pecas_dia.js#parsePecasDiaRows) já reconhece
+// "PROGRAMAR Nx"/"ENTRE XhY E XhY"/"ATÉ XhY"/"APÓS XhY" na coluna de
+// observação de uma planilha — mas só para exibir `qtd`/`restricao` como
+// texto solto na sessão do dia; nunca eram gravados de volta no cadastro
+// como `freq`/`hIni`/`hFim` estruturados (que já existem desde a Fase 1).
+// Esta função extrai a MESMA leitura em forma estruturada, reaproveitando
+// os padrões de texto que o parser diário já reconhece — não inventa
+// nenhum formato novo.
+// =====================================================
+
+/** "8H" -> "08:00", "8H30" -> "08:30", "14H" -> "14:00". '' se não reconhecido. */
+function horaLivreParaHHMM(s) {
+  const m = String(s || '').toUpperCase().match(/^(\d{1,2})H(\d{0,2})$/);
+  if (!m) return '';
+  const h = String(m[1]).padStart(2, '0');
+  const min = m[2] ? m[2].padStart(2, '0') : '00';
+  return `${h}:${min}`;
+}
+
+/**
+ * Extrai `freq`/`hIni`/`hFim` estruturados de um texto de observação livre
+ * (coluna de observação da planilha diária de peças). Mesmos padrões já
+ * reconhecidos por `pecas_dia.js#parsePecasDiaRows` para `qtd`/`restricao`:
+ *   - "PROGRAMAR Nx"            -> freq = "N"
+ *   - "ENTRE 8H E 12H"          -> hIni = "08:00", hFim = "12:00"
+ *   - "ATÉ 12H"                 -> hFim = "12:00" (hIni fica null)
+ *   - "APÓS 8H"                 -> hIni = "08:00" (hFim fica null)
+ * Qualquer parte não reconhecida vem `null`, não `''` — "não informado" é
+ * diferente de "string vazia" para quem for gravar isso no cadastro.
+ *
+ * @param {string} texto conteúdo da coluna de observação
+ * @returns {{freq: string|null, hIni: string|null, hFim: string|null}}
+ */
+export function parseRestricaoObs(texto) {
+  const upper = String(texto || '').toUpperCase();
+  let freq = null, hIni = null, hFim = null;
+
+  const qtdMatch = upper.match(/PROGRAMAR\s+(\d+)X/);
+  if (qtdMatch) freq = String(parseInt(qtdMatch[1], 10));
+
+  const entreMatch = upper.match(/ENTRE\s+(\d+H\d*)\s+E\s+(\d+H\d*)/);
+  const ateMatch = upper.match(/ATÉ\s+(\d+H\d*)/);
+  const aposMatch = upper.match(/APÓS\s+(\d+H\d*)/);
+
+  if (entreMatch) {
+    hIni = horaLivreParaHHMM(entreMatch[1]) || null;
+    hFim = horaLivreParaHHMM(entreMatch[2]) || null;
+  } else if (ateMatch) {
+    hFim = horaLivreParaHHMM(ateMatch[1]) || null;
+  } else if (aposMatch) {
+    hIni = horaLivreParaHHMM(aposMatch[1]) || null;
+  }
+
+  return { freq, hIni, hFim };
+}

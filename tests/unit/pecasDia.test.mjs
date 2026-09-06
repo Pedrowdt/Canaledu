@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 
 const src = readFileSync(new URL('../../pecas_dia.js', import.meta.url), 'utf8');
 
-function loadPure() {
+function loadPure({ state, PecasRepo, toastSpy, canalLogSpy } = {}) {
   const g = { window: {} };
   const store = new Map();
   const localStorage = {
@@ -14,16 +14,22 @@ function loadPure() {
     setItem: (k, v) => store.set(k, String(v)),
     removeItem: (k) => store.delete(k),
   };
+  g.window.PecasRepo = PecasRepo;
+  g.window.CanalLog = canalLogSpy ? { registrar: canalLogSpy } : undefined;
+  const toast = toastSpy || (() => {});
   const factory = new Function(
     'window',
     'globalThis',
     'localStorage',
+    'state',
+    'toast',
     `${src}\nreturn {
       parsePecasDiaRows, validadeToISO, parseValidade, matchVhDaquiForNext,
       pecasDoDiaDoCadastro, isPecaVigenteEm, isPecaDoDiaSemana, foiLimpoManualmente,
+      parseRestricaoObs, atualizarCadastroComRestricoesDoImport,
     };`
   );
-  const app = factory.call(g, g.window, g, localStorage);
+  const app = factory.call(g, g.window, g, localStorage, state || { pecas: [] }, toast);
   return { ...app, __localStorage: localStorage };
 }
 
@@ -173,5 +179,82 @@ describe('foiLimpoManualmente — "Limpar" não pode ser imediatamente desfeito 
     __localStorage.setItem('roteiroApp', JSON.stringify({ pecasDiaLimpo: { '2026-08-26': true } }));
     expect(foiLimpoManualmente('2026-08-26')).toBe(true);
     expect(foiLimpoManualmente('2026-08-27')).toBe(false);
+  });
+});
+
+describe('atualizarCadastroComRestricoesDoImport — MVP-CADASTRO.md, Fase 3: import diário grava de volta no cadastro', () => {
+  it('peça já cadastrada com freq/hIni/hFim diferentes é enviada via PecasRepo.saveDelta', async () => {
+    const saveDelta = async (payload) => {
+      expect(payload.pecas).toHaveLength(1);
+      expect(payload.pecas[0]).toMatchObject({ code: 'A1', freq: '3', hIni: '08:00', hFim: '12:00' });
+      return { aplicados: 1, removidos: 0, conflitos: [] };
+    };
+    const state = { pecas: [{ code: 'A1', descricao: 'Peça A', tempo: '00:00:30', freq: '', hIni: '', hFim: '' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: { saveDelta } });
+
+    await atualizarCadastroComRestricoesDoImport([
+      { code: 'A1', obs: 'PROGRAMAR 3X ENTRE 8H E 12H' },
+    ]);
+  });
+
+  it('peça que NÃO existe no cadastro é ignorada — não cria nada novo (fora de escopo da Fase 3)', async () => {
+    let chamado = false;
+    const saveDelta = async () => { chamado = true; return { aplicados: 0, removidos: 0, conflitos: [] }; };
+    const state = { pecas: [] }; // cadastro vazio
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: { saveDelta } });
+
+    await atualizarCadastroComRestricoesDoImport([{ code: 'NOVA', obs: 'PROGRAMAR 2X' }]);
+    expect(chamado).toBe(false);
+  });
+
+  it('sem nada estruturável na observação, não chama saveDelta', async () => {
+    let chamado = false;
+    const saveDelta = async () => { chamado = true; return { aplicados: 0, removidos: 0, conflitos: [] }; };
+    const state = { pecas: [{ code: 'A1', freq: '', hIni: '', hFim: '' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: { saveDelta } });
+
+    await atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'SEM PADRÃO NENHUM' }]);
+    expect(chamado).toBe(false);
+  });
+
+  it('valor detectado igual ao que já está cadastrado não dispara escrita desnecessária', async () => {
+    let chamado = false;
+    const saveDelta = async () => { chamado = true; return { aplicados: 0, removidos: 0, conflitos: [] }; };
+    const state = { pecas: [{ code: 'A1', freq: '3', hIni: '', hFim: '' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: { saveDelta } });
+
+    await atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'PROGRAMAR 3X' }]); // já é freq=3
+    expect(chamado).toBe(false);
+  });
+
+  it('preserva os campos não detectados na observação (só sobrescreve o que veio estruturado)', async () => {
+    let enviado = null;
+    const saveDelta = async (payload) => { enviado = payload.pecas[0]; return { aplicados: 1, removidos: 0, conflitos: [] }; };
+    const state = { pecas: [{ code: 'A1', descricao: 'Peça A', freq: '', hIni: '06:00', hFim: '', categoria: 'RCOM' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: { saveDelta } });
+
+    await atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'ATÉ 12H' }]); // só detecta hFim
+
+    expect(enviado.hIni).toBe('06:00'); // preservado, não veio na observação
+    expect(enviado.hFim).toBe('12:00'); // atualizado
+    expect(enviado.categoria).toBe('RCOM'); // preservado
+  });
+
+  it('conflito de row_version gera aviso, sem lançar erro', async () => {
+    const toastMsgs = [];
+    const saveDelta = async () => ({ aplicados: 0, removidos: 0, conflitos: [{ code: 'A1' }] });
+    const state = { pecas: [{ code: 'A1', freq: '' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({
+      state, PecasRepo: { saveDelta }, toastSpy: (msg) => toastMsgs.push(msg),
+    });
+
+    await atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'PROGRAMAR 2X' }]);
+    expect(toastMsgs.some((m) => m.includes('conflito') || m.includes('outra pessoa'))).toBe(true);
+  });
+
+  it('sem PecasRepo disponível, não lança erro (ex.: página ainda carregando)', async () => {
+    const state = { pecas: [{ code: 'A1', freq: '' }] };
+    const { atualizarCadastroComRestricoesDoImport } = loadPure({ state, PecasRepo: undefined });
+    await expect(atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'PROGRAMAR 2X' }])).resolves.not.toThrow();
   });
 });

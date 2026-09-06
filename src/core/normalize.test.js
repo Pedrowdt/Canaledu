@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseValidade, validadeToISO, formatValidade, isValidadeExpired } from './normalize.js';
+import { parseValidade, validadeToISO, formatValidade, isValidadeExpired, parseRestricaoObs } from './normalize.js';
 
 describe('parseValidade — aceita os formatos que convivem no sistema', () => {
   it('AAAA-MM-DD (cadastro / input[type=date] / coluna date do banco)', () => {
@@ -68,5 +68,40 @@ describe('isValidadeExpired — o bug original: ISO nunca era detectado como ven
   });
   it('sem validade, nunca vence', () => {
     expect(isValidadeExpired('', ref)).toBe(false);
+  });
+});
+
+describe('parseRestricaoObs — MVP-CADASTRO.md, Fase 3: import diário grava freq/hIni/hFim estruturados', () => {
+  it('"PROGRAMAR Nx" vira freq estruturado', () => {
+    expect(parseRestricaoObs('PROGRAMAR 3X')).toEqual({ freq: '3', hIni: null, hFim: null });
+  });
+
+  it('"ENTRE XhY E XhY" vira hIni/hFim em HH:MM', () => {
+    expect(parseRestricaoObs('ENTRE 8H E 12H')).toEqual({ freq: null, hIni: '08:00', hFim: '12:00' });
+  });
+
+  it('minutos são reconhecidos ("8H30")', () => {
+    expect(parseRestricaoObs('ENTRE 8H30 E 12H45')).toEqual({ freq: null, hIni: '08:30', hFim: '12:45' });
+  });
+
+  it('"ATÉ XhY" só grava hFim (hIni fica null, não vazio)', () => {
+    expect(parseRestricaoObs('ATÉ 12H')).toEqual({ freq: null, hIni: null, hFim: '12:00' });
+  });
+
+  it('"APÓS XhY" só grava hIni (hFim fica null)', () => {
+    expect(parseRestricaoObs('APÓS 8H')).toEqual({ freq: null, hIni: '08:00', hFim: null });
+  });
+
+  it('freq e janela de horário juntos no mesmo texto', () => {
+    expect(parseRestricaoObs('PROGRAMAR 2X ENTRE 8H E 12H')).toEqual({ freq: '2', hIni: '08:00', hFim: '12:00' });
+  });
+
+  it('texto sem nenhum padrão reconhecido — tudo null, não lança erro', () => {
+    expect(parseRestricaoObs('OBSERVAÇÃO QUALQUER SEM PADRÃO')).toEqual({ freq: null, hIni: null, hFim: null });
+  });
+
+  it('entradas vazias/undefined não lançam erro', () => {
+    expect(parseRestricaoObs('')).toEqual({ freq: null, hIni: null, hFim: null });
+    expect(parseRestricaoObs(undefined)).toEqual({ freq: null, hIni: null, hFim: null });
   });
 });
