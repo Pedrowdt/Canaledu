@@ -88,8 +88,9 @@
    */
   function mergeCadastro(app, cadastro, pendentes) {
     const base = app && typeof app === 'object' ? app : {};
-    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), base.pecas, pendentes, 'pecas');
-    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), base.programas, pendentes, 'programas');
+    const opcoes = { autoritativo: ehAutoritativo(cadastro) };
+    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), base.pecas, pendentes, 'pecas', opcoes);
+    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), base.programas, pendentes, 'programas', opcoes);
     return Object.assign({}, base, {
       // Se o cadastro voltar vazio por falha de leitura, preservamos o
       // que já estava local para não zerar a tela do usuário.
@@ -97,6 +98,7 @@
       programas: programas.length ? programas : base.programas || [],
     });
   }
+
 
   /** Pendências locais (fila do CadastroSync) — o que ainda não subiu. */
   function lerPendentes(pendentes) {
@@ -114,10 +116,30 @@
   /** Carimbo de recência de um item (row_version > updated_at > 0). */
   function versao(item) {
     if (!item || typeof item !== 'object') return -1;
-    const rv = Number(item.row_version);
-    if (Number.isFinite(rv)) return rv * 1e13; // row_version domina o timestamp
+    // O cadastro relacional entrega `rowVersion` (camelCase, PecasRepo#pecaFromRow);
+    // o espelho JSONB e o snapshot local guardam `row_version`. Aceitar só uma
+    // das grafias fazia esta função devolver 0 dos dois lados — a regra de
+    // recência nunca valia e a nuvem ganhava sempre, apagando edição local nova.
+    const rvBruto = item.row_version != null ? item.row_version : item.rowVersion;
+    const rv = Number(rvBruto);
+    if (rvBruto != null && Number.isFinite(rv)) return rv * 1e13; // row_version domina o timestamp
     const ts = Date.parse(item.updated_at || item.updatedAt || item.atualizado_em || '');
     return Number.isFinite(ts) ? ts : 0;
+  }
+
+  /**
+   * A lista remota pode ser confiada como "tudo que existe no cadastro"?
+   * Só quando veio das tabelas relacionais e a leitura foi COMPLETA. O espelho
+   * JSONB (shared_data.pecas), uma leitura parcial/paginada que falhou no meio
+   * e o payload do tempo real chegam atrasados ou truncados — nesses casos um
+   * item ausente NÃO significa "excluído no cadastro".
+   */
+  function ehAutoritativo(cadastro) {
+    if (!cadastro || typeof cadastro !== 'object') return true;
+    if (cadastro.autoritativo === false || cadastro.parcial === true) return false;
+    if (cadastro.autoritativo === true) return true;
+    if (cadastro.origem && cadastro.origem !== 'relacional') return false;
+    return true;
   }
 
   /**
@@ -132,9 +154,12 @@
    *      ele prevalece em tela até a nuvem alcançá-lo;
    *   3) itens que existem só localmente permanecem visíveis (rascunho local
    *      do roteiro), sem nunca subirem ao cadastro;
-   *   4) a fila legada de pendências, quando existir, ainda é respeitada.
+   *   4) a fila legada de pendências, quando existir, ainda é respeitada;
+   *   5) só uma lista AUTORITATIVA (tabelas relacionais, lida por inteiro)
+   *      pode remover itens da tela por ausência.
    */
-  function combinar(remotos, locais, pendentes, kind) {
+  function combinar(remotos, locais, pendentes, kind, opcoes) {
+    const autoritativo = !(opcoes && opcoes.autoritativo === false);
     const pend = lerPendentes(pendentes);
     const mapa = new Map();
     // Normaliza `validade` para ISO em toda fonte (cadastro remoto,
@@ -151,10 +176,10 @@
         if (versao(item) > versao(remoto)) mapa.set(code, item);
         return;
       }
-      // Ausente na nuvem: só permanece se for um rascunho criado no
-      // Roteiro (marcado com _localOnly). Itens que vieram do cadastro e
-      // sumiram de lá foram realmente excluídos no cadastro.
-      if (item._localOnly === true) mapa.set(code, item);
+      // Ausente na nuvem: sai da tela apenas quando a lista remota é
+      // autoritativa (leitura completa do cadastro relacional). Rascunhos do
+      // Roteiro (_localOnly) nunca são removidos.
+      if (item._localOnly === true || !autoritativo) mapa.set(code, item);
     });
 
     normalizarValidades(apenasAtivos(pend[kind])).forEach((item) => mapa.set(String(item.code), item));
@@ -164,7 +189,7 @@
 
   /**
    * Lê o cadastro na nuvem. Retorna sempre um objeto
-   * { pecas, programas, origem } — origem ajuda no diagnóstico
+   * { pecas, programas, origem, autoritativo } — origem ajuda no diagnóstico
    * ('relacional' | 'shared_data' | 'local').
    */
   async function carregarCadastro({ client, repo, sharedRow, workspaceId } = {}) {
@@ -173,10 +198,15 @@
       try {
         const mode = await repositorio.init(client, workspaceId);
         const dados = await repositorio.loadAll();
+        const origem = mode === 'relational' ? 'relacional' : 'shared_data';
         return {
           pecas: dados.pecas || [],
           programas: dados.programas || [],
-          origem: mode === 'relational' ? 'relacional' : 'shared_data',
+          origem,
+          // `parcial` vem do PecasRepo quando a paginação não conseguiu ler
+          // a tabela inteira: nesse caso nada pode ser removido da tela.
+          parcial: dados.parcial === true,
+          autoritativo: origem === 'relacional' && dados.parcial !== true,
         };
       } catch (e) {
         // Falha de rede/permissão não pode impedir o roteiro de abrir.
@@ -187,6 +217,7 @@
       pecas: (sharedRow && sharedRow.pecas) || [],
       programas: (sharedRow && sharedRow.programas) || [],
       origem: sharedRow ? 'shared_data' : 'local',
+      autoritativo: false,
     };
   }
 
@@ -197,8 +228,9 @@
    */
   function aplicarNoEstado(state, cadastro, pendentes) {
     if (!state) return false;
-    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), state.pecas, pendentes, 'pecas');
-    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), state.programas, pendentes, 'programas');
+    const opcoes = { autoritativo: ehAutoritativo(cadastro) };
+    const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), state.pecas, pendentes, 'pecas', opcoes);
+    const programas = combinar(apenasAtivos(cadastro && cadastro.programas), state.programas, pendentes, 'programas', opcoes);
     const mudou =
       JSON.stringify(state.pecas || []) !== JSON.stringify(pecas) ||
       JSON.stringify(state.programas || []) !== JSON.stringify(programas);
@@ -208,7 +240,8 @@
     return true;
   }
 
-  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos, combinar, normalizarValidades, validadeToISO };
+  const api = { mergeCadastro, carregarCadastro, aplicarNoEstado, apenasAtivos, combinar, ehAutoritativo, normalizarValidades, validadeToISO };
+
   global.RoteiroPecasBridge = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

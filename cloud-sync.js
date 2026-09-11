@@ -380,8 +380,21 @@ function setupRealtime() {
         // nuvem com o que este usuário ainda não sincronizou. Atribuir
         // payload.new.pecas direto apagava da tela peças locais (e as do
         // outro usuário, quando o espelho JSONB estava atrasado).
-        const cadastroEspelho = { pecas: payload.new.pecas || [], programas: payload.new.programas || [] };
+        //
+        // `origem: 'shared_data'` é essencial: este payload é o ESPELHO JSONB,
+        // que o trigger preenche depois da escrita relacional e que também
+        // chega em updates que só mexeram na grade. Ele atrasa e pode vir
+        // incompleto — tratá-lo como verdade absoluta fazia a ponte remover
+        // por ausência peças que existem no cadastro. Aqui ele só ACRESCENTA
+        // e atualiza; nunca apaga.
+        const cadastroEspelho = {
+          pecas: payload.new.pecas || [],
+          programas: payload.new.programas || [],
+          origem: 'shared_data',
+          autoritativo: false,
+        };
         const unido = RoteiroPecasBridge.mergeCadastro(app, cadastroEspelho);
+
         app.pecas     = unido.pecas;
         app.programas = unido.programas;
 

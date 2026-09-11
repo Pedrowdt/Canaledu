@@ -95,3 +95,51 @@ describe('fila de pendências (CadastroSync)', () => {
     expect(sync.total()).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------
+// REGRESSÃO — "peças somem a cada atualização de outro usuário"
+// Três causas encontradas na investigação de 2026-09:
+//  1) o espelho JSONB (shared_data.pecas), que chega atrasado no tempo real,
+//     era tratado como "tudo que existe" e removia peças por ausência;
+//  2) leitura relacional truncada (limite de 1000 linhas do PostgREST)
+//     produzia o mesmo efeito, em silêncio;
+//  3) a comparação de recência lia `row_version`, mas o cadastro entrega
+//     `rowVersion` — a edição local mais nova sempre perdia para a nuvem.
+// ---------------------------------------------------------------
+describe('regressão: fonte não-autoritativa nunca remove peças', () => {
+  it('espelho JSONB atrasado não apaga peça que existe no cadastro', () => {
+    const bridge = loadBridge();
+    const app = bridge.mergeCadastro(
+      { pecas: [peca('CADASTRO1'), peca('CADASTRO2')] },
+      { pecas: [peca('CADASTRO1')], programas: [], origem: 'shared_data' }
+    );
+    expect(app.pecas.map((p) => p.code).sort()).toEqual(['CADASTRO1', 'CADASTRO2']);
+  });
+
+  it('leitura relacional parcial (paginação truncada) não apaga nada', () => {
+    const bridge = loadBridge();
+    const state = { pecas: [peca('A'), peca('B')], programas: [] };
+    bridge.aplicarNoEstado(state, { pecas: [peca('A')], programas: [], origem: 'relacional', parcial: true });
+    expect(state.pecas.map((p) => p.code).sort()).toEqual(['A', 'B']);
+  });
+
+  it('cadastro relacional completo continua podendo remover o que foi excluído', () => {
+    const bridge = loadBridge();
+    const app = bridge.mergeCadastro(
+      { pecas: [peca('A'), peca('EXCLUIDA')] },
+      { pecas: [peca('A')], programas: [], origem: 'relacional', autoritativo: true }
+    );
+    expect(app.pecas.map((p) => p.code)).toEqual(['A']);
+  });
+
+  it('recência aceita rowVersion (camelCase) vindo do cadastro relacional', () => {
+    const bridge = loadBridge();
+    const state = { pecas: [peca('A', { rowVersion: 9, descricao: 'edição local nova' })], programas: [] };
+    bridge.aplicarNoEstado(state, {
+      pecas: [peca('A', { rowVersion: 2, descricao: 'versão antiga da nuvem' })],
+      programas: [],
+      origem: 'relacional',
+    });
+    expect(state.pecas[0].descricao).toBe('edição local nova');
+  });
+});

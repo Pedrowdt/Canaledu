@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.10.1] — peças voltavam a sumir a cada atualização de outro usuário
+
+Regressão de multiusuário: no Roteiro, peças que existem no cadastro
+desapareciam da tela sempre que outro usuário salvava algo. Três causas
+independentes, todas na leitura do cadastro (nenhuma escrita foi alterada — o
+fluxo de mão única continua igual).
+
+### Corrigido
+- **`cloud-sync.js` (tempo real de `shared_data`)** — o payload usado como
+  cadastro é o ESPELHO JSONB, preenchido por trigger DEPOIS da escrita
+  relacional e presente em qualquer update da linha (inclusive um push que só
+  mexeu na grade). Ele era passado para a ponte como se fosse a verdade
+  absoluta, então toda peça ausente do espelho atrasado era removida da tela.
+  Agora vai marcado com `origem: 'shared_data'` / `autoritativo: false`: só
+  acrescenta e atualiza, nunca apaga.
+- **`pecas-repo.js#loadAll()`** — a leitura relacional não paginava, então o
+  limite de linhas do PostgREST (1000 por padrão) truncava o cadastro em
+  silêncio e a ponte tratava o excedente como "excluído". Passa a ler em
+  páginas de 1000 até o fim e devolve `parcial: true` se não conseguir
+  concluir — nesse caso a ponte também não remove nada.
+- **`roteiro-pecas-bridge.js#versao()`** — comparava recência lendo
+  `row_version`/`updated_at`, mas o cadastro relacional entrega `rowVersion`
+  (camelCase). As duas versões davam 0 e a nuvem ganhava sempre, descartando a
+  edição local mais nova. Agora aceita as duas grafias, e `pecas-repo.js`
+  passou a expor também `updatedAt`.
+- **`roteiro-pecas-bridge.js#combinar()`** — remoção por ausência passou a ser
+  exclusiva de fonte autoritativa (tabelas relacionais lidas por inteiro).
+  Cadastro relacional completo continua removendo o que foi de fato excluído.
+
+### Testes
+- `tests/unit/multiusuario.test.mjs` — 4 casos de regressão (espelho atrasado,
+  leitura parcial, remoção legítima do cadastro completo, recência por
+  `rowVersion`).
+- `tests/unit/pecasRepoPaginacao.test.mjs` — 2300 peças voltam inteiras.
+- 173 testes passando.
+
 ## [2.10.0] — MVP do cadastro, Fase 3: import diário grava freq/hIni/hFim de volta no cadastro
 
 Implementa `PROMPT-FASE-3-IMPORT-ESTRUTURADO.md`. Aditivo — peças que

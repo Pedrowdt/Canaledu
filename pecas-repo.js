@@ -53,6 +53,10 @@
       funcao: r.funcao || '',
       programaRelacionado: r.programa_relacionado || '',
       rowVersion: r.row_version ?? null,
+      // Carimbo de recência usado pela ponte para decidir quem ganha quando
+      // a mesma peça existe local e na nuvem.
+      updatedAt: r.updated_at || null,
+
     };
   }
 
@@ -95,6 +99,8 @@
       episodio: r.episodio ?? null,
       bloco: r.bloco ?? null,
       rowVersion: r.row_version ?? null,
+      updatedAt: r.updated_at || null,
+
     };
   }
 
@@ -159,19 +165,50 @@
   }
 
   /* ---------- leitura ---------- */
+  // O PostgREST corta toda listagem no limite do servidor (1000 linhas por
+  // padrão). Sem paginar, tudo que passava desse corte simplesmente não vinha
+  // — e, como a ponte trata a lista relacional como "tudo que existe", cada
+  // atualização apagava da tela do Roteiro as peças que ficaram de fora.
+  const PAGINA = 1000;
+
+  /** Lê a tabela inteira em páginas. Retorna { linhas, parcial }. */
+  async function lerTabelaCompleta(table, aplicarOrdem) {
+    // Cliente sem `range` (mocks/versões antigas): leitura única, como antes.
+    const suportaRange = typeof aplicarOrdem(client.from(table).select('*')).range === 'function';
+    if (!suportaRange) {
+      const { data, error } = await aplicarOrdem(client.from(table).select('*'));
+      if (error) throw error;
+      return { linhas: data || [], parcial: false };
+    }
+
+    const linhas = [];
+    for (let inicio = 0; ; inicio += PAGINA) {
+      const { data, error } = await aplicarOrdem(client.from(table).select('*')).range(inicio, inicio + PAGINA - 1);
+      if (error) throw error;
+      const pagina = data || [];
+      linhas.push(...pagina);
+      if (pagina.length < PAGINA) break;
+      // Trava de segurança: nunca gira infinito se o servidor ignorar o range.
+      if (inicio > PAGINA * 200) return { linhas, parcial: true };
+    }
+    return { linhas, parcial: false };
+  }
+
   async function loadAll() {
     if (mode === 'relational') {
-      const [{ data: rp, error: e1 }, { data: rg, error: e2 }] = await Promise.all([
-        client.from('pecas').select('*').order('categoria').order('code'),
-        client.from('programas').select('*').order('code'),
+      const [rp, rg] = await Promise.all([
+        lerTabelaCompleta('pecas', (q) => q.order('categoria').order('code')),
+        lerTabelaCompleta('programas', (q) => q.order('code')),
       ]);
-      if (e1 || e2) throw e1 || e2;
-      const pecas = (rp || []).map(pecaFromRow);
-      const programas = (rg || []).map(programaFromRow);
+      const pecas = rp.linhas.map(pecaFromRow);
+      const programas = rg.linhas.map(programaFromRow);
       setBaseline('pecas', pecas, pecaToRow);
       setBaseline('programas', programas, programaToRow);
-      return { pecas, programas };
+      // `parcial` avisa a ponte que a lista pode estar incompleta: nesse caso
+      // ela nunca remove itens da tela por ausência.
+      return { pecas, programas, parcial: rp.parcial || rg.parcial };
     }
+
     const { data, error } = await client
       .from('shared_data')
       .select('pecas, programas')
