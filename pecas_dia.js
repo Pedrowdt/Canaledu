@@ -769,7 +769,7 @@ function buildSmartRoteiro(roteiro, pecasDia) {
   const rcom  = pecasDia.filter(p => p.type === 'RCOM');
   const echm  = pecasDia.filter(p => p.type === 'ECHM');
   const eint  = pecasDia.filter(p => p.type === 'EINT');
-  // const rpol  = pecasDia.filter(p => p.type === 'RPOL'); 
+  const rpol  = pecasDia.filter(p => p.type === 'RPOL'); 
   // VH daqui a pouco — indexed by the program name they reference
   // e.g. "VH DAQUI A POUCO PALALOOS" → only use when PALALOOS is the next program
   const allVhDaqui = pecasDia.filter(p =>
@@ -815,7 +815,7 @@ function buildSmartRoteiro(roteiro, pecasDia) {
   for (const p of eint) queue.push({ item: {...p}, times: 1, priority: 4 });
 
   // RPOL: between 19h30 and 22h30
-  for (const p of rpol) queue.push({ item: {...p}, times: 1, priority: 5, timeRange: [rpolStart, rpolEnd] });
+  // for (const p of rpol) queue.push({ item: {...p}, times: 1, priority: 5, timeRange: [rpolStart, rpolEnd] });
 
   // --- Calculate cumulative time at each slot position ---
   function timeAtPos(pos) {
