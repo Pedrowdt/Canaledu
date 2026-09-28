@@ -278,6 +278,41 @@ describe('findVhPorFuncaoNoCadastro / findVhSeguir / findVhAssistindo — Fase 2
     expect(app.findVhSeguir('PGM SCIENTIA - T01 EP01')).toBeNull();
   });
 
+  it('findVhPorFuncaoNoCadastro casa mesmo quando programaRelacionado tem prefixo PGM ou está em snake_case', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [
+        { code: 'VH_PGM', descricao: 'VH A SEGUIR PALALOOS', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PGM PALALOOS', ativo: true },
+      ],
+    });
+    // Programa da grade: 'PGM PALALOOS - T01 EP01'
+    const r = app.findVhSeguir('PGM PALALOOS - T01 EP01');
+    expect(r).not.toBeNull();
+    expect(r.code).toBe('VH_PGM');
+
+    // Suporte a snake_case programa_relacionado
+    app.__test_setState({
+      pecas: [
+        { code: 'VH_SNAKE', descricao: 'VH A SEGUIR PALALOOS', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_a_seguir', programa_relacionado: 'PALALOOS', ativo: true },
+      ],
+    });
+    const r2 = app.findVhSeguir('PGM PALALOOS - T01 EP01');
+    expect(r2).not.toBeNull();
+    expect(r2.code).toBe('VH_SNAKE');
+  });
+
+  it('findVhSeguir casa programa com descrição sem temporada (apenas EP ou EP 01)', () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [
+        { code: 'VH_EP', descricao: 'VH A SEGUIR SCIENTIA', tempo: '00:00:05', midia: '0OMN', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'SCIENTIA', ativo: true },
+      ],
+    });
+    const r = app.findVhSeguir('PGM SCIENTIA - EP 05 - BL 01');
+    expect(r).not.toBeNull();
+    expect(r.code).toBe('VH_EP');
+  });
+
   it('findVhAssistindo: peça cadastrada tem prioridade sobre VH_ASSISTINDO_MAP', () => {
     const app = loadPure();
     app.__test_setState({

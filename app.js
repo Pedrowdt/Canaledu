@@ -1819,10 +1819,14 @@ const VH_ASSISTINDO_MAP = [
  */
 function findVhPorFuncaoNoCadastro(funcao, baseTitleNormalizado) {
   if (!baseTitleNormalizado) return null;
-  const candidatas = (state.pecas || []).filter(p =>
-    p && p.type === 'EVNH' && p.funcao === funcao && p.ativo !== false &&
-    p.programaRelacionado && _normalizeProgKey(p.programaRelacionado) === baseTitleNormalizado
-  );
+  const candidatas = (state.pecas || []).filter(p => {
+    if (!p || p.type !== 'EVNH' || p.funcao !== funcao || p.ativo === false) return false;
+    const rel = p.programaRelacionado || p.programa_relacionado;
+    if (!rel) return false;
+    const relNorm = _normalizeProgKey(rel);
+    const relBaseNorm = _normalizeProgKey(baseProgramTitle(rel));
+    return relNorm === baseTitleNormalizado || relBaseNorm === baseTitleNormalizado;
+  });
   if (!candidatas.length) return null;
 
   candidatas.sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0));
@@ -1880,10 +1884,13 @@ function pickAssinatura(item) {
 // Extract base program title (remove block suffix " - BL 01" etc)
 /** Remove sufixos de bloco (" - BL 01", " BL01") da descrição para obter o título base do programa. Usado na comparação com a grade semanal. Réplica não-modular de src/core/pecasCatalog.js#baseProgramTitle (mesma regra, coberta pelos testes de lá — atualize os dois lugares juntos). */
 function baseProgramTitle(desc) {
-  return desc
+  return String(desc || '')
     .replace(/^\s*PGM\s+/i, '')                // remove prefixo "PGM " no início
+    .replace(/^\s*PROGRAMA\s+/i, '')           // remove prefixo "PROGRAMA " no início
     .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '') // remove " - T 01 EP 03 - ..." (temporada/episódio/subtítulo) até o fim
     .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')        // variante sem hífen antes de "T01 EP16"
+    .replace(/\s*-\s*EP\s*\d+.*$/i, '')           // remove " - EP 01" sem indicação de temporada
+    .replace(/\s+EP\s*\d+.*$/i, '')               // remove " EP01" sem indicação de temporada
     .replace(/\s*-\s*BL\s*\d+\s*$/i, '')   // remove " - BL 01"
     .replace(/\s*BL\s*\d+\s*$/i, '')          // remove " BL01" ou " BL 01"
     .replace(/\s*\(.*?\)\s*$/, '')            // NOVO: remove parênteses no final (ex: "(reprise quarta 22h)")

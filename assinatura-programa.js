@@ -72,8 +72,10 @@
   function baseProgramTitle(desc) {
     return String(desc || '')
       .replace(/^\s*PGM\s+/i, '')
-      .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
+        .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
       .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')
+      .replace(/\s*-\s*EP\s*\d+.*$/i, '')
+      .replace(/\s+EP\s*\d+.*$/i, '')
       .replace(/\s*-\s*BL\s*\d+\s*$/i, '')
       .replace(/\s*BL\s*\d+\s*$/i, '')
       .replace(/\s*\(.*?\)\s*$/, '')
