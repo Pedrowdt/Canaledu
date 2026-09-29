@@ -1891,8 +1891,7 @@ function baseProgramTitle(desc) {
     .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')        // variante sem hífen antes de "T01 EP16"
     .replace(/\s*-\s*EP\s*\d+.*$/i, '')           // remove " - EP 01" sem indicação de temporada
     .replace(/\s+EP\s*\d+.*$/i, '')               // remove " EP01" sem indicação de temporada
-    .replace(/\s*-\s*BL\s*\d+\s*$/i, '')   // remove " - BL 01"
-    .replace(/\s*BL\s*\d+\s*$/i, '')          // remove " BL01" ou " BL 01"
+    .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '')  // remove " - BL 01", " BL01" e o que vier depois (ex: "BL 01 (REPRISE)")
     .replace(/\s*\(.*?\)\s*$/, '')            // NOVO: remove parênteses no final (ex: "(reprise quarta 22h)")
     .replace(/\s*\d+'\s*$/, '')                // remove sufixo de minutagem da grade, ex: " 10'"
     .trim();
@@ -1906,6 +1905,28 @@ function getEpisodeId(desc) {
   if (!desc) return '';
   const m = String(desc).toUpperCase().match(/T\s*\d+\s*EP\s*\d+|EP\s*\d+/);
   return m ? m[0].replace(/\s+/g, '') : '';
+}
+
+/** Número do bloco na descrição ("BL 01", "BL1", "BL 02 (REPRISE)" -> 1, 1, 2); sem indicação assume 1. Réplica não-modular de src/core/normalize.js#getBlockNumber. */
+function getBlockNumber(desc) {
+  const match = String(desc || '').match(/BL\s*0*(\d+)/i);
+  return match ? parseInt(match[1], 10) : 1;
+}
+
+/** Ordena (sem mutar) os blocos de um programa: episódios na ordem da 1ª aparição e, dentro de cada um, por número de bloco. Estável. Réplica não-modular de src/core/normalize.js#sortBlocks. */
+function sortBlocks(blocks) {
+  const epOrder = new Map();
+  (blocks || []).forEach(b => {
+    const ep = getEpisodeId(b && b.descricao);
+    if (!epOrder.has(ep)) epOrder.set(ep, epOrder.size);
+  });
+  return (blocks || [])
+    .map((b, idx) => ({ b, idx }))
+    .sort((x, y) =>
+      epOrder.get(getEpisodeId(x.b.descricao)) - epOrder.get(getEpisodeId(y.b.descricao)) ||
+      getBlockNumber(x.b.descricao) - getBlockNumber(y.b.descricao) ||
+      x.idx - y.idx)
+    .map(o => o.b);
 }
 
 /** Função central de geração automática. Recebe o array de programas do Notion e constrói o roteiro completo com VHs A SEGUIR, CLASSIFICAÇÃO INDICATIVA, breaks com __SLOT__, VH VC ESTA ASSISTINDO e ASSINATURAS. */
@@ -1954,22 +1975,27 @@ function buildRoteiroFromPrograms(programs) {
     }
 
     // Coleta todos os blocos deste programa
-    const blocks = [prog];
+    let blocks = [prog];
     let j = i + 1;
     while (j < programs.length && baseProgramTitle(programs[j].descricao) === baseTitle) {
       blocks.push(programs[j]);
       j++;
     }
 
+    // Blocos podem chegar fora de ordem física (BL 02 antes de BL 01): ordena
+    // por episódio (1ª aparição) e depois por número do bloco.
+    blocks = sortBlocks(blocks);
+
     // ---- ANTES do 1º bloco: VH A SEGUIR ----
-    const vhSeguir = findVhSeguir(prog.descricao);
+    const vhSeguir = findVhSeguir(blocks[0].descricao);
     if (vhSeguir) { roteiro.push({...vhSeguir}); cumSec += timeToSec(vhSeguir.tempo); }
 
     // ---- Blocos + BREAKS ----
     blocks.forEach((block, bIdx) => {
       // VH CLASSIFICAÇÃO (85283) antes de TODO bloco RPRO,
-      // exceto quando a descrição contém BL02/BL03/BL04/BL05.
-      if (!/BL\s*0[2-5]/i.test(block.descricao || '')) {
+      // exceto nos blocos 2 a 5 (BL02, BL 2, BL03...), via getBlockNumber().
+      const blN = getBlockNumber(block.descricao);
+      if (!(blN >= 2 && blN <= 5)) {
         const vhClassif = getVhClassificacao();
         if (vhClassif) { roteiro.push({...vhClassif}); cumSec += timeToSec(vhClassif.tempo); }
       }

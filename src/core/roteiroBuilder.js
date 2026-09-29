@@ -15,7 +15,7 @@
 // por outro lado, são só configuração (`regras.vh*`), sem depender de
 // catálogo.
 
-import { baseProgramTitle, getEpisodeId, timeToSec, secToTime, normalizeKey } from './normalize.js';
+import { baseProgramTitle, getEpisodeId, getBlockNumber, sortBlocks, timeToSec, secToTime, normalizeKey } from './normalize.js';
 
 const START_SECONDS_DEFAULT = 6 * 3600; // 06:00:00 — início padrão do roteiro
 
@@ -249,20 +249,25 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
     }
 
     // Coleta todos os blocos consecutivos deste programa
-    const blocks = [prog];
+    let blocks = [prog];
     let j = i + 1;
     while (j < list.length && baseProgramTitle(list[j].descricao) === baseTitle) {
       blocks.push(list[j]);
       j++;
     }
 
+    // Blocos podem chegar fora de ordem física (BL 02 antes de BL 01): ordena
+    // por episódio (1ª aparição) e depois por número do bloco.
+    blocks = sortBlocks(blocks);
+
     // ── Antes do 1º bloco: VH A SEGUIR ──
-    const vhSeguir = findVhSeguir(prog.descricao, r, catalogo);
+    const vhSeguir = findVhSeguir(blocks[0].descricao, r, catalogo);
     if (vhSeguir) { roteiro.push({ ...vhSeguir }); cumSec += timeToSec(vhSeguir.tempo); }
 
     // ── Blocos + breaks ──
     blocks.forEach((block, bIdx) => {
-      if (!/BL\s*0[2-5]/i.test(block.descricao || '')) {
+      const blN = getBlockNumber(block.descricao);
+      if (!(blN >= 2 && blN <= 5)) {
         const vhClassif = getVhClassificacao(r);
         if (vhClassif) { roteiro.push({ ...vhClassif }); cumSec += timeToSec(vhClassif.tempo); }
       }

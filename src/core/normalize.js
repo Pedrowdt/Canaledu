@@ -20,8 +20,7 @@ export function baseProgramTitle(desc) {
     .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')
     .replace(/\s*-\s*EP\s*\d+.*$/i, '')
     .replace(/\s+EP\s*\d+.*$/i, '')
-    .replace(/\s*-\s*BL\s*\d+\s*$/i, '')
-    .replace(/\s*BL\s*\d+\s*$/i, '')
+    .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '') // bloco e qualquer observação após ele (ex.: "BL 01 (REPRISE)")
     .replace(/\s*\(.*?\)\s*$/, '')
     .replace(/\s*\d+'\s*$/, '')
     .trim();
@@ -32,6 +31,37 @@ export function getEpisodeId(desc) {
   if (!desc) return '';
   const m = String(desc).toUpperCase().match(/T\s*\d+\s*EP\s*\d+|EP\s*\d+/);
   return m ? m[0].replace(/\s+/g, '') : '';
+}
+
+/**
+ * Número do bloco na descrição ("BL 01", "BL1", "BL 02 (REPRISE)" -> 1, 1, 2).
+ * Sem indicação de bloco, assume 1 (programa de bloco único).
+ */
+export function getBlockNumber(desc) {
+  const match = String(desc || '').match(/BL\s*0*(\d+)/i);
+  return match ? parseInt(match[1], 10) : 1;
+}
+
+/**
+ * Ordena (sem mutar a entrada) os blocos de um programa: episódios na ordem
+ * em que aparecem pela 1ª vez e, dentro de cada episódio, por número de bloco.
+ * Blocos de um mesmo episódio que chegaram intercalados com outro episódio
+ * (EP01 BL01, EP02 BL01, EP01 BL02) voltam a ficar juntos. Ordenação estável:
+ * empates preservam a ordem original.
+ */
+export function sortBlocks(blocks) {
+  const epOrder = new Map();
+  (blocks || []).forEach((b) => {
+    const ep = getEpisodeId(b && b.descricao);
+    if (!epOrder.has(ep)) epOrder.set(ep, epOrder.size);
+  });
+  return (blocks || [])
+    .map((b, idx) => ({ b, idx }))
+    .sort((x, y) =>
+      epOrder.get(getEpisodeId(x.b.descricao)) - epOrder.get(getEpisodeId(y.b.descricao)) ||
+      getBlockNumber(x.b.descricao) - getBlockNumber(y.b.descricao) ||
+      x.idx - y.idx)
+    .map((o) => o.b);
 }
 
 /** "HH:MM:SS" | "MM:SS" -> segundos. */

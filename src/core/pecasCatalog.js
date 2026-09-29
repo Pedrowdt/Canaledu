@@ -241,8 +241,7 @@ export function baseProgramTitle(desc) {
     .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')          // variante sem hífen antes de "T01 EP16"
     .replace(/\s*-\s*EP\s*\d+.*$/i, '')             // remove " - EP 01" sem temporada
     .replace(/\s+EP\s*\d+.*$/i, '')                 // remove " EP01" sem temporada
-    .replace(/\s*-\s*BL\s*\d+\s*$/i, '')            // remove " - BL 01"
-    .replace(/\s*BL\s*\d+\s*$/i, '')                // remove " BL01" ou " BL 01"
+    .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '')           // remove " - BL 01", " BL01" e o que vier depois (ex: "BL 01 (REPRISE)")
     .replace(/\s*\(.*?\)\s*$/, '')                  // remove parênteses no final (ex: "(reprise quarta 22h)")
     .replace(/\s*\d+'\s*$/, '')                     // remove sufixo de minutagem da grade, ex: " 10'"
     .trim();
