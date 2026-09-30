@@ -28,7 +28,6 @@
 const PECAS_PROGRAMAS_PAGE = 'pecas-programas.html';
 
 const SCRIPTS_TO_LOAD = [
-  'api-sync.js',
   'grade_base.js',
   'data.js',
   'parts-store.js',
