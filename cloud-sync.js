@@ -41,6 +41,7 @@ let supabaseClient = null;
 let currentUser = null;
 let scriptsLoaded = false;
 let _origSetItem = null;
+let _origGetItem = null;
 let _pushTimer = null;
 let _pushInFlight = false; // true durante o await do pushToCloud
 let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma edição nova chegou durante um push já em andamento
@@ -54,16 +55,76 @@ let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma
 // versão que acabou de vir do servidor ou se o localStorage está à frente.
 const PENDING_SYNC_KEY = 'roteiroSyncPending';
 
+// Escritas "de serviço" (marca de pendência) nunca podem derrubar o app:
+// se o disco estiver cheio, a marca é apenas ignorada (a próxima poda libera espaço).
+function _gravarMarca(valor) {
+  try { _origSetItem.call(localStorage, PENDING_SYNC_KEY, valor); }
+  catch (e) { console.warn('cloud-sync: não foi possível gravar a marca de pendência', e); }
+}
+
 function marcarSyncPendente() {
-  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '1');
+  _gravarMarca('1');
 }
 
 function marcarSyncConfirmado() {
-  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '0');
+  _gravarMarca('0');
 }
 
 function haSyncPendente() {
   return localStorage.getItem(PENDING_SYNC_KEY) === '1';
+}
+
+// =====================================================
+// GRAVAÇÃO LOCAL RESILIENTE (storage-guard.js)
+// Causa raiz do erro "exceeded the quota": `roteiroApp` acumula todos os
+// dias já montados e nunca era podado. Toda gravação de roteiroApp /
+// roteiroRegras passa por aqui: retenção de histórico, poda por cota e,
+// em último caso, cópia em memória — sem lançar exceção para o app.
+// =====================================================
+let _guard = null;
+
+function _diaAberto() {
+  // Dia em edição na tela: nunca pode ser podado, mesmo que seja antigo.
+  try {
+    if (typeof state !== 'undefined' && state && state.currentDate) {
+      return [window.StorageGuard.chaveDia(state.currentDate)];
+    }
+  } catch (_) { /* state ainda não existe (boot) */ }
+  return [];
+}
+
+function _aoEventoDeStorage(tipo, detalhe) {
+  console.warn('[storage-guard]', tipo, detalhe);
+  if (window.CanalLog) {
+    CanalLog.registrar('storage_' + tipo, detalhe, { nivel: tipo === 'fallback_memoria' ? 'error' : 'warn' });
+  }
+  if (tipo === 'fallback_memoria') {
+    setSyncStatus('Armazenamento do navegador cheio — seus dados seguem na nuvem. Limpe os dados do site se persistir.');
+  } else if (tipo === 'poda_por_cota' || tipo === 'poda_preventiva' || tipo === 'poda_retencao') {
+    setSyncStatus('Histórico antigo arquivado para liberar espaço (' + detalhe.total + ' dia(s)).');
+  }
+}
+
+function getGuard() {
+  if (_guard) return _guard;
+  const SG = window.StorageGuard;
+  if (!SG) return null; // módulo ausente: cai no caminho simples (try/catch)
+  _guard = SG.criar({
+    storage: localStorage,
+    setItemOriginal: (k, v) => _origSetItem.call(localStorage, k, v),
+    getItemOriginal: (k) => _origGetItem.call(localStorage, k),
+    protegidos: _diaAberto,
+    onEvento: _aoEventoDeStorage,
+  });
+  return _guard;
+}
+
+/** Substitui `_origSetItem.call(localStorage, ...)` nas gravações de dados. Nunca lança. */
+function gravarLocal(key, value) {
+  const g = getGuard();
+  if (g) return g.setItem(key, value);
+  try { _origSetItem.call(localStorage, key, value); return { ok: true }; }
+  catch (e) { console.error('cloud-sync: falha ao gravar no localStorage', e); return { ok: false, erro: e }; }
 }
 
 function setSyncStatus(msg, show = true) {
@@ -209,7 +270,7 @@ async function fetchAndMergeCloudData(user) {
       updated_at: new Date().toISOString(),
     });
 
-    localStorage.setItem('roteiroRegras', JSON.stringify(localRegras));
+    gravarLocal('roteiroRegras', JSON.stringify(localRegras));
   } else {
     // Cadastro manda: o que veio das tabelas relacionais substitui o
     // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
@@ -226,7 +287,7 @@ async function fetchAndMergeCloudData(user) {
     merged.gradeOrder      = shared?.grade_order || {};
     merged.gradeOrderByDay = shared?.grade_order_by_day || {};
 
-    localStorage.setItem('roteiroRegras', JSON.stringify(shared?.regras || {}));
+    gravarLocal('roteiroRegras', JSON.stringify(shared?.regras || {}));
   }
 
   // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
@@ -245,7 +306,16 @@ async function fetchAndMergeCloudData(user) {
   merged.pecasDia   = localVenceRoteiro ? (localRaw.pecasDia   || userRow?.pecas_dia  || {}) : (userRow?.pecas_dia  || localRaw.pecasDia   || {});
   merged.pecasFixas = localRaw.pecasFixas || [];
 
-  _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(merged));
+  // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
+  // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
+  gravarLocal('roteiroApp', JSON.stringify(merged));
+  const _ret = getGuard() && getGuard().aplicarRetencao();
+  if (_ret && _ret.total) {
+    // Reflete a poda em `merged` para o upsert inicial (abaixo) não reenviar o histórico descartado.
+    const podado = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    merged.roteiros = podado.roteiros || {};
+    merged.pecasDia = podado.pecasDia || {};
+  }
 
   if (!userRow) {
     await supabaseClient.from('user_data').upsert({
@@ -266,8 +336,17 @@ async function fetchAndMergeCloudData(user) {
 // INTERCEPTA GRAVAÇÕES NO localStorage E REPLICA NA NUVEM
 // =====================================================
 function patchLocalStorage() {
+  // getItem/removeItem passam pelo guard para que, se o disco estiver cheio e
+  // o valor tiver ido para a cópia em memória, o app continue lendo o dado mais recente.
+  const g = getGuard();
+  if (g) {
+    localStorage.getItem = (key) => g.getItem(key);
+    localStorage.removeItem = (key) => g.removeItem(key);
+  }
   localStorage.setItem = function (key, value) {
-    _origSetItem.call(localStorage, key, value);
+    // Antes: _origSetItem.call(localStorage, key, value) lançava QuotaExceededError
+    // e derrubava a edição. Agora: retenção + poda por cota + fallback, sem exceção.
+    gravarLocal(key, value);
     if (key === 'roteiroApp' || key === 'roteiroRegras') {
       // Marca "pendente" JÁ AQUI, antes do debounce — se a página for
       // trocada (Roteiro -> Peças e Programas) nos próximos 900ms, essa
@@ -405,7 +484,7 @@ function setupRealtime() {
           // outro usuário só precisa ver após a tela recarregar. Evita
           // apagar uma edição de grade feita há poucos instantes e ainda
           // não enviada — a mesma causa raiz que fazia peças "sumirem".
-          _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
+          gravarLocal('roteiroApp', JSON.stringify(app));
           if (typeof state !== 'undefined') {
             state.pecas     = app.pecas;
             state.programas = app.programas;
@@ -422,8 +501,8 @@ function setupRealtime() {
         app.gradeByDay      = payload.new.grade_by_day || {};
         app.gradeOrder      = payload.new.grade_order || {};
         app.gradeOrderByDay = payload.new.grade_order_by_day || {};
-        _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
-        _origSetItem.call(localStorage, 'roteiroRegras', JSON.stringify(payload.new.regras || {}));
+        gravarLocal('roteiroApp', JSON.stringify(app));
+        gravarLocal('roteiroRegras', JSON.stringify(payload.new.regras || {}));
 
         if (typeof state !== 'undefined') {
           state.pecas     = app.pecas;
@@ -459,7 +538,7 @@ function setupRealtime() {
           JSON.parse(localStorage.getItem('roteiroApp') || '{}'),
           cadastro
         );
-        _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
+        gravarLocal('roteiroApp', JSON.stringify(app));
         if (typeof state !== 'undefined' && RoteiroPecasBridge.aplicarNoEstado(state, cadastro)) {
           if (typeof renderAll === 'function') renderAll();
           setSyncStatus('Cadastro atualizado ✓');
@@ -551,6 +630,7 @@ window.addEventListener('pagehide', () => {
 
 (function boot() {
   _origSetItem = localStorage.setItem.bind(localStorage);
+  _origGetItem = localStorage.getItem.bind(localStorage);
 
   try {
     // Cliente Supabase singleton (auth.js). Uma única instância evita

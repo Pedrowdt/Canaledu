@@ -1,0 +1,814 @@
+diff --git a/cloud-sync.js b/cloud-sync.js
+index b497900..f1091ed 100644
+--- a/cloud-sync.js
++++ b/cloud-sync.js
+@@ -41,6 +41,7 @@ let supabaseClient = null;
+ let currentUser = null;
+ let scriptsLoaded = false;
+ let _origSetItem = null;
++let _origGetItem = null;
+ let _pushTimer = null;
+ let _pushInFlight = false; // true durante o await do pushToCloud
+ let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma edição nova chegou durante um push já em andamento
+@@ -54,18 +55,78 @@ let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma
+ // versão que acabou de vir do servidor ou se o localStorage está à frente.
+ const PENDING_SYNC_KEY = 'roteiroSyncPending';
+ 
++// Escritas "de serviço" (marca de pendência) nunca podem derrubar o app:
++// se o disco estiver cheio, a marca é apenas ignorada (a próxima poda libera espaço).
++function _gravarMarca(valor) {
++  try { _origSetItem.call(localStorage, PENDING_SYNC_KEY, valor); }
++  catch (e) { console.warn('cloud-sync: não foi possível gravar a marca de pendência', e); }
++}
++
+ function marcarSyncPendente() {
+-  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '1');
++  _gravarMarca('1');
+ }
+ 
+ function marcarSyncConfirmado() {
+-  _origSetItem.call(localStorage, PENDING_SYNC_KEY, '0');
++  _gravarMarca('0');
+ }
+ 
+ function haSyncPendente() {
+   return localStorage.getItem(PENDING_SYNC_KEY) === '1';
+ }
+ 
++// =====================================================
++// GRAVAÇÃO LOCAL RESILIENTE (storage-guard.js)
++// Causa raiz do erro "exceeded the quota": `roteiroApp` acumula todos os
++// dias já montados e nunca era podado. Toda gravação de roteiroApp /
++// roteiroRegras passa por aqui: retenção de histórico, poda por cota e,
++// em último caso, cópia em memória — sem lançar exceção para o app.
++// =====================================================
++let _guard = null;
++
++function _diaAberto() {
++  // Dia em edição na tela: nunca pode ser podado, mesmo que seja antigo.
++  try {
++    if (typeof state !== 'undefined' && state && state.currentDate) {
++      return [window.StorageGuard.chaveDia(state.currentDate)];
++    }
++  } catch (_) { /* state ainda não existe (boot) */ }
++  return [];
++}
++
++function _aoEventoDeStorage(tipo, detalhe) {
++  console.warn('[storage-guard]', tipo, detalhe);
++  if (window.CanalLog) {
++    CanalLog.registrar('storage_' + tipo, detalhe, { nivel: tipo === 'fallback_memoria' ? 'error' : 'warn' });
++  }
++  if (tipo === 'fallback_memoria') {
++    setSyncStatus('Armazenamento do navegador cheio — seus dados seguem na nuvem. Limpe os dados do site se persistir.');
++  } else if (tipo === 'poda_por_cota' || tipo === 'poda_preventiva' || tipo === 'poda_retencao') {
++    setSyncStatus('Histórico antigo arquivado para liberar espaço (' + detalhe.total + ' dia(s)).');
++  }
++}
++
++function getGuard() {
++  if (_guard) return _guard;
++  const SG = window.StorageGuard;
++  if (!SG) return null; // módulo ausente: cai no caminho simples (try/catch)
++  _guard = SG.criar({
++    storage: localStorage,
++    setItemOriginal: (k, v) => _origSetItem.call(localStorage, k, v),
++    getItemOriginal: (k) => _origGetItem.call(localStorage, k),
++    protegidos: _diaAberto,
++    onEvento: _aoEventoDeStorage,
++  });
++  return _guard;
++}
++
++/** Substitui `_origSetItem.call(localStorage, ...)` nas gravações de dados. Nunca lança. */
++function gravarLocal(key, value) {
++  const g = getGuard();
++  if (g) return g.setItem(key, value);
++  try { _origSetItem.call(localStorage, key, value); return { ok: true }; }
++  catch (e) { console.error('cloud-sync: falha ao gravar no localStorage', e); return { ok: false, erro: e }; }
++}
++
+ function setSyncStatus(msg, show = true) {
+   const el = document.getElementById('cloud-sync-status');
+   if (!el) return;
+@@ -209,7 +270,7 @@ async function fetchAndMergeCloudData(user) {
+       updated_at: new Date().toISOString(),
+     });
+ 
+-    localStorage.setItem('roteiroRegras', JSON.stringify(localRegras));
++    gravarLocal('roteiroRegras', JSON.stringify(localRegras));
+   } else {
+     // Cadastro manda: o que veio das tabelas relacionais substitui o
+     // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
+@@ -226,7 +287,7 @@ async function fetchAndMergeCloudData(user) {
+     merged.gradeOrder      = shared?.grade_order || {};
+     merged.gradeOrderByDay = shared?.grade_order_by_day || {};
+ 
+-    localStorage.setItem('roteiroRegras', JSON.stringify(shared?.regras || {}));
++    gravarLocal('roteiroRegras', JSON.stringify(shared?.regras || {}));
+   }
+ 
+   // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
+@@ -245,7 +306,16 @@ async function fetchAndMergeCloudData(user) {
+   merged.pecasDia   = localVenceRoteiro ? (localRaw.pecasDia   || userRow?.pecas_dia  || {}) : (userRow?.pecas_dia  || localRaw.pecasDia   || {});
+   merged.pecasFixas = localRaw.pecasFixas || [];
+ 
+-  _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(merged));
++  // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
++  // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
++  gravarLocal('roteiroApp', JSON.stringify(merged));
++  const _ret = getGuard() && getGuard().aplicarRetencao();
++  if (_ret && _ret.total) {
++    // Reflete a poda em `merged` para o upsert inicial (abaixo) não reenviar o histórico descartado.
++    const podado = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
++    merged.roteiros = podado.roteiros || {};
++    merged.pecasDia = podado.pecasDia || {};
++  }
+ 
+   if (!userRow) {
+     await supabaseClient.from('user_data').upsert({
+@@ -266,8 +336,17 @@ async function fetchAndMergeCloudData(user) {
+ // INTERCEPTA GRAVAÇÕES NO localStorage E REPLICA NA NUVEM
+ // =====================================================
+ function patchLocalStorage() {
++  // getItem/removeItem passam pelo guard para que, se o disco estiver cheio e
++  // o valor tiver ido para a cópia em memória, o app continue lendo o dado mais recente.
++  const g = getGuard();
++  if (g) {
++    localStorage.getItem = (key) => g.getItem(key);
++    localStorage.removeItem = (key) => g.removeItem(key);
++  }
+   localStorage.setItem = function (key, value) {
+-    _origSetItem.call(localStorage, key, value);
++    // Antes: _origSetItem.call(localStorage, key, value) lançava QuotaExceededError
++    // e derrubava a edição. Agora: retenção + poda por cota + fallback, sem exceção.
++    gravarLocal(key, value);
+     if (key === 'roteiroApp' || key === 'roteiroRegras') {
+       // Marca "pendente" JÁ AQUI, antes do debounce — se a página for
+       // trocada (Roteiro -> Peças e Programas) nos próximos 900ms, essa
+@@ -405,7 +484,7 @@ function setupRealtime() {
+           // outro usuário só precisa ver após a tela recarregar. Evita
+           // apagar uma edição de grade feita há poucos instantes e ainda
+           // não enviada — a mesma causa raiz que fazia peças "sumirem".
+-          _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
++          gravarLocal('roteiroApp', JSON.stringify(app));
+           if (typeof state !== 'undefined') {
+             state.pecas     = app.pecas;
+             state.programas = app.programas;
+@@ -422,8 +501,8 @@ function setupRealtime() {
+         app.gradeByDay      = payload.new.grade_by_day || {};
+         app.gradeOrder      = payload.new.grade_order || {};
+         app.gradeOrderByDay = payload.new.grade_order_by_day || {};
+-        _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
+-        _origSetItem.call(localStorage, 'roteiroRegras', JSON.stringify(payload.new.regras || {}));
++        gravarLocal('roteiroApp', JSON.stringify(app));
++        gravarLocal('roteiroRegras', JSON.stringify(payload.new.regras || {}));
+ 
+         if (typeof state !== 'undefined') {
+           state.pecas     = app.pecas;
+@@ -459,7 +538,7 @@ function setupRealtime() {
+           JSON.parse(localStorage.getItem('roteiroApp') || '{}'),
+           cadastro
+         );
+-        _origSetItem.call(localStorage, 'roteiroApp', JSON.stringify(app));
++        gravarLocal('roteiroApp', JSON.stringify(app));
+         if (typeof state !== 'undefined' && RoteiroPecasBridge.aplicarNoEstado(state, cadastro)) {
+           if (typeof renderAll === 'function') renderAll();
+           setSyncStatus('Cadastro atualizado ✓');
+@@ -551,6 +630,7 @@ window.addEventListener('pagehide', () => {
+ 
+ (function boot() {
+   _origSetItem = localStorage.setItem.bind(localStorage);
++  _origGetItem = localStorage.getItem.bind(localStorage);
+ 
+   try {
+     // Cliente Supabase singleton (auth.js). Uma única instância evita
+diff --git a/index.html b/index.html
+index 22da37a..5e53212 100644
+--- a/index.html
++++ b/index.html
+@@ -1380,6 +1380,7 @@
+ <!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
+ <script src="assinatura-programa.js"></script>
+ <script src="roteiro-pecas-bridge.js"></script>
++<script src="storage-guard.js"></script>
+ <script src="cloud-sync.js"></script>
+ </body>
+ </html>
+diff --git a/storage-guard.js b/storage-guard.js
+new file mode 100644
+index 0000000..173ac5f
+--- /dev/null
++++ b/storage-guard.js
+@@ -0,0 +1,244 @@
++// =====================================================
++// STORAGE GUARD — retenção de histórico + gravação resiliente
++// Roteiro Canal Educação
++// GNU GPL v3 · Canal Educação / MEC · 2026
++//
++// PROBLEMA QUE RESOLVE
++//   "Failed to execute 'setItem' on 'Storage': Setting the value of
++//   'roteiroApp' exceeded the quota" (cloud-sync.js).
++//
++//   A chave `roteiroApp` guarda num único JSON o catálogo + TODOS os
++//   roteiros / peças do dia já montados (roteiros['YYYY-MM-DD']).
++//   Sem descarte, o JSON cresce para sempre até estourar os ~5 MB do
++//   localStorage. Como a nuvem (user_data) devolve esse mesmo JSON
++//   gigante no login, trocar de navegador não resolvia.
++//
++// O QUE ESTE MÓDULO FAZ
++//   1) POLÍTICA DE RETENÇÃO: descarta dias passados mais antigos que
++//      `diasRetencao` (padrão 90). Dias de hoje em diante e o dia que
++//      está aberto na tela NUNCA são descartados.
++//   2) PODA POR COTA: se mesmo assim o navegador recusar a gravação
++//      (QuotaExceededError), reduz a retenção em degraus
++//      (30 → 14 → 7 → 2 → 0 dias) e tenta de novo.
++//   3) FALLBACK GRACIOSO: se nada couber, o valor fica numa cópia em
++//      memória (a sessão continua funcionando e o push para a nuvem
++//      segue normal) e NENHUMA exceção é propagada para o app.
++//
++// UMD: publica window.StorageGuard e module.exports (testes em Node).
++// =====================================================
++(function (global) {
++  'use strict';
++
++  const CHAVE_APP = 'roteiroApp';
++  const CHAVES_CRITICAS = ['roteiroApp', 'roteiroRegras'];
++  // Mapas dentro de `roteiroApp` indexados por 'YYYY-MM-DD'.
++  const MAPAS_POR_DIA = ['roteiros', 'pecasDia', 'pecasDiaLimpo'];
++  const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
++
++  const POLITICA_PADRAO = Object.freeze({
++    diasRetencao: 90,                  // histórico mantido em condições normais
++    niveisEmergencia: [30, 14, 7, 2, 0], // degraus usados quando a cota estoura
++    limiteSuaveChars: 4000000,         // acima disso poda ANTES de tentar gravar
++  });
++
++  // ---------- datas ----------
++  function pad(n) { return String(n).padStart(2, '0'); }
++
++  /** 'YYYY-MM-DD' no fuso local (mesma convenção do dateKey() do app.js). */
++  function chaveDia(d) {
++    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
++  }
++
++  function chaveCorte(hoje, dias) {
++    const d = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - dias);
++    return chaveDia(d);
++  }
++
++  // ---------- detecção de erro de cota ----------
++  /** Cobre Chrome/Safari (QuotaExceededError, code 22), Firefox (NS_ERROR_DOM_QUOTA_REACHED, 1014) e mensagens. */
++  function ehErroDeCota(e) {
++    if (!e) return false;
++    return (
++      e.name === 'QuotaExceededError' ||
++      e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
++      e.code === 22 || e.code === 1014 ||
++      /quota/i.test(String(e.message || ''))
++    );
++  }
++
++  // ---------- poda ----------
++  /**
++   * Devolve uma CÓPIA de `app` sem os dias passados mais antigos que
++   * `diasRetencao`. Não muta o original. Chaves que não são datas e
++   * qualquer dia em `protegidos` são preservados.
++   */
++  function podarHistorico(app, opcoes) {
++    const o = opcoes || {};
++    const hoje = o.hoje || new Date();
++    const dias = o.diasRetencao != null ? o.diasRetencao : POLITICA_PADRAO.diasRetencao;
++    const protegidos = new Set(o.protegidos || []);
++    const corte = chaveCorte(hoje, dias);
++
++    const copia = Object.assign({}, app);
++    const removidos = {};
++    let total = 0;
++
++    for (const campo of MAPAS_POR_DIA) {
++      const mapa = app && app[campo];
++      if (!mapa || typeof mapa !== 'object' || Array.isArray(mapa)) continue;
++      const novo = {};
++      let n = 0;
++      for (const k of Object.keys(mapa)) {
++        const velho = RE_DIA.test(k) && k < corte && !protegidos.has(k);
++        if (velho) n++; else novo[k] = mapa[k];
++      }
++      if (n) { copia[campo] = novo; removidos[campo] = n; total += n; }
++    }
++    return { app: copia, removidos, total, corte };
++  }
++
++  // ---------- guarda de escrita ----------
++  /**
++   * @param {object} cfg
++   *  - storage:        objeto tipo Storage (getItem/removeItem)
++   *  - setItemOriginal: função (key, value) que grava de verdade (sem patch)
++   *  - getItemOriginal: (opcional) leitura real; padrão storage.getItem
++   *  - agora:          () => Date            (injetável nos testes)
++   *  - protegidos:     () => string[]        dias que não podem ser podados
++   *  - onEvento:       (tipo, detalhe) => void  (log/status na UI)
++   *  - politica:       sobrescreve POLITICA_PADRAO
++   */
++  function criar(cfg) {
++    const storage = cfg.storage;
++    const setRaw = cfg.setItemOriginal;
++    const getRaw = cfg.getItemOriginal || ((k) => storage.getItem(k));
++    const agora = cfg.agora || (() => new Date());
++    const protegidos = cfg.protegidos || (() => []);
++    const emitir = cfg.onEvento || (() => {});
++    const politica = Object.assign({}, POLITICA_PADRAO, cfg.politica || {});
++
++    /** Cópia em memória das chaves que não couberam no disco. */
++    const memoria = new Map();
++
++    function tentar(key, value) {
++      try { setRaw(key, value); memoria.delete(key); return true; }
++      catch (e) { if (ehErroDeCota(e)) return false; throw e; }
++    }
++
++    function opcoesPoda(dias) {
++      return { hoje: agora(), diasRetencao: dias, protegidos: protegidos() };
++    }
++
++    /** Poda preventiva/por retenção de um JSON de roteiroApp já serializado. */
++    function podarSerializado(value, dias) {
++      let app;
++      try { app = JSON.parse(value); } catch (_) { return null; }
++      if (!app || typeof app !== 'object') return null;
++      const r = podarHistorico(app, opcoesPoda(dias));
++      return { json: JSON.stringify(r.app), ...r };
++    }
++
++    function gravarApp(value) {
++      // 0) Acima do limite suave: poda antes mesmo de incomodar o navegador.
++      let candidato = value;
++      if (value.length > politica.limiteSuaveChars) {
++        const p = podarSerializado(value, politica.diasRetencao);
++        if (p && p.total) {
++          candidato = p.json;
++          emitir('poda_preventiva', { removidos: p.removidos, total: p.total, dias: politica.diasRetencao });
++        }
++      }
++      if (tentar(CHAVE_APP, candidato)) return { ok: true, valor: candidato, podado: candidato !== value };
++
++      // 1) Cota estourou: retenção normal e depois degraus de emergência.
++      const degraus = [politica.diasRetencao, ...politica.niveisEmergencia]
++        .filter((d, i, a) => a.indexOf(d) === i)
++        .sort((a, b) => b - a);
++      for (const dias of degraus) {
++        const p = podarSerializado(candidato, dias);
++        if (!p) break; // JSON inválido: não dá para podar com segurança
++        if (!p.total) continue; // nada a remover neste degrau
++        if (tentar(CHAVE_APP, p.json)) {
++          emitir('poda_por_cota', { removidos: p.removidos, total: p.total, dias });
++          return { ok: true, valor: p.json, podado: true, dias };
++        }
++        candidato = p.json; // segue podando em cima do já reduzido
++      }
++
++      // 2) Fallback: mantém só em memória; a sessão e o sync continuam.
++      memoria.set(CHAVE_APP, candidato);
++      emitir('fallback_memoria', { chave: CHAVE_APP, tamanho: candidato.length });
++      return { ok: false, emMemoria: true, valor: candidato };
++    }
++
++    function gravarCriticaSimples(key, value) {
++      if (tentar(key, value)) return { ok: true, valor: value };
++      // Libera espaço podando o roteiroApp já gravado e tenta de novo.
++      liberarEspaco();
++      if (tentar(key, value)) return { ok: true, valor: value, podado: true };
++      memoria.set(key, value);
++      emitir('fallback_memoria', { chave: key, tamanho: value.length });
++      return { ok: false, emMemoria: true, valor: value };
++    }
++
++    /** Poda o `roteiroApp` que já está no disco (usado por chaves não-críticas). */
++    function liberarEspaco() {
++      const atual = getRaw(CHAVE_APP);
++      if (!atual) return false;
++      const degraus = [politica.diasRetencao, ...politica.niveisEmergencia];
++      for (const dias of degraus) {
++        const p = podarSerializado(atual, dias);
++        if (p && p.total && tentar(CHAVE_APP, p.json)) {
++          emitir('poda_por_cota', { removidos: p.removidos, total: p.total, dias, origem: 'liberar_espaco' });
++          return true;
++        }
++      }
++      return false;
++    }
++
++    return {
++      /** Substituto de localStorage.setItem. Nunca lança para chaves críticas. */
++      setItem(key, value) {
++        const v = String(value);
++        if (key === CHAVE_APP) return gravarApp(v);
++        if (CHAVES_CRITICAS.includes(key)) return gravarCriticaSimples(key, v);
++        // Demais chaves: uma única tentativa extra após liberar espaço; se
++        // ainda falhar, propaga o erro original (quem chama já tem try/catch).
++        try { setRaw(key, v); memoria.delete(key); return { ok: true }; }
++        catch (e) {
++          if (!ehErroDeCota(e)) throw e;
++          liberarEspaco();
++          setRaw(key, v);
++          return { ok: true, podado: true };
++        }
++      },
++      /** Substituto de getItem: serve a cópia em memória quando o disco não coube. */
++      getItem(key) {
++        return memoria.has(key) ? memoria.get(key) : getRaw(key);
++      },
++      removeItem(key) {
++        memoria.delete(key);
++        return storage.removeItem(key);
++      },
++      emMemoria(key) { return memoria.has(key); },
++      /** Aplica a retenção ao roteiroApp no disco agora (ex.: após o login). */
++      aplicarRetencao() {
++        const atual = memoria.has(CHAVE_APP) ? memoria.get(CHAVE_APP) : getRaw(CHAVE_APP);
++        if (!atual) return { total: 0 };
++        const p = podarSerializado(atual, politica.diasRetencao);
++        if (!p || !p.total) return { total: 0 };
++        gravarApp(p.json);
++        emitir('poda_retencao', { removidos: p.removidos, total: p.total, dias: politica.diasRetencao });
++        return { total: p.total, removidos: p.removidos };
++      },
++    };
++  }
++
++  const api = {
++    criar, podarHistorico, ehErroDeCota, chaveDia, chaveCorte,
++    POLITICA_PADRAO, MAPAS_POR_DIA, CHAVES_CRITICAS,
++  };
++
++  global.StorageGuard = api;
++  if (typeof module !== 'undefined' && module.exports) module.exports = api;
++})(typeof window !== 'undefined' ? window : globalThis);
+diff --git a/tests/unit/storageGuard.test.mjs b/tests/unit/storageGuard.test.mjs
+new file mode 100644
+index 0000000..e1e61fa
+--- /dev/null
++++ b/tests/unit/storageGuard.test.mjs
+@@ -0,0 +1,361 @@
++// Bug: "Failed to execute 'setItem' on 'Storage': Setting the value of
++// 'roteiroApp' exceeded the quota" (cloud-sync.js).
++//
++// Causa raiz: `roteiroApp` acumula todos os dias já montados
++// (roteiros / pecasDia / pecasDiaLimpo) sem nenhum descarte; no login a
++// nuvem devolve o mesmo JSON gigante e o primeiro boot quebra.
++//
++// Estes testes travam: (1) a política de retenção, (2) a poda por cota,
++// (3) o fallback em memória sem exceção e (4) a integração com cloud-sync.
++import { describe, it, expect, vi } from 'vitest';
++import { readFileSync } from 'node:fs';
++
++const GUARD_SRC = readFileSync(new URL('../../storage-guard.js', import.meta.url), 'utf8');
++const SG = (() => {
++  const g = {};
++  new Function('window', 'globalThis', GUARD_SRC).call(g, g, g);
++  return g.StorageGuard;
++})();
++const SRC = readFileSync(new URL('../../cloud-sync.js', import.meta.url), 'utf8');
++
++const HOJE = new Date(2026, 8, 30); // 30/09/2026 (mês 0-based)
++
++function dia(offset) {
++  return SG.chaveDia(new Date(2026, 8, 30 + offset));
++}
++
++/** Storage fake com cota em caracteres (chave + valor), como o navegador. */
++function makeQuotaStorage(limite) {
++  const store = new Map();
++  const uso = (ignorar) => [...store].reduce((n, [k, v]) => (k === ignorar ? n : n + k.length + v.length), 0);
++  const quotaError = () => {
++    const e = new Error("Failed to execute 'setItem' on 'Storage': Setting the value exceeded the quota.");
++    e.name = 'QuotaExceededError';
++    e.code = 22;
++    return e;
++  };
++  return {
++    getItem: (k) => (store.has(k) ? store.get(k) : null),
++    setItem(k, v) {
++      v = String(v);
++      if (uso(k) + k.length + v.length > limite) throw quotaError();
++      store.set(k, v);
++    },
++    removeItem: (k) => store.delete(k),
++    _store: store,
++  };
++}
++
++/** App com `dias` dias de histórico (cada roteiro pesa ~`peso` chars). */
++function appComHistorico(dias, peso = 200) {
++  const roteiros = {}, pecasDia = {}, pecasDiaLimpo = {};
++  for (let i = 0; i < dias; i++) {
++    const k = dia(-i);
++    roteiros[k] = [{ code: 'X' + i, pad: 'x'.repeat(peso) }];
++    pecasDia[k] = [{ id: i }];
++    pecasDiaLimpo[k] = true;
++  }
++  return { pecas: [{ id: 1 }], programas: [{ id: 2 }], grade: { seg: 1 }, roteiros, pecasDia, pecasDiaLimpo };
++}
++
++function makeGuard(storage, extra = {}) {
++  const eventos = [];
++  const guard = SG.criar({
++    storage,
++    setItemOriginal: (k, v) => storage.setItem(k, v),
++    agora: () => HOJE,
++    onEvento: (t, d) => eventos.push([t, d]),
++    ...extra,
++  });
++  return { guard, eventos };
++}
++
++describe('ehErroDeCota', () => {
++  it('reconhece as variantes de Chrome, Safari e Firefox', () => {
++    expect(SG.ehErroDeCota({ name: 'QuotaExceededError' })).toBe(true);
++    expect(SG.ehErroDeCota({ name: 'NS_ERROR_DOM_QUOTA_REACHED' })).toBe(true);
++    expect(SG.ehErroDeCota({ code: 22 })).toBe(true);
++    expect(SG.ehErroDeCota({ code: 1014 })).toBe(true);
++    expect(SG.ehErroDeCota(new Error('... exceeded the quota.'))).toBe(true);
++  });
++  it('não confunde outros erros com cota', () => {
++    expect(SG.ehErroDeCota(new TypeError('x is undefined'))).toBe(false);
++    expect(SG.ehErroDeCota(null)).toBe(false);
++  });
++});
++
++describe('podarHistorico — política de retenção', () => {
++  it('remove só dias passados além da retenção, nos três mapas', () => {
++    const app = appComHistorico(200);
++    const r = SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 90 });
++    const datas = Object.keys(r.app.roteiros);
++    expect(datas.every((k) => k >= SG.chaveCorte(HOJE, 90))).toBe(true);
++    expect(datas).toHaveLength(91); // hoje + 90 dias para trás
++    expect(Object.keys(r.app.pecasDia)).toHaveLength(91);
++    expect(Object.keys(r.app.pecasDiaLimpo)).toHaveLength(91);
++    expect(r.total).toBe((200 - 91) * 3);
++  });
++
++  it('nunca descarta hoje nem dias futuros (roteiros planejados)', () => {
++    const app = appComHistorico(5);
++    app.roteiros[dia(+1)] = [{ code: 'AMANHA' }];
++    app.roteiros[dia(+30)] = [{ code: 'MES_QUE_VEM' }];
++    const r = SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 0 });
++    expect(r.app.roteiros[dia(0)]).toBeDefined();
++    expect(r.app.roteiros[dia(+1)]).toBeDefined();
++    expect(r.app.roteiros[dia(+30)]).toBeDefined();
++    expect(r.app.roteiros[dia(-1)]).toBeUndefined();
++  });
++
++  it('preserva dias protegidos (dia aberto na tela) mesmo que antigos', () => {
++    const app = appComHistorico(200);
++    const aberto = dia(-150);
++    const r = SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 30, protegidos: [aberto] });
++    expect(r.app.roteiros[aberto]).toBeDefined();
++    expect(r.app.roteiros[dia(-151)]).toBeUndefined();
++  });
++
++  it('não toca no catálogo, na grade nem em chaves que não são datas', () => {
++    const app = appComHistorico(200);
++    app.roteiros['rascunho'] = [{ code: 'R' }];
++    const r = SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 7 });
++    expect(r.app.pecas).toEqual(app.pecas);
++    expect(r.app.programas).toEqual(app.programas);
++    expect(r.app.grade).toEqual(app.grade);
++    expect(r.app.roteiros['rascunho']).toBeDefined();
++  });
++
++  it('não muta o objeto original', () => {
++    const app = appComHistorico(200);
++    const antes = JSON.stringify(app);
++    SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 7 });
++    expect(JSON.stringify(app)).toBe(antes);
++  });
++
++  it('é idempotente e tolera app vazio/sem mapas', () => {
++    const r1 = SG.podarHistorico({}, { hoje: HOJE });
++    expect(r1.total).toBe(0);
++    const app = appComHistorico(200);
++    const a = SG.podarHistorico(app, { hoje: HOJE, diasRetencao: 30 }).app;
++    expect(SG.podarHistorico(a, { hoje: HOJE, diasRetencao: 30 }).total).toBe(0);
++  });
++});
++
++describe('guard.setItem — poda por cota e fallback', () => {
++  it('reproduz o bug: sem guard, o setItem direto lança QuotaExceededError', () => {
++    const st = makeQuotaStorage(20000);
++    const app = appComHistorico(400);
++    expect(() => st.setItem('roteiroApp', JSON.stringify(app))).toThrow(/quota/i);
++  });
++
++  it('com guard: poda o histórico antigo e grava SEM lançar', () => {
++    const st = makeQuotaStorage(40000);
++    const { guard, eventos } = makeGuard(st);
++    const app = appComHistorico(400);
++    expect(JSON.stringify(app).length).toBeGreaterThan(40000);
++
++    let r;
++    expect(() => { r = guard.setItem('roteiroApp', JSON.stringify(app)); }).not.toThrow();
++    expect(r.ok).toBe(true);
++    expect(r.podado).toBe(true);
++
++    const gravado = JSON.parse(st.getItem('roteiroApp'));
++    expect(gravado.roteiros[dia(0)]).toBeDefined();          // hoje sobrevive
++    expect(gravado.roteiros[dia(-399)]).toBeUndefined();     // antigo foi podado
++    expect(gravado.pecas).toEqual(app.pecas);                // catálogo intacto
++    expect(eventos.some(([t]) => t === 'poda_por_cota')).toBe(true);
++  });
++
++  it('usa o MENOR corte necessário (preserva o máximo de histórico)', () => {
++    const st = makeQuotaStorage(60000);
++    const { guard } = makeGuard(st);
++    guard.setItem('roteiroApp', JSON.stringify(appComHistorico(400)));
++    const gravado = JSON.parse(st.getItem('roteiroApp'));
++    const n = Object.keys(gravado.roteiros).length;
++    expect(n).toBeGreaterThan(1);
++    expect(n).toBeLessThanOrEqual(91);
++  });
++
++  it('dia aberto na tela sobrevive à poda de emergência', () => {
++    const st = makeQuotaStorage(15000);
++    const aberto = dia(-200);
++    const { guard } = makeGuard(st, { protegidos: () => [aberto] });
++    guard.setItem('roteiroApp', JSON.stringify(appComHistorico(400)));
++    const gravado = JSON.parse(st.getItem('roteiroApp'));
++    expect(gravado.roteiros[aberto]).toBeDefined();
++  });
++
++  it('fallback em memória: nada cabe -> não lança e getItem devolve o valor', () => {
++    const st = makeQuotaStorage(50); // impossível gravar qualquer coisa útil
++    const { guard, eventos } = makeGuard(st);
++    const valor = JSON.stringify(appComHistorico(10));
++    let r;
++    expect(() => { r = guard.setItem('roteiroApp', valor); }).not.toThrow();
++    expect(r.ok).toBe(false);
++    expect(r.emMemoria).toBe(true);
++    expect(guard.emMemoria('roteiroApp')).toBe(true);
++    expect(JSON.parse(guard.getItem('roteiroApp')).pecas).toEqual([{ id: 1 }]);
++    expect(eventos.some(([t]) => t === 'fallback_memoria')).toBe(true);
++  });
++
++  it('volta a gravar em disco quando volta a caber, e limpa a cópia em memória', () => {
++    let limite = 50;
++    const base = makeQuotaStorage(1e9);
++    const st = { ...base, setItem(k, v) { if (k.length + String(v).length > limite) { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; } base.setItem(k, v); } };
++    const { guard } = makeGuard(st);
++    guard.setItem('roteiroApp', JSON.stringify(appComHistorico(3)));
++    expect(guard.emMemoria('roteiroApp')).toBe(true);
++    limite = 1e9;
++    guard.setItem('roteiroApp', JSON.stringify({ pecas: [] }));
++    expect(guard.emMemoria('roteiroApp')).toBe(false);
++    expect(st.getItem('roteiroApp')).toBe('{"pecas":[]}');
++  });
++
++  it('poda preventiva acima do limite suave, sem nem chegar a estourar a cota', () => {
++    const st = makeQuotaStorage(1e9);
++    const { guard, eventos } = makeGuard(st, { politica: { limiteSuaveChars: 20000 } });
++    guard.setItem('roteiroApp', JSON.stringify(appComHistorico(400)));
++    expect(eventos.some(([t]) => t === 'poda_preventiva')).toBe(true);
++    expect(Object.keys(JSON.parse(st.getItem('roteiroApp')).roteiros).length).toBeLessThanOrEqual(91);
++  });
++
++  it('valor abaixo da cota e do limite: grava intacto, sem podar', () => {
++    const st = makeQuotaStorage(1e9);
++    const { guard, eventos } = makeGuard(st);
++    const valor = JSON.stringify(appComHistorico(300));
++    const r = guard.setItem('roteiroApp', valor);
++    expect(r.podado).toBe(false);
++    expect(st.getItem('roteiroApp')).toBe(valor); // retenção só age sob pressão ou no login
++    expect(eventos).toHaveLength(0);
++  });
++
++  it('JSON inválido com cota estourada: não lança, cai na memória', () => {
++    const st = makeQuotaStorage(10);
++    const { guard } = makeGuard(st);
++    expect(() => guard.setItem('roteiroApp', '{quebrado'.repeat(20))).not.toThrow();
++    expect(guard.emMemoria('roteiroApp')).toBe(true);
++  });
++
++  it('erros que NÃO são de cota continuam propagando (não mascara bugs)', () => {
++    const st = makeQuotaStorage(1e9);
++    const { guard } = makeGuard(st, { setItemOriginal: () => { throw new TypeError('bug real'); } });
++    expect(() => guard.setItem('roteiroApp', '{}')).toThrow('bug real');
++  });
++
++  it('roteiroRegras (crítica) também nunca lança', () => {
++    const st = makeQuotaStorage(5);
++    const { guard } = makeGuard(st);
++    expect(() => guard.setItem('roteiroRegras', JSON.stringify({ a: 'x'.repeat(100) }))).not.toThrow();
++    expect(guard.emMemoria('roteiroRegras')).toBe(true);
++  });
++
++  it('chave não crítica libera espaço podando o roteiroApp e regrava', () => {
++    const app = JSON.stringify(appComHistorico(150, 20));
++    const st = makeQuotaStorage(app.length + 'roteiroApp'.length + 4000); // sobra 4k; a chave nova pede 9k
++    const { guard } = makeGuard(st);
++    st.setItem('roteiroApp', app);
++    expect(() => st.setItem('outraChave', 'y'.repeat(9000))).toThrow(/quota/i); // sem guard: estoura
++    guard.setItem('outraChave', 'y'.repeat(9000));
++    expect(st.getItem('outraChave')).toHaveLength(9000);
++    expect(Object.keys(JSON.parse(st.getItem('roteiroApp')).roteiros).length).toBeLessThanOrEqual(91);
++  });
++});
++
++describe('aplicarRetencao — política aplicada no login', () => {
++  it('poda o que está no disco mesmo sem pressão de cota', () => {
++    const st = makeQuotaStorage(1e9);
++    const { guard, eventos } = makeGuard(st);
++    st.setItem('roteiroApp', JSON.stringify(appComHistorico(400)));
++    const r = guard.aplicarRetencao();
++    expect(r.total).toBeGreaterThan(0);
++    const gravado = JSON.parse(st.getItem('roteiroApp'));
++    expect(Object.keys(gravado.roteiros)).toHaveLength(91);
++    expect(eventos.some(([t]) => t === 'poda_retencao')).toBe(true);
++  });
++
++  it('sem nada a podar, não reescreve o storage', () => {
++    const st = makeQuotaStorage(1e9);
++    const { guard } = makeGuard(st);
++    st.setItem('roteiroApp', JSON.stringify(appComHistorico(10)));
++    const spy = vi.spyOn(st, 'setItem');
++    expect(guard.aplicarRetencao().total).toBe(0);
++    expect(spy).not.toHaveBeenCalled();
++  });
++});
++
++// ---------------------------------------------------------------
++// Integração com cloud-sync.js: o caminho exato do bug (login em
++// navegador novo -> cloudSync puxa JSON gigante -> grava no localStorage)
++// ---------------------------------------------------------------
++function makeFakeElement() {
++  return { style: {}, classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, appendChild() {}, value: '', textContent: '', disabled: false };
++}
++
++function loadCloudSync({ storage, userRow, sharedRow = null, withGuard = true }) {
++  const fakeSupabase = {
++    from(table) {
++      const b = {
++        select() { return b; }, eq() { return b; },
++        async maybeSingle() { return { data: table === 'user_data' ? userRow : sharedRow }; },
++        update() { return b; },
++        async upsert() { return { data: null }; },
++      };
++      return b;
++    },
++  };
++  const g = {
++    document: { getElementById: () => makeFakeElement() },
++    location: { href: '', reload() {} },
++    addEventListener() {}, removeEventListener() {},
++    CanalAuth: { getClient: () => fakeSupabase, onAuthChange() {}, resolveSession: async () => null },
++    RoteiroPecasBridge: {
++      async carregarCadastro() { return { pecas: [{ id: 1 }], programas: [{ id: 2 }], origem: 'teste' }; },
++      mergeCadastro(local) { return { pecas: local.pecas || [], programas: local.programas || [] }; },
++    },
++    localStorage: storage, console: { ...console, warn() {}, info() {} }, setTimeout, clearTimeout,
++    WORKSPACE_ID: 'ws',
++  };
++  g.window = g;
++  if (withGuard) g.StorageGuard = SG;
++  const body = `${SRC}
++    function __set(u) { currentUser = u; }
++    return { fetchAndMergeCloudData, patchLocalStorage, gravarLocal, __set };`;
++  const factory = new Function('window', 'globalThis', 'document', 'location', 'CanalAuth', 'RoteiroPecasBridge', 'localStorage', 'console', 'setTimeout', 'clearTimeout', 'WORKSPACE_ID', body);
++  const cs = factory.call(g, g.window, g, g.document, g.location, g.CanalAuth, g.RoteiroPecasBridge, g.localStorage, g.console, g.setTimeout, g.clearTimeout, g.WORKSPACE_ID);
++  cs.__set({ id: 'u1', email: 'u@t.com' });
++  return cs;
++}
++
++describe('cloud-sync + storage-guard (caminho do bug)', () => {
++  it('login em navegador novo: JSON gigante da nuvem NÃO lança e fica dentro da cota', async () => {
++    const st = makeQuotaStorage(60000);
++    const gigante = appComHistorico(600); // muito acima da cota
++    const cs = loadCloudSync({ storage: st, userRow: { roteiros: gigante.roteiros, pecas_dia: gigante.pecasDia } });
++
++    await expect(cs.fetchAndMergeCloudData({ id: 'u1', email: 'u@t.com' })).resolves.not.toThrow();
++
++    const gravado = JSON.parse(st.getItem('roteiroApp'));
++    const corte = SG.chaveCorte(new Date(), 90);
++    const datas = Object.keys(gravado.roteiros);
++    expect(datas.length).toBeGreaterThan(0);
++    expect(datas.length).toBeLessThan(600);
++    expect(JSON.stringify(gravado).length).toBeLessThanOrEqual(60000);
++    // a retenção do login (90 dias) só remove histórico antigo, nunca o recente
++    expect(datas.filter((k) => k >= corte).length).toBeGreaterThan(0);
++  });
++
++  it('patchLocalStorage: edição com disco cheio não lança e o app lê o dado novo', () => {
++    const st = makeQuotaStorage(300);
++    const cs = loadCloudSync({ storage: st });
++    cs.patchLocalStorage();
++    const novo = JSON.stringify({ pecas: [], roteiros: { [SG.chaveDia(new Date())]: [{ code: 'NOVO', pad: 'x'.repeat(2000) }] } });
++    expect(() => st.setItem('roteiroApp', novo)).not.toThrow();
++    expect(st.getItem('roteiroApp')).toBe(novo); // servido da memória
++  });
++
++  it('sem storage-guard.js carregado: degrada sem lançar (não quebra o login)', async () => {
++    const st = makeQuotaStorage(100);
++    const cs = loadCloudSync({ storage: st, withGuard: false, userRow: { roteiros: appComHistorico(50).roteiros, pecas_dia: {} } });
++    await expect(cs.fetchAndMergeCloudData({ id: 'u1', email: 'u@t.com' })).resolves.not.toThrow();
++  });
++});
