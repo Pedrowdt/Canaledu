@@ -38,10 +38,8 @@ const TODAY = new Date();
 function baseProgramTitle(desc) {
   return String(desc || '')
     .replace(/^\s*PGM\s+/i, '')
-    .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
-    .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')
-    .replace(/\s*-\s*EP\s*\d+.*$/i, '')
-    .replace(/\s+EP\s*\d+.*$/i, '')
+    .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '') // remove "T 01 EP 03", "T01 EP03", com ou sem hífen/espacamento
+    .replace(/\s*-?\s*EP\s*\d+.*$/i, '') // remove "EP 01" com ou sem hífen
     .replace(/\s*-\s*BL\s*\d+\s*$/i, '')
     .replace(/\s*BL\s*\d+\s*$/i, '')
     .replace(/\s*\(.*?\)\s*$/, '')

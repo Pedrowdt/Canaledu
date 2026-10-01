@@ -329,4 +329,42 @@ describe('findVhPorFuncaoNoCadastro / findVhSeguir / findVhAssistindo — Fase 2
     expect(r).not.toBeNull();
     expect(r.code).toBe('90360'); // code do VH_ASSISTINDO_MAP hardcoded para SCIENTIA
   });
+
+  it("findVhSeguir remove sufixos de canal (CANAL EDUCACAO / CANAL GOV) e acha a vinheta correspondente", () => {
+    const app = loadPure();
+    app.__test_setState({ pecas: [] }); // usa os mapas de VH_SEGUIR_MAP
+    
+    // ME LIGA NA LATA (88963)
+    const r1 = app.findVhSeguir("PGM ME LIGA NA LATA CANAL EDUCACAO - T 01 EP 08 - ACUPE BAHIA PARTE 2 - BL 01");
+    expect(r1).not.toBeNull();
+    expect(r1.code).toBe("88963");
+
+    // CONTA A VIRADA (85196 ou 85242)
+    const r2 = app.findVhSeguir("PGM CONTA A VIRADA CANAL GOV - T 01 EP 09 - PETSHOP - BL 01");
+    expect(r2).not.toBeNull();
+    expect(["85196", "85242"]).toContain(r2.code);
+
+    // MUTATIS MUTANDIS (88966)
+    const r3 = app.findVhSeguir("PGM MUTATIS MUTANDIS CANAL EDUCACAO - T 01 EP 03 - ELETRONICA E CIENCIA");
+    expect(r3).not.toBeNull();
+    expect(r3.code).toBe("88966");
+
+    // SCIENTIA (90359)
+    const r4 = app.findVhSeguir("PGM SCIENTIA CANAL EDUCACAO - T 01 EP 04 - PROBLEMAS DA PRIVACAO DE SONO PARA ADOLESCENTES");
+    expect(r4).not.toBeNull();
+    expect(r4.code).toBe("90359");
+  });
+
+  it("findVhSeguir trata temporada sem hifen e com espacamento T 03 EP 09", () => {
+    const app = loadPure();
+    app.__test_setState({
+      pecas: [
+        { code: "87845", descricao: "VH A SEGUIR SEM DUVIDA NENHUMA", tempo: "00:00:05", midia: "0OMN", type: "EVNH", funcao: "vh_a_seguir", programaRelacionado: "SEM DUVIDA NENHUMA", ativo: true }
+      ]
+    });
+    const r = app.findVhSeguir("SEM DÚVIDA NENHUMA T 03 EP 09 - BLOCO UNICO");
+    expect(r).not.toBeNull();
+    expect(r.code).toBe("87845");
+  });
 });
+

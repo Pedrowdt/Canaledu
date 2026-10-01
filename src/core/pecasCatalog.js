@@ -237,13 +237,12 @@ export function baseProgramTitle(desc) {
   return String(desc || '')
     .replace(/^\s*PGM\s+/i, '')                    // remove prefixo "PGM " no início
     .replace(/^\s*PROGRAMA\s+/i, '')               // remove prefixo "PROGRAMA " no início
-    .replace(/\s*-\s*T\s*\d+\s*EP\s*\d+.*$/i, '')   // remove " - T 01 EP 03 - ..." até o fim
-    .replace(/\s*T\d+\s*EP\s*\d+.*$/i, '')          // variante sem hífen antes de "T01 EP16"
-    .replace(/\s*-\s*EP\s*\d+.*$/i, '')             // remove " - EP 01" sem temporada
-    .replace(/\s+EP\s*\d+.*$/i, '')                 // remove " EP01" sem temporada
+    .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')   // remove "T 01 EP 03", com ou sem hífen e espaçamento
+    .replace(/\s*-?\s*EP\s*\d+.*$/i, '')             // remove "EP 01" com ou sem hífen
     .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '')           // remove " - BL 01", " BL01" e o que vier depois (ex: "BL 01 (REPRISE)")
     .replace(/\s*\(.*?\)\s*$/, '')                  // remove parênteses no final (ex: "(reprise quarta 22h)")
     .replace(/\s*\d+'\s*$/, '')                     // remove sufixo de minutagem da grade, ex: " 10'"
+    .replace(/(?<!^)\s*-?\s*CANAL\s+(?:EDUCA[C\u00c7][A\u00c3]O|GOV)\b.*$/i, '') // remove sufixo institucional de canal no fim
     .trim();
 }
 
