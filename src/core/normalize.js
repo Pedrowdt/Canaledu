@@ -231,3 +231,9 @@ export function parseRestricaoObs(texto) {
 
   return { freq, hIni, hFim };
 }
+
+
+/** Normaliza abreviação ou nome de dia da semana removendo acentos e espaços. */
+export function normalizeDia(d) {
+  return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}

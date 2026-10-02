@@ -83,9 +83,23 @@
     return minDiff === 0 ? bestCombination : null;
   }
 
+    function normalizeDia(d) {
+    return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  }
+
+  const DIAS_SEMANA_ABREV = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+
+  function isPecaDoDia(p, dow) {
+    if (dow == null) return true;
+    const dias = p?.dias || [];
+    if (!dias.length) return true;
+    return dias.map(normalizeDia).includes(DIAS_SEMANA_ABREV[dow]);
+  }
+
   function distribuirPecasNosBreaks(roteiro, pecas, options = {}) {
     const startSec = Number(options.startSec) || 21600;
     const regras = options.regras || {};
+    const dow = options.dow != null ? Number(options.dow) : (options.date ? new Date(options.date).getDay() : null);
 
     const intervaloChamada = Number(regras.breakIntervaloMinChamada ?? 90) * 60;
     const intervaloInterprograma = Number(regras.breakIntervaloMinInterprograma ?? 120) * 60;
@@ -96,6 +110,7 @@
     const pecasAtivas = (pecas || []).filter(p => {
       if (p.ativo === false || p.ativo === 'false') return false;
       if (isValidadeExpired(p.validade)) return false;
+      if (dow != null && !isPecaDoDia(p, dow)) return false;
       return true;
     });
 

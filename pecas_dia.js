@@ -183,10 +183,14 @@ function isPecaVigenteEm(peca, ref) {
   return d.getTime() >= ref.getTime();
 }
 
+function normalizeDiaSemana(d) {
+  return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
+
 function isPecaDoDiaSemana(peca, dow) {
   const dias = peca?.dias || [];
   if (!dias.length) return true; // sem restrição de dia cadastrada => todo dia
-  return dias.map((d) => String(d).toLowerCase()).includes(DIAS_SEMANA_ABREV[dow]);
+  return dias.map(normalizeDiaSemana).includes(DIAS_SEMANA_ABREV[dow]);
 }
 
 /**

@@ -1,3 +1,6 @@
+function normalizeDia(d) {
+  return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
 // =====================================================
 // PEÇAS E PROGRAMAS — Cadastro compartilhado
 // Roteiro Canal Educação
@@ -671,7 +674,8 @@ function openModal(id){
     document.getElementById('horario-fields').style.display = hasH ? 'block' : 'none';
 
     document.querySelectorAll('#dias-wrap .dia-btn').forEach(b=>{
-      b.classList.toggle('active', !!(p?.dias||[]).includes(b.dataset.d));
+      const pDias = (p?.dias || []).map(normalizeDia);
+    b.classList.toggle('active', pDias.includes(normalizeDia(b.dataset.d)));
     });
 
     document.getElementById('f-funcao').value = p?.funcao || '';
@@ -706,7 +710,7 @@ function saveItem(){
   };
 
   if (isPecas) {
-    const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>b.dataset.d);
+    const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>normalizeDia(b.dataset.d));
     const showH=document.getElementById('f-showh').checked;
     const funcao = document.getElementById('f-funcao').value;
     p = {

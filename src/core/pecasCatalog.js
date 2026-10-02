@@ -40,7 +40,7 @@ export function isPecaVigente(peca, ref = new Date()) {
 export function isPecaDoDia(peca, dow) {
   const dias = peca?.dias || [];
   if (!dias.length) return true;
-  return dias.map((d) => String(d).toLowerCase()).includes(DIAS[dow]);
+  return dias.map((d) => String(d).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()).includes(DIAS[dow]);
 }
 
 /** A peça pode ir ao ar neste segundo do dia (janela hIni–hFim do cadastro)? */

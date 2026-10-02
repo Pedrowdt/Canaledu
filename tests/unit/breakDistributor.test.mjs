@@ -46,4 +46,40 @@ describe('breakDistributor v2', () => {
     expect(combo).toHaveLength(2);
     expect(combo.map(p => p.code).sort()).toEqual(['P1', 'P3']);
   });
+
+  it('respeita os dias da semana permitidos da peça e normaliza acentos (ex: sáb)', () => {
+    const roteiro = [
+      { type: 'PGM', descricao: 'PGM CIENCIA', tempo: '00:15:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — chamada ]', tempo: '00:00:30' }
+    ];
+
+    const pecas = [
+      // Peça configurada apenas para sábado com acento 'sáb'
+      { code: 'SAB01', type: 'ECHM', descricao: 'CHAMADA SABADO', tempo: '00:00:30', dias: ['sáb'], ativo: true },
+      // Peça configurada apenas para quarta 'qua'
+      { code: 'QUA01', type: 'ECHM', descricao: 'CHAMADA QUARTA', tempo: '00:00:30', dias: ['qua'], ativo: true }
+    ];
+
+    // Simula execução na quarta-feira (dow = 3)
+    const resQua = distribuirPecasNosBreaks(roteiro, pecas, {
+      dow: 3,
+      regras: { breakIntervaloMinChamada: 0 }
+    });
+    expect(resQua.roteiro[1].code).toBe('QUA01');
+
+    // Simula execução no sábado (dow = 6)
+    const resSab = distribuirPecasNosBreaks(roteiro, pecas, {
+      dow: 6,
+      regras: { breakIntervaloMinChamada: 0 }
+    });
+    expect(resSab.roteiro[1].code).toBe('SAB01');
+
+    // Simula execução na segunda-feira (dow = 1) -> nenhuma elegível
+    const resSeg = distribuirPecasNosBreaks(roteiro, pecas, {
+      dow: 1,
+      regras: { breakIntervaloMinChamada: 0 }
+    });
+    expect(resSeg.resultado.totalAlocado).toBe(0);
+  });
+
 });

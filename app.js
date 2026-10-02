@@ -1,3 +1,17 @@
+
+const DIAS_SEMANA_NOMES_EXTENSO = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const DIAS_SEMANA_SIGLAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+
+function _normalizeDiaSemana(d) {
+  return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+}
+
+function _isPecaDoDiaSemana(peca, dow) {
+  if (dow == null) return true;
+  const dias = peca?.dias || [];
+  if (!dias.length) return true;
+  return dias.map(_normalizeDiaSemana).includes(DIAS_SEMANA_SIGLAS[dow]);
+}
 // =====================================================
 // STATE
 // =====================================================
@@ -790,8 +804,10 @@ function renderPecasSidebar() {
   const shown    = filtered.slice(0, MAX_VISIBLE);
   const overflow = filtered.length - shown.length;
 
+  const curDow = state.currentDate ? state.currentDate.getDay() : today.getDay();
   list.innerHTML = shown.map(item => {
     const expired = isExpired(item.validade, today);
+    const foraDoDia = Array.isArray(item.dias) && item.dias.length > 0 && !_isPecaDoDiaSemana(item, curDow);
     return `<div class="peca-item ${expired ? 'peca-expired':''}" draggable="true"
       ondragstart="dragFromSidebar(event,'${escAttr(item.code)}')"
       ondblclick="addToRoteiro('${escAttr(item.code)}')">
@@ -801,6 +817,7 @@ function renderPecasSidebar() {
         <span class="peca-dur">${item.tempo}</span>
         <span class="type-badge badge-${item.type}">${item.type}</span>
         ${expired ? '<span style="font-size:9px;color:var(--red)">VENCIDA</span>' : ''}
+        ${foraDoDia ? '<span style="font-size:9px;color:var(--amber);margin-left:4px;font-weight:600" title="Não permitida para o dia de hoje">FORA DO DIA</span>' : ''}
       </div>
       ${item.obs ? `<div class="peca-obs">${escHtml(item.obs)}</div>` : ''}
     </div>`;
@@ -894,9 +911,11 @@ function renderPecasPanel() {
     grid.innerHTML = '<div class="empty"><p>Nenhuma peça encontrada.</p></div>';
     return;
   }
+  const curDow = state.currentDate ? state.currentDate.getDay() : today.getDay();
   grid.innerHTML = filtered.map(item => {
     const idx     = state.pecas.indexOf(item);
     const expired = isExpired(item.validade, today);
+    const foraDoDia = Array.isArray(item.dias) && item.dias.length > 0 && !_isPecaDoDiaSemana(item, curDow);
     return `<div class="peca-card ${expired ? 'peca-expired':''}">
       <div class="peca-card-head">
         <div class="peca-card-name">${escHtml(item.descricao)}</div>
@@ -909,6 +928,7 @@ function renderPecasPanel() {
       ${item.obs ? `<div class="peca-card-obs">${escHtml(item.obs)}</div>` : ''}
       ${item.validade && item.validade !== 'None'
         ? `<div class="peca-card-val">${expired?'⚠ ':''}Validade: ${escHtml(formatValidade(item.validade) || item.validade)}</div>` : ''}
+      ${foraDoDia ? `<div class="peca-card-val" style="color:var(--amber);font-weight:600">⚠ Fora do dia selecionado (${(item.dias||[]).join(', ')})</div>` : ''}
       <div class="peca-card-actions">
         <button class="act-btn" onclick="editPecaModal(${idx})" title="Editar peça">✎</button>
         <button class="act-btn act-btn-danger" onclick="deletePeca(${idx})" title="Excluir peça">🗑</button>
@@ -988,6 +1008,13 @@ function dragDrop(e, i) {
     const code = e.dataTransfer.getData('peca-code');
     const peca = findPeca(code);
     if (peca) {
+      if (Array.isArray(peca.dias) && peca.dias.length > 0 && state.currentDate) {
+        const dow = state.currentDate.getDay();
+        if (!_isPecaDoDiaSemana(peca, dow)) {
+          const diaNome = DIAS_SEMANA_NOMES_EXTENSO[dow] || 'este dia';
+          toast(`Atenção: "${peca.descricao.substring(0,35)}" não é permitida para ${diaNome}!`, 'warning');
+        }
+      }
       state.roteiro.splice(i, 0, {...peca});
       recalcTimes();
       saveState();
@@ -1020,6 +1047,13 @@ function addToRoteiro(code) {
     state.selectedRow = insertAt; // move selection to the new item
   } else {
     state.roteiro.push({...peca});
+  }
+  if (Array.isArray(peca.dias) && peca.dias.length > 0 && state.currentDate) {
+    const dow = state.currentDate.getDay();
+    if (!_isPecaDoDiaSemana(peca, dow)) {
+      const diaNome = DIAS_SEMANA_NOMES_EXTENSO[dow] || 'este dia';
+      toast(`Atenção: "${peca.descricao.substring(0,35)}" não é permitida para ${diaNome}!`, 'warning');
+    }
   }
   recalcTimes();
   saveState();
@@ -3994,6 +4028,21 @@ function validateRoteiroRegras() {
       ocorrPorCode[it.code] = sec;
     }
 
+    // Validação de restrição de dias da semana da peça
+    const pecaCad = findPeca(it.code);
+    if (pecaCad && Array.isArray(pecaCad.dias) && pecaCad.dias.length > 0 && state.currentDate) {
+      const dow = state.currentDate.getDay();
+      if (!_isPecaDoDiaSemana(pecaCad, dow)) {
+        const diaAtual = DIAS_SEMANA_NOMES_EXTENSO[dow] || 'este dia';
+        const permitidos = pecaCad.dias.map(d => {
+          const dn = _normalizeDiaSemana(d);
+          const idx = DIAS_SEMANA_SIGLAS.indexOf(dn);
+          return idx >= 0 ? DIAS_SEMANA_NOMES_EXTENSO[idx] : d;
+        }).join(', ');
+        msgs.push(`não permitida para ${diaAtual} (permitida: ${permitidos})`);
+      }
+    }
+
     if (msgs.length) out[i] = msgs;
   }
   return out;
@@ -4448,9 +4497,11 @@ function executarDistribuicaoBreaks() {
     return;
   }
 
+  const curDow = state.currentDate ? state.currentDate.getDay() : (new Date()).getDay();
   const res = fnDist(state.roteiro, state.pecas || [], {
     startSec: (typeof START_SECONDS !== 'undefined' ? START_SECONDS : 21600),
-    regras: (typeof REGRAS !== 'undefined' ? REGRAS : {})
+    regras: (typeof REGRAS !== 'undefined' ? REGRAS : {}),
+    dow: curDow
   });
 
   if (res.resultado.totalAlocado === 0) {

@@ -258,3 +258,13 @@ describe('atualizarCadastroComRestricoesDoImport — MVP-CADASTRO.md, Fase 3: im
     await expect(atualizarCadastroComRestricoesDoImport([{ code: 'A1', obs: 'PROGRAMAR 2X' }])).resolves.not.toThrow();
   });
 });
+
+describe('isPecaDoDiaSemana com normalização de acentos', () => {
+  it('reconhece sábado tanto com quanto sem acento (sáb e sab)', () => {
+    const app = loadPure();
+    expect(app.isPecaDoDiaSemana({ dias: ['sáb'] }, 6)).toBe(true);
+    expect(app.isPecaDoDiaSemana({ dias: ['sab'] }, 6)).toBe(true);
+    expect(app.isPecaDoDiaSemana({ dias: ['ter', 'sáb'] }, 2)).toBe(true);
+    expect(app.isPecaDoDiaSemana({ dias: ['sáb'] }, 0)).toBe(false);
+  });
+});
