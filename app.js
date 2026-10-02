@@ -4421,4 +4421,48 @@ function applyGradeSemanalImport() {
 // =====================================================
 // START
 // =====================================================
+// ── Distribuição Inteligente de Chamadas e Interprogramas ──────────────────────
+function executarDistribuicaoBreaks() {
+  if (!state.roteiro || state.roteiro.length === 0) {
+    toast("O roteiro está vazio.", "warning");
+    return;
+  }
+
+  const fnDist = (typeof BreakDistributor !== "undefined" && BreakDistributor.distribuirPecasNosBreaks)
+    ? BreakDistributor.distribuirPecasNosBreaks
+    : null;
+
+  if (!fnDist) {
+    toast("Módulo de distribuição não carregado.", "error");
+    return;
+  }
+
+  const res = fnDist(state.roteiro, state.pecas || [], {
+    startSec: START_SECONDS,
+    regrasTipo: REGRAS_TIPO
+  });
+
+  if (res.resultado.totalAlocado === 0) {
+    toast("Nenhum slot de chamada ou gap pôde ser preenchido com as peças ativas atuais.", "warning");
+    return;
+  }
+
+  state.roteiro = res.roteiro;
+  saveState();
+  renderRoteiro();
+
+  const msg = [
+    `Breaks preenchidos com sucesso!`,
+    `• Chamadas alocadas: ${res.resultado.chamadasPreenchidas}`,
+    `• Interprogramas alocados: ${res.resultado.interprogramasPreenchidos}`,
+    `• Gaps resolvidos: ${res.resultado.gapsResolvidos}`,
+    res.resultado.slotsVaziosRestantes > 0 ? `• Slots sem peças compatíveis: ${res.resultado.slotsVaziosRestantes}` : ""
+  ].filter(Boolean).join("\n");
+
+  toast(`${res.resultado.totalAlocado} peças distribuídas automaticamente nos breaks!`, "success");
+  console.log(msg);
+}
+
+// START
+// =====================================================
 init();

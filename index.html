@@ -682,7 +682,8 @@
           <!-- Desfaz a última alteração salva no roteiro do dia em exibição (adicionar, remover, reordenar, limpar, inserção automática...). Começa desabilitado até haver algo para desfazer. -->
           <button class="btn btn-sm" id="btn-undo" onclick="undoLastAction()" disabled title="Reverter a última ação feita no roteiro deste dia">↺ Refazer última ação</button>
           <!-- Botão para limpar todo o roteiro do dia atual (com confirmação) -->
-          <button class="btn btn-sm" onclick="clearRoteiro()">Limpar roteiro</button>
+          <button class="btn btn-sm" onclick="executarDistribuicaoBreaks()" title="Preenche automaticamente slots de chamadas, interprogramas e ajustes de grade" style="border-color:var(--accent);color:var(--accent)">🪄 Auto-preencher breaks</button>
+      <button class="btn btn-sm" onclick="clearRoteiro()">Limpar roteiro</button>
           <!-- Botão para abrir o modal de configuração da grade semanal -->
           <button class="btn btn-sm" onclick="openGradeModal()" title="Definir horários da grade semanal" style="border-color:var(--green);color:var(--green)">📅 Grade</button>
           <!-- Botão de backup automático: escolhe pasta e ativa backup a cada 2min (Chrome/Edge) -->
@@ -1378,5 +1379,6 @@
 <script src="roteiro-pecas-bridge.js"></script>
 <script src="storage-guard.js"></script>
 <script src="cloud-sync.js"></script>
+  <script type="module" src="src/core/breakDistributor.js"></script>
 </body>
 </html>
