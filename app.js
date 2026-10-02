@@ -115,6 +115,12 @@ const REGRAS_DEFAULT = {
   gradeTolerancia:     10,
   // Quantidade de slots de break por bloco de programa
   breakSlotsPorBloco:  2,
+  // Distribuição Automática de Breaks
+  breakIntervaloMinChamada:        90,
+  breakIntervaloMinInterprograma:  120,
+  breakIntervaloMinComercial:      60,
+  breakAntiAdjacenciaTema:         true,
+  breakPreencherGaps:              true,
   // Tipos considerados "chamada" para regra de não-adjacência
   tiposChamada:        ['ECHM', 'ECHE'],
   // Limite de itens visíveis na sidebar antes de pedir refinamento
@@ -2751,6 +2757,11 @@ function openAdminModal() {
   document.getElementById('adm-rpol-fim').value     = secToTimeRaw(r.rpolFim).substring(0,5);
   document.getElementById('adm-grade-tol').value    = r.gradeTolerancia;
   document.getElementById('adm-break-slots').value  = r.breakSlotsPorBloco;
+  if (document.getElementById('adm-break-int-chm')) document.getElementById('adm-break-int-chm').value = r.breakIntervaloMinChamada ?? 90;
+  if (document.getElementById('adm-break-int-int')) document.getElementById('adm-break-int-int').value = r.breakIntervaloMinInterprograma ?? 120;
+  if (document.getElementById('adm-break-int-com')) document.getElementById('adm-break-int-com').value = r.breakIntervaloMinComercial ?? 60;
+  if (document.getElementById('adm-break-anti-adj-tema')) document.getElementById('adm-break-anti-adj-tema').checked = r.breakAntiAdjacenciaTema !== false;
+  if (document.getElementById('adm-break-preencher-gaps')) document.getElementById('adm-break-preencher-gaps').checked = r.breakPreencherGaps !== false;
   document.getElementById('adm-sidebar-max').value  = r.sidebarMaxItens;
   document.getElementById('adm-backup-min').value   = r.backupIntervaloMin;
   document.getElementById('adm-mostrar-grade').checked  = r.mostrarGrade !== false;
@@ -4438,8 +4449,8 @@ function executarDistribuicaoBreaks() {
   }
 
   const res = fnDist(state.roteiro, state.pecas || [], {
-    startSec: START_SECONDS,
-    regrasTipo: REGRAS_TIPO
+    startSec: (typeof START_SECONDS !== 'undefined' ? START_SECONDS : 21600),
+    regras: (typeof REGRAS !== 'undefined' ? REGRAS : {})
   });
 
   if (res.resultado.totalAlocado === 0) {

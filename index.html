@@ -1231,6 +1231,29 @@
       Para importar uma nova grade semanal de planilha, use a aba <strong style="color:var(--text)">Grade Semanal</strong> — o botão fica lá agora, junto com a visualização.
     </p>
 
+        <!-- Seção: Distribuição Automática de Breaks -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Distribuição Automática de Breaks</div>
+    <div class="form-row">
+      <label title="Intervalo mínimo em minutos entre exibições da mesma chamada">Intervalo mín. entre chamadas (min)</label>
+      <input type="number" id="adm-break-int-chm" min="10" max="720" value="90" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Intervalo mínimo em minutos entre exibições do mesmo interprograma">Intervalo mín. entre interprogramas (min)</label>
+      <input type="number" id="adm-break-int-int" min="10" max="720" value="120" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Intervalo mínimo em minutos entre exibições do mesmo comercial">Intervalo mín. entre comerciais (min)</label>
+      <input type="number" id="adm-break-int-com" min="10" max="720" value="60" style="width:80px;font-family:var(--mono)">
+    </div>
+    <div class="form-row">
+      <label title="Evita colocar peças com o mesmo programa relacionado ou mesmo tema em sequência imediata">Anti-adjacência por tema/programa</label>
+      <input type="checkbox" id="adm-break-anti-adj-tema" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+    <div class="form-row">
+      <label title="Preenche automaticamente os slots de ajuste de grade (__GAP__) com combinações de peças">Preencher gaps de ajuste de grade</label>
+      <input type="checkbox" id="adm-break-preencher-gaps" checked style="width:18px;height:18px;accent-color:var(--accent)">
+    </div>
+
     <!-- Seção: Automação -->
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Automação</div>
     <div class="form-row">
@@ -1379,6 +1402,6 @@
 <script src="roteiro-pecas-bridge.js"></script>
 <script src="storage-guard.js"></script>
 <script src="cloud-sync.js"></script>
-  <script type="module" src="src/core/breakDistributor.js"></script>
+  <script src="src/core/breakDistributor.js"></script>
 </body>
 </html>

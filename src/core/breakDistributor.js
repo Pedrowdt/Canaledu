@@ -1,227 +1,289 @@
-// src/core/breakDistributor.js
-// Distribuição Inteligente de Chamadas, Comerciais e Interprogramas
+// =====================================================
+// DISTRIBUIÇÃO INTELIGENTE DE BREAKS, CHAMADAS E INTERPROGRAMAS
 // GNU GPL v3 · Canal Educação / MEC · 2026
+// =====================================================
+(function (global) {
+  'use strict';
 
-import { timeToSec, secToTime } from './normalize.js';
-
-export function isValidadeExpired(val) {
-  if (!val) return false;
-  const match = String(val).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return false;
-  const [, d, m, y] = match;
-  const exp = new Date(Number(y), Number(m) - 1, Number(d), 23, 59, 59);
-  return exp.getTime() < Date.now();
-}
-
-/**
- * Encontra a melhor combinação de peças que soma o tempo do GAP (ou chega mais perto).
- */
-export function findCombinationForDuration(candidates, targetSec, maxPieces = 3) {
-  if (targetSec <= 0 || !candidates || !candidates.length) return [];
-
-  let bestCombo = [];
-  let bestDiff = targetSec;
-
-  function search(startIndex, currentCombo, currentSum) {
-    const diff = targetSec - currentSum;
-    if (diff === 0) {
-      bestCombo = [...currentCombo];
-      bestDiff = 0;
-      return true;
-    }
-    if (diff < bestDiff && diff >= 0) {
-      bestDiff = diff;
-      bestCombo = [...currentCombo];
-    }
-    if (currentCombo.length >= maxPieces || currentSum >= targetSec) return false;
-
-    for (let i = startIndex; i < candidates.length; i++) {
-      const p = candidates[i];
-      const pSec = timeToSec(p.tempo);
-      if (pSec <= 0 || currentSum + pSec > targetSec) continue;
-
-      currentCombo.push(p);
-      const foundExact = search(i + 1, currentCombo, currentSum + pSec);
-      currentCombo.pop();
-      if (foundExact) return true;
-    }
-    return false;
+  function timeToSec(t) {
+    if (!t) return 0;
+    const parts = String(t).trim().split(':').map(Number);
+    if (parts.some(isNaN)) return 0;
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    return 0;
   }
 
-  search(0, [], 0);
-  return bestCombo;
-}
-
-/**
- * Distribui peças ativas nos slots vazios (__BREAK__ e __GAP__) do roteiro.
- */
-export function distribuirPecasNosBreaks(roteiro, pecas, options = {}) {
-  const startSec = Number(options.startSec) || 21600; // 06:00:00
-  const regrasTipo = options.regrasTipo || {
-    ECHM: { intervaloMinMin: 90, ativo: true },
-    EINT: { intervaloMinMin: 120, ativo: true },
-    ECOM: { intervaloMinMin: 60, ativo: true },
-    EINS: { intervaloMinMin: 90, ativo: true }
-  };
-
-  const usageCounts = {};
-  const lastSecByCode = {};
-
-  let initialSec = startSec;
-  (roteiro || []).forEach(it => {
-    const dur = timeToSec(it.tempo);
-    if (it.code && it.type !== '__SLOT__' && it.type !== '__GAP__') {
-      usageCounts[it.code] = (usageCounts[it.code] || 0) + 1;
-      lastSecByCode[it.code] = initialSec;
-    }
-    initialSec += dur;
-  });
-
-  const pecasAtivas = (pecas || []).filter(p => {
-    if (!p || !p.code || p.ativo === false) return false;
-    if (isValidadeExpired(p.validade)) return false;
-    return true;
-  });
-
-  function isEligible(p, currentSec, prevType) {
-    const cfg = regrasTipo[p.type] || {};
-    if (cfg.ativo === false) return false;
-
-    if (p.type === 'ECOM' && prevType === 'ECOM') return false;
-
-    const minMin = Number(cfg.intervaloMinMin) || 0;
-    if (minMin > 0 && lastSecByCode[p.code] != null) {
-      const diffMin = (currentSec - lastSecByCode[p.code]) / 60;
-      if (diffMin < minMin) return false;
-    }
-
-    return true;
+  function secToTime(s) {
+    if (s == null || isNaN(s) || s < 0) return '00:00:00';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = Math.floor(s % 60);
+    return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
   }
 
-  function pickPiece(targetTypes, currentSec, prevType) {
-    const candidatas = pecasAtivas.filter(p => targetTypes.includes(p.type) && isEligible(p, currentSec, prevType));
-    if (!candidatas.length) return null;
+  function normalizeKey(s) {
+    return String(s || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toUpperCase();
+  }
 
-    candidatas.sort((a, b) => {
-      const uA = usageCounts[a.code] || 0;
-      const uB = usageCounts[b.code] || 0;
-      if (uA !== uB) return uA - uB;
-      return (Number(a.ordem) || 0) - (Number(b.ordem) || 0);
+  function extractTheme(p) {
+    if (!p) return '';
+    if (p.programaRelacionado) return normalizeKey(p.programaRelacionado);
+    if (p.programa_relacionado) return normalizeKey(p.programa_relacionado);
+    const desc = normalizeKey(p.descricao || '');
+    return desc
+      .replace(/^(PGM|VH\s+A\s+SEGUIR|VH\s+VC\s+ESTA\s+ASSISTINDO|CHAMADA|INTERPROGRAMA|VT)\s*/i, '')
+      .replace(/\s*-\s*(T\s*\d+|EP\s*\d+|BL\s*\d+).*$/i, '')
+      .trim();
+  }
+
+  function isValidadeExpired(val) {
+    if (!val) return false;
+    const match = String(val).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return false;
+    const [, d, m, y] = match;
+    const exp = new Date(Number(y), Number(m) - 1, Number(d), 23, 59, 59);
+    return exp.getTime() < Date.now();
+  }
+
+  function findCombinationForDuration(pecas, targetSec, maxItems = 4) {
+    const valid = pecas.filter(p => {
+      const s = timeToSec(p.tempo);
+      return s > 0 && s <= targetSec;
     });
 
-    const escolhida = candidatas[0];
-    usageCounts[escolhida.code] = (usageCounts[escolhida.code] || 0) + 1;
-    lastSecByCode[escolhida.code] = currentSec;
+    let bestCombination = null;
+    let minDiff = targetSec + 1;
+
+    function backtrack(startIndex, currentCombo, currentSum) {
+      const diff = Math.abs(targetSec - currentSum);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestCombination = [...currentCombo];
+      }
+      if (diff === 0 || currentCombo.length >= maxItems) return;
+
+      for (let i = startIndex; i < valid.length; i++) {
+        const pSec = timeToSec(valid[i].tempo);
+        if (currentSum + pSec <= targetSec) {
+          currentCombo.push(valid[i]);
+          backtrack(i + 1, currentCombo, currentSum + pSec);
+          currentCombo.pop();
+          if (minDiff === 0) return;
+        }
+      }
+    }
+
+    backtrack(0, [], 0);
+    return minDiff === 0 ? bestCombination : null;
+  }
+
+  function distribuirPecasNosBreaks(roteiro, pecas, options = {}) {
+    const startSec = Number(options.startSec) || 21600;
+    const regras = options.regras || {};
+
+    const intervaloChamada = Number(regras.breakIntervaloMinChamada ?? 90) * 60;
+    const intervaloInterprograma = Number(regras.breakIntervaloMinInterprograma ?? 120) * 60;
+    const intervaloComercial = Number(regras.breakIntervaloMinComercial ?? 60) * 60;
+    const antiAdjacenciaTema = regras.breakAntiAdjacenciaTema !== false;
+    const preencherGaps = regras.breakPreencherGaps !== false;
+
+    const pecasAtivas = (pecas || []).filter(p => {
+      if (p.ativo === false || p.ativo === 'false') return false;
+      if (isValidadeExpired(p.validade)) return false;
+      return true;
+    });
+
+    const exibições = {};
+    const lastSeenSec = {};
+    const outRoteiro = [];
+    let cumSec = startSec;
+
+    let chamadasPreenchidas = 0;
+    let interprogramasPreenchidos = 0;
+    let gapsResolvidos = 0;
+    let slotsVaziosRestantes = 0;
+
+    let prevAllocatedTheme = null;
+    let prevAllocatedType = null;
+
+    function findSurroundingProgramTheme(idx) {
+      for (let i = idx - 1; i >= 0; i--) {
+        const item = roteiro[i];
+        if (item.type === 'PGM' || (!item.type?.startsWith('__') && !item.type?.startsWith('E'))) {
+          return extractTheme(item);
+        }
+      }
+      for (let i = idx + 1; i < roteiro.length; i++) {
+        const item = roteiro[i];
+        if (item.type === 'PGM' || (!item.type?.startsWith('__') && !item.type?.startsWith('E'))) {
+          return extractTheme(item);
+        }
+      }
+      return null;
+    }
+
+    function isEligible(p, currentSec, neighborProgTheme) {
+      const pTheme = extractTheme(p);
+
+      if (antiAdjacenciaTema) {
+        if (prevAllocatedTheme && pTheme && prevAllocatedTheme === pTheme) {
+          return false;
+        }
+        if (neighborProgTheme && pTheme && neighborProgTheme === pTheme) {
+          return false;
+        }
+      }
+
+      if (p.type === 'ECOM' && prevAllocatedType === 'ECOM') {
+        return false;
+      }
+
+      let minIntervalo = 0;
+      if (p.type === 'ECHM' || p.type === 'ECHE') minIntervalo = intervaloChamada;
+      else if (p.type === 'EINT' || p.type === 'EINS') minIntervalo = intervaloInterprograma;
+      else if (p.type === 'ECOM') minIntervalo = intervaloComercial;
+
+      const last = lastSeenSec[p.code];
+      if (last != null && (currentSec - last) < minIntervalo) {
+        return false;
+      }
+
+      return true;
+    }
+
+    function pickBestPeca(candidates, currentSec, neighborProgTheme) {
+      const eligible = candidates.filter(p => isEligible(p, currentSec, neighborProgTheme));
+      if (eligible.length === 0) return null;
+
+      eligible.sort((a, b) => {
+        const countA = exibições[a.code] || 0;
+        const countB = exibições[b.code] || 0;
+        if (countA !== countB) return countA - countB;
+
+        const durA = timeToSec(a.tempo);
+        const durB = timeToSec(b.tempo);
+        return durB - durA;
+      });
+
+      return eligible[0];
+    }
+
+    for (let i = 0; i < roteiro.length; i++) {
+      const it = { ...roteiro[i] };
+      const isGap = it.code === '__GAP__' || it.type === '__GAP__';
+      const isSlot = it.type === '__SLOT__';
+
+      if (isGap) {
+        if (!preencherGaps) {
+          outRoteiro.push(it);
+          cumSec += timeToSec(it.tempo);
+          continue;
+        }
+
+        const gapSec = timeToSec(it.tempo);
+        if (gapSec <= 0) {
+          outRoteiro.push(it);
+          continue;
+        }
+
+        const neighborTheme = findSurroundingProgramTheme(i);
+        const comboCandidates = pecasAtivas.filter(p => isEligible(p, cumSec, neighborTheme));
+        const combo = findCombinationForDuration(comboCandidates, gapSec);
+
+        if (combo && combo.length > 0) {
+          combo.forEach(peca => {
+            const pSec = timeToSec(peca.tempo);
+            const pTheme = extractTheme(peca);
+            outRoteiro.push({
+              ...peca,
+              horario: secToTime(cumSec)
+            });
+            exibições[peca.code] = (exibições[peca.code] || 0) + 1;
+            lastSeenSec[peca.code] = cumSec;
+            prevAllocatedTheme = pTheme;
+            prevAllocatedType = peca.type;
+            cumSec += pSec;
+          });
+          gapsResolvidos++;
+        } else {
+          outRoteiro.push(it);
+          cumSec += gapSec;
+        }
+      } else if (isSlot) {
+        const descUpper = String(it.descricao || '').toUpperCase();
+        let targetType = 'ECHM';
+        if (descUpper.includes('INTERPROGRAMA')) targetType = 'EINT';
+
+        const candidates = pecasAtivas.filter(p => {
+          if (targetType === 'ECHM') return p.type === 'ECHM' || p.type === 'ECHE';
+          if (targetType === 'EINT') return p.type === 'EINT' || p.type === 'EINS';
+          return p.type === targetType;
+        });
+
+        const neighborTheme = findSurroundingProgramTheme(i);
+        const alocada = pickBestPeca(candidates, cumSec, neighborTheme);
+
+        if (alocada) {
+          const durSec = timeToSec(alocada.tempo);
+          const pTheme = extractTheme(alocada);
+          outRoteiro.push({
+            ...alocada,
+            horario: secToTime(cumSec)
+          });
+          exibições[alocada.code] = (exibições[alocada.code] || 0) + 1;
+          lastSeenSec[alocada.code] = cumSec;
+          prevAllocatedTheme = pTheme;
+          prevAllocatedType = alocada.type;
+
+          if (targetType === 'ECHM') chamadasPreenchidas++;
+          else interprogramasPreenchidos++;
+
+          cumSec += durSec;
+        } else {
+          slotsVaziosRestantes++;
+          outRoteiro.push(it);
+          cumSec += timeToSec(it.tempo);
+        }
+      } else {
+        outRoteiro.push(it);
+        cumSec += timeToSec(it.tempo);
+        if (it.type === 'PGM' || !it.type?.startsWith('__')) {
+          const progTheme = extractTheme(it);
+          if (progTheme) prevAllocatedTheme = progTheme;
+          prevAllocatedType = it.type;
+        }
+      }
+    }
+
     return {
-      code: escolhida.code,
-      descricao: escolhida.descricao,
-      tempo: escolhida.tempo || '00:00:30',
-      midia: escolhida.midia || '0OMN',
-      type: escolhida.type || targetTypes[0],
-      _autoDistribuida: true
+      roteiro: outRoteiro,
+      resultado: {
+        chamadasPreenchidas,
+        interprogramasPreenchidos,
+        gapsResolvidos,
+        slotsVaziosRestantes,
+        totalAlocado: chamadasPreenchidas + interprogramasPreenchidos + gapsResolvidos
+      }
     };
   }
 
-  const novoRoteiro = [];
-  let cumSec = startSec;
-  let chamadasPreenchidas = 0;
-  let interprogramasPreenchidos = 0;
-  let gapsResolvidos = 0;
-  let slotsVaziosRestantes = 0;
-
-  for (let i = 0; i < (roteiro || []).length; i++) {
-    const it = roteiro[i];
-    const prevItem = novoRoteiro[novoRoteiro.length - 1];
-    const prevType = prevItem ? prevItem.type : null;
-
-    if (it.code === '__GAP__' || it.type === '__GAP__') {
-      const gapSec = timeToSec(it.tempo);
-      if (gapSec > 0) {
-        const candidatosGap = pecasAtivas.filter(p => ['ECHM', 'EINT', 'EINS', 'ECOM'].includes(p.type) && isEligible(p, cumSec, prevType));
-        candidatosGap.sort((a, b) => (usageCounts[a.code] || 0) - (usageCounts[b.code] || 0));
-
-        const combo = findCombinationForDuration(candidatosGap, gapSec, 4);
-        if (combo.length > 0) {
-          let comboSum = 0;
-          combo.forEach(peca => {
-            usageCounts[peca.code] = (usageCounts[peca.code] || 0) + 1;
-            lastSecByCode[peca.code] = cumSec;
-            const aloc = {
-              code: peca.code,
-              descricao: peca.descricao,
-              tempo: peca.tempo,
-              midia: peca.midia || '0OMN',
-              type: peca.type,
-              _autoDistribuida: true
-            };
-            novoRoteiro.push(aloc);
-            const pSec = timeToSec(peca.tempo);
-            comboSum += pSec;
-            cumSec += pSec;
-          });
-
-          gapsResolvidos++;
-          const residuo = gapSec - comboSum;
-          if (residuo > 0) {
-            novoRoteiro.push({
-              code: '__GAP__',
-              descricao: '[ AJUSTE DE GRADE ]',
-              tempo: secToTime(residuo),
-              midia: '0OMN',
-              type: '__SLOT__'
-            });
-            cumSec += residuo;
-          }
-        } else {
-          novoRoteiro.push({ ...it });
-          cumSec += gapSec;
-          slotsVaziosRestantes++;
-        }
-      } else {
-        novoRoteiro.push({ ...it });
-      }
-    } else if (it.type === '__SLOT__') {
-      const descLower = String(it.descricao || '').toLowerCase();
-      let alocada = null;
-
-      if (descLower.includes('chamada')) {
-        alocada = pickPiece(['ECHM', 'ECOM'], cumSec, prevType);
-        if (alocada) chamadasPreenchidas++;
-      } else if (descLower.includes('interprograma')) {
-        alocada = pickPiece(['EINT', 'EINS'], cumSec, prevType);
-        if (alocada) interprogramasPreenchidos++;
-      }
-
-      if (alocada) {
-        novoRoteiro.push(alocada);
-        cumSec += timeToSec(alocada.tempo);
-      } else {
-        novoRoteiro.push({ ...it });
-        cumSec += timeToSec(it.tempo);
-        slotsVaziosRestantes++;
-      }
-    } else {
-      novoRoteiro.push({ ...it });
-      cumSec += timeToSec(it.tempo);
-    }
-  }
-
-  return {
-    roteiro: novoRoteiro,
-    resultado: {
-      chamadasPreenchidas,
-      interprogramasPreenchidos,
-      gapsResolvidos,
-      slotsVaziosRestantes,
-      totalAlocado: chamadasPreenchidas + interprogramasPreenchidos + gapsResolvidos
-    }
-  };
-}
-
-if (typeof window !== 'undefined') {
-  window.BreakDistributor = {
+  const api = {
     distribuirPecasNosBreaks,
     findCombinationForDuration,
-    isValidadeExpired
+    isValidadeExpired,
+    extractTheme
   };
-}
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = api;
+  }
+  if (typeof global !== 'undefined') {
+    global.BreakDistributor = api;
+  }
+})(typeof self !== 'undefined' ? self : (typeof globalThis !== 'undefined' ? globalThis : this));
