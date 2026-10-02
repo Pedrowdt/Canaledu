@@ -209,3 +209,101 @@ describe('flushPendingSync — usado antes de navegar para Peças e Programas', 
     expect(cs.haSyncPendente()).toBe(false); // confirmado depois do flush
   });
 });
+
+describe('grade isolada por usuário em user_data', () => {
+  it('grava gradeByDay e gradeOrderByDay em user_data no pushToCloud', async () => {
+    let payloadUserData = null;
+    let payloadSharedData = null;
+    const local = makeLocalStorage();
+    local.setItem('roteiroApp', JSON.stringify({
+      gradeByDay: { '1': { 'PGM A': '08:00:00' } },
+      gradeOrderByDay: { '1': ['PGM A'] },
+      roteiros: {},
+      pecasDia: {},
+    }));
+
+    const fakeSupabase = {
+      from(table) {
+        const b = {
+          select() { return b; },
+          eq() { return b; },
+          async maybeSingle() { return { data: null }; },
+          update(payload) {
+            if (table === 'user_data') payloadUserData = payload;
+            if (table === 'shared_data') payloadSharedData = payload;
+            return b;
+          },
+          async upsert(payload) {
+            if (table === 'user_data') payloadUserData = payload;
+            return { data: null };
+          },
+        };
+        return b;
+      },
+    };
+
+    const g = {
+      document: { getElementById: () => makeFakeElement() },
+      location: { href: '', reload() {} },
+      addEventListener() {},
+      removeEventListener() {},
+      CanalAuth: {
+        getClient: () => fakeSupabase,
+        onAuthChange() {},
+        resolveSession: async () => null,
+      },
+      RoteiroPecasBridge: {
+        async carregarCadastro() { return { pecas: [], programas: [], origem: 'teste' }; },
+        mergeCadastro(local) { return { pecas: local.pecas || [], programas: local.programas || [] }; },
+      },
+      localStorage: local,
+      console,
+      setTimeout,
+      clearTimeout,
+      WORKSPACE_ID: 'workspace-teste',
+    };
+    g.window = g;
+
+    const body = `${SRC}
+      function __test_setCurrentUser(u) { currentUser = u; }
+      return { pushToCloud, __test_setCurrentUser };`;
+    const factory = new Function(
+      'window', 'globalThis', 'document', 'location', 'CanalAuth',
+      'RoteiroPecasBridge', 'localStorage', 'console', 'setTimeout', 'clearTimeout',
+      'WORKSPACE_ID', body
+    );
+    const cs = factory.call(
+      g, g.window, g, g.document, g.location, g.CanalAuth,
+      g.RoteiroPecasBridge, g.localStorage, g.console, g.setTimeout, g.clearTimeout,
+      g.WORKSPACE_ID
+    );
+    cs.__test_setCurrentUser({ id: 'user-1', email: 'user@teste.com' });
+
+    await cs.pushToCloud();
+
+    expect(payloadUserData).not.toBeNull();
+    expect(payloadUserData.grade_by_day).toEqual({ '1': { 'PGM A': '08:00:00' } });
+    expect(payloadUserData.grade_order_by_day).toEqual({ '1': ['PGM A'] });
+    expect(payloadSharedData.grade_by_day).toBeUndefined();
+    expect(payloadSharedData.grade).toBeUndefined();
+  });
+
+  it('fetchAndMergeCloudData carrega grade_by_day de user_data em vez de shared_data', async () => {
+    const local = makeLocalStorage();
+    const { cs } = loadCloudSync({
+      localStorage: local,
+      sharedRow: { grade_by_day: { '1': { 'GRADE COMPARTILHADA': '07:00:00' } } },
+      userRow: {
+        grade_by_day: { '1': { 'GRADE DO USUARIO': '09:00:00' } },
+        grade_order_by_day: { '1': ['GRADE DO USUARIO'] },
+        roteiros: {},
+        pecas_dia: {},
+      },
+    });
+
+    await cs.fetchAndMergeCloudData({ id: 'user-1' });
+
+    const saved = JSON.parse(local.getItem('roteiroApp'));
+    expect(saved.gradeByDay).toEqual({ '1': { 'GRADE DO USUARIO': '09:00:00' } });
+  });
+});

@@ -260,10 +260,6 @@ async function fetchAndMergeCloudData(user) {
       id: WORKSPACE_ID,
       pecas: merged.pecas,
       programas: merged.programas,
-      grade: merged.grade,
-      grade_by_day: merged.gradeByDay,
-      grade_order: merged.gradeOrder,
-      grade_order_by_day: merged.gradeOrderByDay,
       regras: localRegras,
       updated_by: user.id,
       updated_at: new Date().toISOString(),
@@ -281,13 +277,17 @@ async function fetchAndMergeCloudData(user) {
     );
     merged.pecas           = unidoInicial.pecas;
     merged.programas       = unidoInicial.programas;
-    merged.grade           = shared?.grade || {};
-    merged.gradeByDay      = shared?.grade_by_day || {};
-    merged.gradeOrder      = shared?.grade_order || {};
-    merged.gradeOrderByDay = shared?.grade_order_by_day || {};
 
     gravarLocal('roteiroRegras', JSON.stringify(shared?.regras || {}));
   }
+
+  // Grade agora é por usuário (user_data), permitindo que operadores diferentes
+  // importem semanas diferentes simultaneamente sem um sobrepor a do outro.
+  // Fallback em cascata: user_data -> localStorage -> shared_data legado.
+  const userGrade           = userRow?.grade || (sharedEmpty && localHasData ? (localRaw.grade || {}) : (shared?.grade || {}));
+  const userGradeByDay      = userRow?.grade_by_day || (sharedEmpty && localHasData ? (localRaw.gradeByDay || {}) : (shared?.grade_by_day || {}));
+  const userGradeOrder      = userRow?.grade_order || (sharedEmpty && localHasData ? (localRaw.gradeOrder || {}) : (shared?.grade_order || {}));
+  const userGradeOrderByDay = userRow?.grade_order_by_day || (sharedEmpty && localHasData ? (localRaw.gradeOrderByDay || {}) : (shared?.grade_order_by_day || {}));
 
   // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
   // sumiu o roteiro". `userRow.roteiros` é o último snapshot que CONSEGUIU
@@ -301,9 +301,13 @@ async function fetchAndMergeCloudData(user) {
   // estiver marcada aqui, é sinal de que o último push nunca foi confirmado
   // e o localStorage está à frente da nuvem — nesse caso o local vence.
   const localVenceRoteiro = haSyncPendente();
-  merged.roteiros   = localVenceRoteiro ? (localRaw.roteiros   || userRow?.roteiros   || {}) : (userRow?.roteiros   || localRaw.roteiros   || {});
-  merged.pecasDia   = localVenceRoteiro ? (localRaw.pecasDia   || userRow?.pecas_dia  || {}) : (userRow?.pecas_dia  || localRaw.pecasDia   || {});
-  merged.pecasFixas = localRaw.pecasFixas || [];
+  merged.roteiros        = localVenceRoteiro ? (localRaw.roteiros        || userRow?.roteiros        || {}) : (userRow?.roteiros        || localRaw.roteiros        || {});
+  merged.pecasDia        = localVenceRoteiro ? (localRaw.pecasDia        || userRow?.pecas_dia       || {}) : (userRow?.pecas_dia       || localRaw.pecasDia        || {});
+  merged.grade           = localVenceRoteiro ? (localRaw.grade           || userGrade                || {}) : (userGrade                || localRaw.grade           || {});
+  merged.gradeByDay      = localVenceRoteiro ? (localRaw.gradeByDay      || userGradeByDay           || {}) : (userGradeByDay           || localRaw.gradeByDay      || {});
+  merged.gradeOrder      = localVenceRoteiro ? (localRaw.gradeOrder      || userGradeOrder           || {}) : (userGradeOrder           || localRaw.gradeOrder      || {});
+  merged.gradeOrderByDay = localVenceRoteiro ? (localRaw.gradeOrderByDay || userGradeOrderByDay      || {}) : (userGradeOrderByDay      || localRaw.gradeOrderByDay || {});
+  merged.pecasFixas      = localRaw.pecasFixas || [];
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
@@ -321,6 +325,10 @@ async function fetchAndMergeCloudData(user) {
       user_id: user.id,
       roteiros: merged.roteiros,
       pecas_dia: merged.pecasDia,
+      grade: merged.grade,
+      grade_by_day: merged.gradeByDay,
+      grade_order: merged.gradeOrder,
+      grade_order_by_day: merged.gradeOrderByDay,
       updated_at: new Date().toISOString(),
     });
   } else if (localVenceRoteiro) {
@@ -402,12 +410,9 @@ async function pushToCloud() {
       .update({
         // pecas/programas NÃO vão mais daqui: o cadastro relacional
         // (tela Peças e Programas) é a fonte da verdade e chega em
-        // shared_data pelo espelho no banco. Enviar o snapshot do
-        // localStorage apagava o que outro usuário havia cadastrado.
-        grade: app.grade || {},
-        grade_by_day: app.gradeByDay || {},
-        grade_order: app.gradeOrder || {},
-        grade_order_by_day: app.gradeOrderByDay || {},
+        // shared_data pelo espelho no banco.
+        // grade também NÃO vai mais daqui: cada usuário salva sua própria
+        // grade em user_data para que operadores em semanas distintas não colidam.
         regras: regras,
         updated_by: currentUser.id,
         updated_at: new Date().toISOString(),
@@ -419,6 +424,10 @@ async function pushToCloud() {
       .update({
         roteiros: app.roteiros || {},
         pecas_dia: app.pecasDia || {},
+        grade: app.grade || {},
+        grade_by_day: app.gradeByDay || {},
+        grade_order: app.gradeOrder || {},
+        grade_order_by_day: app.gradeOrderByDay || {},
         updated_at: new Date().toISOString(),
       })
       .eq('user_id', currentUser.id);
@@ -496,10 +505,8 @@ function setupRealtime() {
           return;
         }
 
-        app.grade           = payload.new.grade || {};
-        app.gradeByDay      = payload.new.grade_by_day || {};
-        app.gradeOrder      = payload.new.grade_order || {};
-        app.gradeOrderByDay = payload.new.grade_order_by_day || {};
+        // Grade agora é por usuário (user_data), portanto alterações em
+        // shared_data vindas de outro usuário NÃO alteram a grade deste usuário.
         gravarLocal('roteiroApp', JSON.stringify(app));
         gravarLocal('roteiroRegras', JSON.stringify(payload.new.regras || {}));
 
