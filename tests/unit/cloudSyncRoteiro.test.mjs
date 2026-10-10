@@ -95,6 +95,7 @@ function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite } = {
     return {
       fetchAndMergeCloudData, flushPendingSync, marcarSyncPendente,
       marcarSyncConfirmado, haSyncPendente, patchLocalStorage,
+      sincronizarManualmente,
       __test_setCurrentUser,
     };`;
   const factory = new Function(
@@ -305,5 +306,45 @@ describe('grade isolada por usuário em user_data', () => {
 
     const saved = JSON.parse(local.getItem('roteiroApp'));
     expect(saved.gradeByDay).toEqual({ '1': { 'GRADE DO USUARIO': '09:00:00' } });
+  });
+});
+
+
+describe('sincronizarManualmente — sincronização sob demanda via botão', () => {
+  it('retorna erro se não houver usuário autenticado', async () => {
+    const { cs } = loadCloudSync();
+    cs.__test_setCurrentUser(null);
+    const res = await cs.sincronizarManualmente();
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('Não autenticado');
+  });
+
+  it('envia pendências locais e busca dados da nuvem com sucesso', async () => {
+    let payloadUserData = null;
+    const local = makeLocalStorage();
+    local.setItem('roteiroApp', JSON.stringify({
+      roteiros: { '2026-08-27': [{ code: 'EDICAO_LOCAL' }] },
+      pecasDia: {},
+    }));
+
+    const { cs } = loadCloudSync({
+      localStorage: local,
+      onUserDataWrite: (payload) => { payloadUserData = payload; },
+    });
+    cs.patchLocalStorage();
+    local.setItem('roteiroApp', JSON.stringify({
+      roteiros: { '2026-08-27': [{ code: 'EDICAO_LOCAL' }] },
+      pecasDia: {},
+    }));
+    // Marca sync pendente pela edição local
+    expect(cs.haSyncPendente()).toBe(true);
+
+    const res = await cs.sincronizarManualmente();
+    expect(res.ok).toBe(true);
+    // As alterações locais foram enviadas
+    expect(payloadUserData).not.toBeNull();
+    expect(payloadUserData.roteiros['2026-08-27']).toEqual([{ code: 'EDICAO_LOCAL' }]);
+    // A marca de pendência foi limpa após o envio
+    expect(cs.haSyncPendente()).toBe(false);
   });
 });

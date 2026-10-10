@@ -1063,6 +1063,39 @@ function addToRoteiro(code) {
   if (window.CanalLog) CanalLog.registrar('roteiro_peca_adicionada', { data: dateKey(state.currentDate), descricao: peca.descricao }, { codes: [peca.code] });
 }
 
+/**
+ * Insere manualmente um par de slots de break (__BREAK__ chamada e interprograma)
+ * na posição selecionada do roteiro ou no final se nada estiver selecionado.
+ * Permite que a automação (Auto-preencher breaks) preencha os espaços posteriormente.
+ */
+function inserirBreakManual() {
+  if (!state.currentDate) {
+    toast("Selecione uma data para o roteiro primeiro", "warning");
+    return;
+  }
+  if (!state.roteiro) state.roteiro = [];
+
+  const slots = [
+    { code: "__BREAK__", descricao: "[ BREAK — chamada ]",      tempo: "00:00:00", midia: "0OMN", type: "__SLOT__", _break: true },
+    { code: "__BREAK__", descricao: "[ BREAK — interprograma ]", tempo: "00:00:00", midia: "0OMN", type: "__SLOT__", _break: true }
+  ];
+
+  let insertIndex = state.roteiro.length;
+  if (state.selectedRow !== null && state.selectedRow >= 0 && state.selectedRow < state.roteiro.length) {
+    insertIndex = state.selectedRow + 1;
+  }
+
+  state.roteiro.splice(insertIndex, 0, ...slots);
+  state.selectedRow = insertIndex + slots.length - 1;
+
+  recalcTimes();
+  saveState();
+  renderRoteiro();
+  renderWeekSelector();
+  toast("Slots de break adicionados ao roteiro", "success");
+  if (window.CanalLog) CanalLog.registrar("roteiro_break_manual_inserido", { data: dateKey(state.currentDate), index: insertIndex });
+}
+
 /** Seleciona ou deseleciona uma linha do roteiro como cursor de inserção. A linha selecionada fica com fundo azul e o botão de adicionar muda para "+ Inserir após #N". */
 function selectRow(i, event) {
   // Don't select when clicking action buttons or drag handle
@@ -2827,6 +2860,9 @@ function openAdminModal() {
   document.getElementById('adm-vh-inf-kw').value = r.vhAssinaturaInfantilKeywords || REGRAS_DEFAULT.vhAssinaturaInfantilKeywords;
   document.getElementById('adm-vh-adt-kw').value = r.vhAssinaturaAdultoKeywords   || REGRAS_DEFAULT.vhAssinaturaAdultoKeywords;
   document.getElementById('modal-admin').style.display = 'flex';
+  if (window.CloudSync && typeof window.CloudSync.atualizarAdminSyncInfo === "function") {
+    window.CloudSync.atualizarAdminSyncInfo();
+  }
 }
 
 /**
@@ -4510,8 +4546,10 @@ function executarDistribuicaoBreaks() {
   }
 
   state.roteiro = res.roteiro;
+  recalcTimes();
   saveState();
   renderRoteiro();
+  renderWeekSelector();
 
   const msg = [
     `Breaks preenchidos com sucesso!`,
@@ -4524,6 +4562,30 @@ function executarDistribuicaoBreaks() {
   toast(`${res.resultado.totalAlocado} peças distribuídas automaticamente nos breaks!`, "success");
   console.log(msg);
 }
+
+
+/**
+ * Recarrega peças, programas, grade, regras e roteiro do localStorage
+ * para o state em memória e renderiza todas as interfaces.
+ * Utilizado após sincronização manual ou atualização remota em nuvem.
+ */
+function reloadStateFromStorageAndRender() {
+  const saved = localStorage.getItem("roteiroApp");
+  if (saved && state.currentDate) {
+    const parsed = JSON.parse(saved);
+    const dk = dateKey(state.currentDate);
+    if (parsed.pecas) state.pecas = parsed.pecas;
+    if (parsed.programas) state.programas = parsed.programas;
+    if (parsed.pecasFixas) state.pecasFixas = parsed.pecasFixas;
+    state.roteiro = parsed.roteiros?.[dk] || [];
+    state.pecasDia = parsed.pecasDia?.[dk] || [];
+  }
+  REGRAS = loadRegras();
+  renderWeekSelector();
+  updateDateDisplay();
+  renderAll();
+}
+window.reloadStateFromStorageAndRender = reloadStateFromStorageAndRender;
 
 // START
 // =====================================================

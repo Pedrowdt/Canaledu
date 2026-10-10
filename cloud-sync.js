@@ -630,6 +630,101 @@ async function cloudSyncOpenPecasProgramas() {
 // "melhor esforço" — não há garantia de terminar a tempo, mas a marca de
 // pendência já gravada de forma síncrona garante que nenhum dado seja
 // silenciosamente descartado na próxima vez que o Roteiro for aberto.
+// =====================================================
+// SINCRONIZAÇÃO MANUAL
+// =====================================================
+async function sincronizarManualmente() {
+  if (!supabaseClient || !currentUser) {
+    if (typeof toast === "function") {
+      toast("Sincronização em nuvem não disponível (usuário não autenticado)", "warning");
+    }
+    return { ok: false, error: "Não autenticado" };
+  }
+
+  setSyncStatus("Sincronizando...");
+  const btnAdmin = document.getElementById("adm-btn-sync");
+  const btnTop = document.getElementById("btn-sync-topbar");
+  if (btnAdmin) {
+    btnAdmin.disabled = true;
+    btnAdmin.textContent = "⏳ Sincronizando...";
+  }
+  if (btnTop) {
+    btnTop.disabled = true;
+  }
+
+  try {
+    // 1. Envia pendências locais primeiro
+    await flushPendingSync();
+    if (window.CadastroSync) {
+      await CadastroSync.flush().catch(() => {});
+    }
+
+    // 2. Busca dados mais recentes da nuvem e mescla com localStorage
+    await fetchAndMergeCloudData(currentUser);
+
+    // 3. Atualiza estado em memória e renderiza
+    if (typeof window.reloadStateFromStorageAndRender === "function") {
+      window.reloadStateFromStorageAndRender();
+    } else if (typeof renderAll === "function") {
+      renderAll();
+    }
+
+    setSyncStatus("Sincronizado ✓ · " + currentUser.email);
+    if (typeof toast === "function") {
+      toast("Sincronização com a nuvem concluída com sucesso!", "success");
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[cloud-sync] Erro na sincronização manual:", err);
+    setSyncStatus("Falha ao sincronizar");
+    if (typeof toast === "function") {
+      toast("Falha ao sincronizar com a nuvem: " + (err.message || String(err)), "error");
+    }
+    return { ok: false, error: err };
+  } finally {
+    if (btnAdmin) {
+      btnAdmin.disabled = false;
+      btnAdmin.textContent = "🔄 Sincronizar agora";
+    }
+    if (btnTop) {
+      btnTop.disabled = false;
+    }
+    atualizarAdminSyncInfo();
+  }
+}
+
+function atualizarAdminSyncInfo() {
+  const userEl = document.getElementById("adm-sync-user");
+  const detEl = document.getElementById("adm-sync-detail");
+  if (!userEl) return;
+  if (!currentUser) {
+    userEl.textContent = "Modo Local / Desconectado";
+    if (detEl) detEl.textContent = "Nenhum usuário autenticado no Supabase.";
+  } else {
+    userEl.textContent = "Conectado: " + currentUser.email;
+    const pendente = (typeof temAlteracoesPendentes === "function" && temAlteracoesPendentes()) ||
+                     (typeof haSyncPendente === "function" && haSyncPendente());
+    if (detEl) {
+      detEl.textContent = pendente
+        ? "Existem alterações locais pendentes de envio."
+        : "Tudo atualizado com a nuvem.";
+    }
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.CloudSync = {
+    sincronizarManualmente,
+    atualizarAdminSyncInfo,
+    pushToCloud,
+    flushPendingSync,
+    haSyncPendente,
+    temAlteracoesPendentes,
+    getCurrentUser: () => currentUser,
+    getClient: () => supabaseClient
+  };
+}
+
 window.addEventListener('pagehide', () => {
   if (_pushTimer) flushPendingSync();
 });

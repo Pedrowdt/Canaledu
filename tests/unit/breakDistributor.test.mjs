@@ -35,6 +35,19 @@ describe('breakDistributor v2', () => {
     expect(res.roteiro[1].code).toBe('102');
   });
 
+  it("executa instantaneamente sem travar a thread mesmo com centenas de pecas e sem combinacao exata", () => {
+    const durs = ["00:00:15", "00:00:30", "00:00:45", "00:01:00", "00:02:00"];
+    const pecas = [];
+    for (let i = 0; i < 500; i++) {
+      pecas.push({ code: "P" + i, tempo: durs[i % durs.length], type: "ECHM", ativo: true });
+    }
+    const t0 = performance.now();
+    const combo = findCombinationForDuration(pecas, 173);
+    const elapsed = performance.now() - t0;
+    expect(combo).toBeNull();
+    expect(elapsed).toBeLessThan(50);
+  });
+
   it('encontra combinação exata para preencher um gap', () => {
     const pecas = [
       { code: 'P1', tempo: '00:01:00', type: 'ECHM', ativo: true },

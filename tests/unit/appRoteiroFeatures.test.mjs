@@ -24,7 +24,8 @@ function loadPure({ localStorage } = {}) {
     setItem: () => {},
     removeItem: () => {},
   };
-  const document = { querySelectorAll: () => [], getElementById: () => null };
+  const fakeEl = { style: {}, classList: { add() {}, remove() {}, toggle() {} }, textContent: '', innerHTML: '', value: '', appendChild() {} };
+  const document = { querySelectorAll: () => [], querySelector: () => fakeEl, getElementById: () => fakeEl, createElement: () => fakeEl, body: fakeEl };
   // Se saveState() (ou qualquer outra função testada aqui) chamar confirm(),
   // o teste falha na hora em vez de travar esperando um clique que nunca
   // vem — é exatamente o tipo de regressão que já aconteceu uma vez (ver
@@ -39,6 +40,7 @@ function loadPure({ localStorage } = {}) {
     `${srcSemBoot}\nreturn {
       registrarUndoSeMudou, popUndoEntry, sortPecasByTempo, dateKey, timeToSec, saveState,
       findVhSeguir, findVhAssistindo, findVhPorFuncaoNoCadastro, baseProgramTitle, _normalizeProgKey,
+      inserirBreakManual, reloadStateFromStorageAndRender,
       __test_getUndoStack: () => undoStack,
       __test_setUndoStack: (v) => { undoStack = v; },
       __test_getState: () => state,
@@ -368,3 +370,55 @@ describe('findVhPorFuncaoNoCadastro / findVhSeguir / findVhAssistindo — Fase 2
   });
 });
 
+
+
+describe('inserirBreakManual — criação manual de slots de break', () => {
+  it('insere chamada e interprograma ao final quando não há linha selecionada', () => {
+    const store = new Map();
+    const ls = {
+      getItem: (k) => store.get(k) || null,
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    const app = loadPure({ localStorage: ls });
+    app.__test_setState({
+      currentDate: new Date(2026, 7, 27),
+      roteiro: [{ code: 'BL01', tempo: '00:10:00' }],
+      selectedRow: null,
+    });
+
+    app.inserirBreakManual();
+    const s = app.__test_getState();
+    expect(s.roteiro.length).toBe(3);
+    expect(s.roteiro[1].type).toBe('__SLOT__');
+    expect(s.roteiro[1].descricao).toContain('chamada');
+    expect(s.roteiro[2].type).toBe('__SLOT__');
+    expect(s.roteiro[2].descricao).toContain('interprograma');
+  });
+
+  it('insere chamada e interprograma imediatamente após a linha selecionada', () => {
+    const store = new Map();
+    const ls = {
+      getItem: (k) => store.get(k) || null,
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+    };
+    const app = loadPure({ localStorage: ls });
+    app.__test_setState({
+      currentDate: new Date(2026, 7, 27),
+      roteiro: [
+        { code: 'BL01', tempo: '00:10:00' },
+        { code: 'BL02', tempo: '00:10:00' }
+      ],
+      selectedRow: 0,
+    });
+
+    app.inserirBreakManual();
+    const s = app.__test_getState();
+    expect(s.roteiro.length).toBe(4);
+    expect(s.roteiro[0].code).toBe('BL01');
+    expect(s.roteiro[1].descricao).toContain('chamada');
+    expect(s.roteiro[2].descricao).toContain('interprograma');
+    expect(s.roteiro[3].code).toBe('BL02');
+  });
+});

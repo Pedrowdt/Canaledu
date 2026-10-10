@@ -52,35 +52,91 @@
   }
 
   function findCombinationForDuration(pecas, targetSec, maxItems = 4) {
-    const valid = pecas.filter(p => {
-      const s = timeToSec(p.tempo);
-      return s > 0 && s <= targetSec;
-    });
+    if (!pecas || !pecas.length || targetSec <= 0) return null;
 
-    let bestCombination = null;
-    let minDiff = targetSec + 1;
-
-    function backtrack(startIndex, currentCombo, currentSum) {
-      const diff = Math.abs(targetSec - currentSum);
-      if (diff < minDiff) {
-        minDiff = diff;
-        bestCombination = [...currentCombo];
+    // Agrupa peças válidas por duração em segundos
+    const byDur = new Map();
+    for (let i = 0; i < pecas.length; i++) {
+      const s = timeToSec(pecas[i].tempo);
+      if (s > 0 && s <= targetSec) {
+        let list = byDur.get(s);
+        if (!list) {
+          list = [];
+          byDur.set(s, list);
+        }
+        list.push(pecas[i]);
       }
-      if (diff === 0 || currentCombo.length >= maxItems) return;
+    }
 
-      for (let i = startIndex; i < valid.length; i++) {
-        const pSec = timeToSec(valid[i].tempo);
-        if (currentSum + pSec <= targetSec) {
-          currentCombo.push(valid[i]);
-          backtrack(i + 1, currentCombo, currentSum + pSec);
-          currentCombo.pop();
-          if (minDiff === 0) return;
+    if (byDur.size === 0) return null;
+
+    // Se existe uma peça única com a duração exata, retorna imediatamente
+    if (byDur.has(targetSec)) {
+      return [byDur.get(targetSec)[0]];
+    }
+    if (maxItems <= 1) return null;
+
+    // Ordena durações únicas em ordem decrescente para favorecer peças maiores e permitir poda forte
+    const uniqueDurs = Array.from(byDur.keys()).sort((a, b) => b - a);
+
+    let bestDurs = null;
+    let steps = 0;
+    const MAX_STEPS = 5000;
+
+    function search(startIndex, currentCombo, currentSum) {
+      if (++steps > MAX_STEPS) return;
+
+      if (currentSum === targetSec) {
+        bestDurs = [...currentCombo];
+        return;
+      }
+
+      const remainingSlots = maxItems - currentCombo.length;
+      if (remainingSlots <= 0) return;
+
+      // Poda: mesmo usando a maior duração disponível para todos os slots restantes, não alcança targetSec
+      const maxPossible = currentSum + remainingSlots * uniqueDurs[startIndex];
+      if (maxPossible < targetSec) return;
+
+      for (let i = startIndex; i < uniqueDurs.length; i++) {
+        const dur = uniqueDurs[i];
+
+        // Poda decrescente: se mesmo preenchendo todos os slots restantes com dur não alcança targetSec,
+        // nenhum dos próximos (que são menores ou iguais) alcançará.
+        if (currentSum + remainingSlots * dur < targetSec) break;
+
+        if (currentSum + dur <= targetSec) {
+          // Conta quantas vezes dur já foi usado no combo
+          let usedCount = 0;
+          for (let j = 0; j < currentCombo.length; j++) {
+            if (currentCombo[j] === dur) usedCount++;
+          }
+
+          if (usedCount < byDur.get(dur).length) {
+            currentCombo.push(dur);
+            search(i, currentCombo, currentSum + dur);
+            currentCombo.pop();
+            if (bestDurs) return;
+          }
         }
       }
     }
 
-    backtrack(0, [], 0);
-    return minDiff === 0 ? bestCombination : null;
+    search(0, [], 0);
+
+    if (!bestDurs) return null;
+
+    // Reconstrói as peças reais distintas a partir das durações encontradas
+    const result = [];
+    const durUsageCount = new Map();
+    for (const d of bestDurs) {
+      const used = durUsageCount.get(d) || 0;
+      const peca = byDur.get(d)[used];
+      durUsageCount.set(d, used + 1);
+      result.push(peca);
+    }
+
+    return result;
   }
 
     function normalizeDia(d) {

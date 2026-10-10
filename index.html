@@ -600,6 +600,10 @@
         <button class="btn btn-sm btn-icon" onclick="exportXLSX()" title="Exportar planilha Excel (XLSX)" style="border-color:var(--cyan);color:var(--cyan)">📊</button>
         <button class="btn btn-sm btn-icon" onclick="exportPDF()" title="Exportar PDF para impressão" style="border-color:var(--pink);color:var(--pink)">📕</button>
       </div>
+      <!-- Botão Sincronizar Nuvem -->
+      <button class="btn btn-sm btn-icon" id="btn-sync-topbar" onclick="window.CloudSync && window.CloudSync.sincronizarManualmente()"
+        style="border-color:var(--cyan);color:var(--cyan);margin-left:4px"
+        title="Sincronizar com a nuvem (Supabase) agora">🔄</button>
       <!-- Botão Admin: configuração de regras de negócio (acesso restrito) -->
       <button class="btn btn-sm btn-icon" onclick="openAdminModal()"
         style="border-color:var(--amber);color:var(--amber);margin-left:4px"
@@ -679,6 +683,8 @@
         <div class="roteiro-toolbar">
           <!-- Botão para abrir modal de inserção de peça no roteiro -->
           <button class="btn btn-sm" onclick="addItemModal()">+ Adicionar peça</button>
+          <!-- Botão para criar slots de intervalo na posição selecionada para posterior automação -->
+          <button class="btn btn-sm" onclick="inserirBreakManual()" title="Inserir slots de intervalo na posição selecionada para preenchimento posterior" style="border-color:var(--cyan);color:var(--cyan)">+ Inserir Break</button>
           <!-- Desfaz a última alteração salva no roteiro do dia em exibição (adicionar, remover, reordenar, limpar, inserção automática...). Começa desabilitado até haver algo para desfazer. -->
           <button class="btn btn-sm" id="btn-undo" onclick="undoLastAction()" disabled title="Reverter a última ação feita no roteiro deste dia">↺ Refazer última ação</button>
           <!-- Botão para limpar todo o roteiro do dia atual (com confirmação) -->
@@ -1377,6 +1383,20 @@
         <label style="font-size:10px" title="Programas que contêm esses termos recebem ASSINATURA_ADULTO. Demais recebem JOVEM.">Keywords ADULTO</label>
         <input type="text" id="adm-vh-adt-kw" style="font-size:11px" placeholder="CAMINHOS DA REPORTAGEM, HUMANIDADES, ...">
       </div>
+    </div>
+
+    <!-- Seção: Sincronização em Nuvem (Supabase) -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:16px 0 8px">Sincronização em Nuvem (Supabase)</div>
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span id="adm-sync-user" style="font-size:11px;font-weight:600;color:var(--text)">Verificando conexão...</span>
+        <button type="button" id="adm-btn-sync" class="btn btn-sm" onclick="window.CloudSync && window.CloudSync.sincronizarManualmente()" style="border-color:var(--cyan);color:var(--cyan)">
+          🔄 Sincronizar agora
+        </button>
+      </div>
+      <p id="adm-sync-detail" style="font-size:10px;color:var(--muted);margin:0;line-height:1.4">
+        Envia alterações locais pendentes e busca dados atualizados de regras, peças, programas e grade sem precisar recarregar a tela.
+      </p>
     </div>
 
     <div class="modal-actions" style="margin-top:16px">
