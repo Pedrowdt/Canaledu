@@ -509,6 +509,8 @@ function updateDateDisplay() {
   const dow  = d.getDay(); // 0=Sun…6=Sat
   document.getElementById('date-display').textContent =
     `${DAY_NAMES[dow]}, ${dd}/${mm}/${yyyy}`;
+  const btnImport = document.getElementById('btn-import-topbar');
+  if (btnImport) btnImport.title = `Importar — CSV do Notion ou JSON de backup (data ativa: ${dd}/${mm}/${yyyy})`;
 }
 
 // =====================================================
@@ -520,7 +522,7 @@ function renderAll() {
   renderPecasSidebar();
   renderPecasPanel();
   renderProgramas();
-  renderPecasDiaPanel();
+  if (typeof renderPecasDiaPanel === "function") renderPecasDiaPanel();
   document.getElementById('badge-pecas').textContent = state.pecas.length;
   document.getElementById('badge-prog').textContent  = state.programas.length;
 }
@@ -1201,6 +1203,80 @@ function clearRoteiro() {
   if (window.CanalLog) CanalLog.registrar('roteiro_limpo', { data: dk, itensRemovidos: totalAnterior }, { nivel: 'warn' });
 }
 
+// =====================================================
+// COPIAR ROTEIRO ENTRE DATAS
+// =====================================================
+function formatDataLegivel(val) {
+  if (!val) return '';
+  let y, m, d, dow;
+  if (val instanceof Date) {
+    y = val.getFullYear(); m = val.getMonth() + 1; d = val.getDate(); dow = val.getDay();
+  } else if (typeof val === 'string') {
+    const parts = val.trim().split('-');
+    if (parts.length !== 3) return val;
+    y = parseInt(parts[0], 10); m = parseInt(parts[1], 10); d = parseInt(parts[2], 10);
+    dow = new Date(y, m - 1, d).getDay();
+  } else return String(val);
+  return `${DAY_NAMES[dow] || ''}, ${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}/${y}`;
+}
+
+function openCopiarRoteiroModal() {
+  if (!state.currentDate) { toast('Selecione uma data para o roteiro primeiro', 'warning'); return; }
+  const destKey = dateKey(state.currentDate);
+  const destInfo = document.getElementById('copiar-destino-info');
+  const alerta = document.getElementById('copiar-destino-alerta');
+  const qtd = document.getElementById('copiar-destino-qtd');
+  const select = document.getElementById('copiar-origem-select');
+  const semOrigem = document.getElementById('copiar-sem-origem');
+  const btn = document.getElementById('btn-confirmar-copiar-roteiro');
+  if (destInfo) destInfo.textContent = `${formatDataLegivel(destKey)} (${(state.roteiro || []).length} itens)`;
+  if (alerta && qtd) { qtd.textContent = (state.roteiro || []).length; alerta.style.display = state.roteiro?.length ? 'block' : 'none'; }
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const roteiros = saved.roteiros || {};
+  const keys = Object.keys(roteiros).filter(k => k !== destKey && Array.isArray(roteiros[k]) && roteiros[k].length > 0).sort().reverse();
+  if (select && semOrigem && btn) {
+    if (!keys.length) { select.style.display = 'none'; semOrigem.style.display = 'block'; btn.disabled = true; }
+    else {
+      select.style.display = 'block'; semOrigem.style.display = 'none'; btn.disabled = false;
+      select.innerHTML = keys.map(k => {
+        const slots = roteiros[k].filter(it => it && it.type === '__SLOT__').length;
+        const extra = slots ? ` (${slots} slots vazios)` : '';
+        return `<option value="${k}">${formatDataLegivel(k)} — ${roteiros[k].length} itens${extra}</option>`;
+      }).join('');
+    }
+  }
+  const modal = document.getElementById('modal-copiar-roteiro');
+  if (modal) modal.style.display = 'flex';
+}
+
+function executarCopiarRoteiro(origemKeyOverride, incluirPecasDiaOverride) {
+  if (!state.currentDate) { toast('Selecione uma data para o roteiro primeiro', 'warning'); return { success:false, error:'Sem data selecionada' }; }
+  const destKey = dateKey(state.currentDate);
+  const select = document.getElementById('copiar-origem-select');
+  const origemKey = origemKeyOverride || (select && select.value);
+  if (!origemKey || origemKey === destKey) { toast('Selecione um dia de origem válido para copiar', 'error'); return { success:false, error:'Origem inválida' }; }
+  const check = document.getElementById('copiar-incluir-pecas-dia');
+  const incluirPecasDia = incluirPecasDiaOverride === undefined ? !!(check && check.checked) : incluirPecasDiaOverride;
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  if (!Array.isArray(saved.roteiros?.[origemKey])) { toast('O dia selecionado não possui roteiro salvo para copiar', 'error'); return { success:false, error:'Roteiro de origem vazio' }; }
+  if (!Array.isArray(saved.roteiros[origemKey]) || !saved.roteiros[origemKey].length) { toast('O roteiro de origem está vazio', 'error'); return { success:false, error:'Roteiro vazio' }; }
+  const novoRoteiro = JSON.parse(JSON.stringify(saved.roteiros[origemKey]));
+  registrarUndoSeMudou(destKey, saved.roteiros[destKey], novoRoteiro);
+  state.roteiro = novoRoteiro;
+  saved.roteiros ||= {}; saved.roteiros[destKey] = novoRoteiro;
+  let copiouPecasDia = false;
+  if (incluirPecasDia && saved.pecasDia?.[origemKey]) {
+    state.pecasDia = JSON.parse(JSON.stringify(saved.pecasDia[origemKey]));
+    saved.pecasDia ||= {}; saved.pecasDia[destKey] = state.pecasDia; copiouPecasDia = true;
+  }
+  saved.pecas = state.pecas; saved.programas = state.programas;
+  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  renderAll(); renderWeekSelector(); atualizarBotaoUndo(); closeModal('modal-copiar-roteiro');
+  toast(`Roteiro copiado (${novoRoteiro.length} itens de ${formatDataLegivel(origemKey)})${copiouPecasDia ? ' com Peças do Dia' : ''}`, 'success');
+  if (window.CanalLog) CanalLog.registrar('roteiro_copiado_de_outro_dia', { origem:origemKey, destino:destKey, itens:novoRoteiro.length, copiouPecasDia });
+  return { success:true, count:novoRoteiro.length, origem:origemKey, destino:destKey, copiouPecasDia };
+}
+
 /** Busca uma peça pelo code nos dois bancos: state.pecas e state.programas. Retorna o primeiro resultado encontrado ou null. */
 function findPeca(code) {
   return state.pecas.find(p => p.code === code)
@@ -1304,6 +1380,8 @@ function closeModal(id) {
   } else if (id === 'modal-new-prog') {
     const w = document.getElementById('npp-code-warn'); if (w) { w.style.display = 'none'; w.textContent = ''; }
     const c = document.getElementById('npp-code'); if (c) c.style.borderColor = '';
+  } else if (id === 'modal-import-roteiro-data') {
+    _pendingImportData = null;
   }
 }
 
@@ -1795,27 +1873,91 @@ function handlePecasDiaImport(e) {
   e.target.value = '';
 }
 
-/** Restaura um backup JSON completo. Carrega roteiros, banco de peças, programas e grade do arquivo. Exibe confirmação com contagens antes de sobrescrever os dados atuais. */
+let _pendingImportData = null;
+
+/** Importa backup JSON, preserva cada roteiro em sua data e permite carregar outro dia no destino ativo. */
 function importJSON(text) {
   try {
     const data = JSON.parse(text);
-    if (data.pecas)     state.pecas     = data.pecas;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Formato inválido');
+    if (data.pecas) state.pecas = data.pecas;
     if (data.programas) state.programas = data.programas;
-    // Mescla todos os roteiros do backup no banco automaticamente
-    if (data.roteiros) {
-      Object.values(data.roteiros).forEach(rot => mergeBancoFromRoteiro(rot));
+    const roteirosEntrada = data.roteiros && typeof data.roteiros === 'object' ? data.roteiros : {};
+    Object.values(roteirosEntrada).forEach(rot => { if (Array.isArray(rot)) mergeBancoFromRoteiro(rot); });
+
+    // Preserva todas as datas do backup, sem apagar datas locais que não vieram nele.
+    const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    saved.roteiros ||= {};
+    Object.entries(roteirosEntrada).forEach(([key, roteiro]) => { if (Array.isArray(roteiro)) saved.roteiros[key] = roteiro; });
+    if (data.pecasDia && typeof data.pecasDia === 'object') { saved.pecasDia ||= {}; Object.assign(saved.pecasDia, data.pecasDia); }
+    saved.pecas = state.pecas; saved.programas = state.programas;
+    localStorage.setItem('roteiroApp', JSON.stringify(saved));
+
+    const curKey = state.currentDate ? dateKey(state.currentDate) : null;
+    const datasComRoteiro = Object.entries(roteirosEntrada).filter(([,items]) => Array.isArray(items) && items.length > 0);
+    const modal = typeof document !== 'undefined' && document.getElementById('modal-import-roteiro-data');
+    const temOutraData = datasComRoteiro.some(([key]) => key !== curKey);
+    const precisaPerguntar = datasComRoteiro.length > 1 || (datasComRoteiro.length === 1 && datasComRoteiro[0][0] !== curKey);
+    if (precisaPerguntar && modal) {
+      _pendingImportData = { data, curKey, datasComRoteiro };
+      abrirImportRoteiroModal(curKey, datasComRoteiro);
+      return { success:true, pendingModal:true };
     }
-    if (data.roteiros?.[dateKey(state.currentDate)]) {
-      state.roteiro = data.roteiros[dateKey(state.currentDate)];
-    }
-    saveState();
-    renderAll();
-    renderWeekSelector();
+
+    if (curKey && Array.isArray(roteirosEntrada[curKey])) state.roteiro = roteirosEntrada[curKey];
+    if (curKey && Array.isArray(data.pecasDia?.[curKey])) state.pecasDia = data.pecasDia[curKey];
+    saveState(); renderAll(); renderWeekSelector();
     toast('Dados importados com sucesso', 'success');
+    return { success:true };
   } catch(err) {
     toast('Erro ao importar JSON: arquivo inválido', 'error');
+    return { success:false, error:err.message };
   }
 }
+
+function abrirImportRoteiroModal(curKey, datasComRoteiro) {
+  const target = document.getElementById('import-target-display');
+  const container = document.getElementById('import-options-container');
+  if (target) target.textContent = curKey ? formatDataLegivel(curKey) : 'Selecione a data de destino antes de importar';
+  const sorted = [...datasComRoteiro].sort((a,b) => b[1].length - a[1].length);
+  if (container) container.innerHTML = sorted.map(([key, items], idx) => {
+    const slots = items.filter(it => it && it.type === '__SLOT__').length;
+    const note = slots ? ` · ${slots} slots vazios` : '';
+    const checked = idx === 0 ? 'checked' : '';
+    const active = key === curKey ? ' · data ativa' : '';
+    return `<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border2);border-radius:6px;background:var(--bg3);cursor:pointer"><input type="radio" name="import-roteiro-pick" value="${key}" ${checked} style="margin-top:3px"><span><strong>Roteiro de ${formatDataLegivel(key)}${active}</strong><br><small style="color:var(--muted)">${items.length} itens${note}</small></span></label>`;
+  }).join('');
+  const el = document.getElementById('modal-import-roteiro-data');
+  if (el) el.style.display = 'flex';
+}
+
+function confirmarImportRoteiroData(opcaoEscolhida) {
+  if (!_pendingImportData) return { success:false, error:'Sem importação pendente' };
+  const radio = document.querySelector('input[name="import-roteiro-pick"]:checked');
+  const chosenKey = opcaoEscolhida || (radio && radio.value);
+  const { data, curKey } = _pendingImportData;
+  if (!curKey || !chosenKey || !Array.isArray(data.roteiros?.[chosenKey])) { toast('Selecione uma data ativa e um roteiro válido', 'error'); return { success:false, error:'Data ou roteiro inválido' }; }
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const roteiro = JSON.parse(JSON.stringify(data.roteiros[chosenKey]));
+  registrarUndoSeMudou(curKey, saved.roteiros?.[curKey], roteiro);
+  state.roteiro = roteiro;
+  if (Array.isArray(data.pecasDia?.[chosenKey])) state.pecasDia = JSON.parse(JSON.stringify(data.pecasDia[chosenKey]));
+  _pendingImportData = null;
+  saveState(); renderAll(); renderWeekSelector(); closeModal('modal-import-roteiro-data');
+  toast(`Roteiro de ${formatDataLegivel(chosenKey)} carregado em ${formatDataLegivel(curKey)} (${roteiro.length} itens)`, 'success');
+  return { success:true, origem:chosenKey, destino:curKey, count:roteiro.length };
+}
+
+function fecharImportRoteiroModal() {
+  const pending = _pendingImportData; _pendingImportData = null;
+  if (pending?.curKey && Array.isArray(pending.data.roteiros?.[pending.curKey])) {
+    state.roteiro = pending.data.roteiros[pending.curKey];
+    if (Array.isArray(pending.data.pecasDia?.[pending.curKey])) state.pecasDia = pending.data.pecasDia[pending.curKey];
+  }
+  renderAll(); renderWeekSelector(); closeModal('modal-import-roteiro-data');
+  toast('Backup importado. Os roteiros mantiveram suas datas originais.', 'success');
+}
+
 
 /**
  * Mescla itens de um roteiro no banco de peças permanente (state.pecas / state.programas).

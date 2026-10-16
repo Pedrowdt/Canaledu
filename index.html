@@ -592,7 +592,7 @@
         <option value="hicontrast">◐ Alto Contraste</option>
         <option value="destaque">★ Destaque</option>
       </select>
-      <button class="btn btn-sm btn-icon" onclick="importData()" title="Importar — CSV do Notion ou JSON de backup">📥</button>
+      <button class="btn btn-sm btn-icon" id="btn-import-topbar" onclick="importData()" title="Importar — CSV do Notion ou JSON de backup">📥</button>
       <button class="btn btn-sm btn-icon" onclick="openLog()" title="Log de atividades">🕘</button>
       <button class="btn btn-sm btn-icon" onclick="smartInsertPecas()" style="border-color:var(--cyan);color:var(--cyan)" title="Inserir Peças — distribuir peças do dia no roteiro automaticamente">⚡</button>
       <div style="display:flex;gap:4px">
@@ -689,6 +689,7 @@
           <button class="btn btn-sm" id="btn-undo" onclick="undoLastAction()" disabled title="Reverter a última ação feita no roteiro deste dia">↺ Refazer última ação</button>
           <!-- Botão para limpar todo o roteiro do dia atual (com confirmação) -->
           <button class="btn btn-sm" onclick="executarDistribuicaoBreaks()" title="Preenche automaticamente slots de chamadas, interprogramas e ajustes de grade" style="border-color:var(--accent);color:var(--accent)">🪄 Auto-preencher breaks</button>
+      <button class="btn btn-sm" onclick="openCopiarRoteiroModal()" title="Copiar roteiro de outro dia para a data atual" style="border-color:var(--purple,#a855f7);color:var(--purple,#a855f7)">📋 Copiar de outro dia</button>
       <button class="btn btn-sm" onclick="clearRoteiro()">Limpar roteiro</button>
           <!-- Botão para abrir o modal de configuração da grade semanal -->
           <button class="btn btn-sm" onclick="openGradeModal()" title="Definir horários da grade semanal" style="border-color:var(--green);color:var(--green)">📅 Grade</button>
@@ -1406,6 +1407,52 @@
       <button class="btn" onclick="resetAdminRegras()" style="color:var(--red);border-color:var(--red)">↺ Restaurar padrões</button>
       <button class="btn" onclick="closeModal('modal-admin')">Cancelar</button>
       <button class="btn btn-primary" onclick="saveAdminRegras()">✓ Salvar regras</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL COPIAR ROTEIRO DE OUTRO DIA -->
+<div id="modal-copiar-roteiro" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:480px;max-width:95vw">
+    <h3>📋 Copiar Roteiro de Outro Dia</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">Transfira itens de um roteiro salvo para a data atualmente selecionada.</p>
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:2px">Destino (data atual selecionada)</div>
+      <div id="copiar-destino-info" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--mono)">—</div>
+      <div id="copiar-destino-alerta" style="font-size:11px;color:var(--amber);margin-top:6px;display:none">⚠️ O roteiro atual será substituído (<span id="copiar-destino-qtd">0</span> itens). A ação pode ser revertida com “Refazer última ação”.</div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label for="copiar-origem-select" style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Copiar de qual dia?</label>
+      <select id="copiar-origem-select" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:12px"></select>
+      <div id="copiar-sem-origem" style="font-size:11px;color:var(--muted);margin-top:6px;display:none">Nenhum outro dia possui roteiro salvo.</div>
+    </div>
+    <div style="margin-bottom:16px;display:flex;align-items:center;gap:8px">
+      <input type="checkbox" id="copiar-incluir-pecas-dia" checked style="cursor:pointer">
+      <label for="copiar-incluir-pecas-dia" style="font-size:12px;color:var(--text);cursor:pointer">Copiar também as Peças do Dia, se houver</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('modal-copiar-roteiro')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-copiar-roteiro" onclick="executarCopiarRoteiro()">Copiar Roteiro</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DE IMPORTAÇÃO: SELEÇÃO DA DATA DO ROTEIRO -->
+<div id="modal-import-roteiro-data" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:520px;max-width:95vw">
+    <h3>📥 Importação de Backup — Escolha da Data</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">O backup contém roteiros associados a datas diferentes da data atualmente selecionada.</p>
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:12px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:2px">Data de destino ativa</div>
+      <div id="import-target-display" style="font-size:13px;font-weight:600;color:var(--text);font-family:var(--mono)">—</div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Qual roteiro do backup carregar para a data ativa?</div>
+      <div id="import-options-container" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn" onclick="fecharImportRoteiroModal()">Manter datas originais</button>
+      <button class="btn btn-primary" onclick="confirmarImportRoteiroData()">Usar roteiro selecionado</button>
     </div>
   </div>
 </div>
