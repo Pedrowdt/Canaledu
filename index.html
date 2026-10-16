@@ -952,7 +952,8 @@
 <div id="modal-new-peca" class="modal-overlay" style="display:none">
   <div class="modal">
     <h3>Nova Peça</h3>
-    <div class="form-row"><label>Code</label><input type="text" id="np-code"></div>
+    <div class="form-row"><label>Code</label><input type="text" id="np-code" oninput="checkNewPecaDuplicate()"></div>
+    <div id="np-code-warn" style="display:none;color:#ef4444;font-size:11px;margin:-8px 0 10px 0;font-weight:500"></div>
     <div class="form-row"><label>Descrição</label><input type="text" id="np-desc"></div>
     <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="np-dur" placeholder="00:01:30"></div>
     <div class="form-row"><label>Tipo</label>
@@ -980,7 +981,8 @@
   <div class="modal">
     <h3>Editar Peça</h3>
     <input type="hidden" id="ep-idx">
-    <div class="form-row"><label>Code</label><input type="text" id="ep-code"></div>
+    <div class="form-row"><label>Code</label><input type="text" id="ep-code" oninput="checkEditPecaDuplicate()"></div>
+    <div id="ep-code-warn" style="display:none;color:#ef4444;font-size:11px;margin:-8px 0 10px 0;font-weight:500"></div>
     <div class="form-row"><label>Descrição</label><input type="text" id="ep-desc"></div>
     <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="ep-dur" placeholder="00:01:30"></div>
     <div class="form-row"><label>Tipo</label>
@@ -1007,7 +1009,8 @@
 <div id="modal-new-prog" class="modal-overlay" style="display:none">
   <div class="modal">
     <h3>Novo Programa</h3>
-    <div class="form-row"><label>Code</label><input type="text" id="npp-code"></div>
+    <div class="form-row"><label>Code</label><input type="text" id="npp-code" oninput="checkNewProgDuplicate()"></div>
+    <div id="npp-code-warn" style="display:none;color:#ef4444;font-size:11px;margin:-8px 0 10px 0;font-weight:500"></div>
     <div class="form-row"><label>Descrição</label><input type="text" id="npp-desc"></div>
     <div class="form-row"><label>Duração (HH:MM:SS)</label><input type="text" id="npp-dur" placeholder="00:25:00"></div>
     <div class="modal-actions">

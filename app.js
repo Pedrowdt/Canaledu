@@ -1293,17 +1293,57 @@ function filterModalList() {
 
 /** Fecha o modal com o id informado definindo display:none. Funciona para qualquer modal do sistema. */
 function closeModal(id) {
-  document.getElementById(id).style.display = 'none';
+  const el = document.getElementById(id);
+  if (el) el.style.display = 'none';
+  if (id === 'modal-new-peca') {
+    const w = document.getElementById('np-code-warn'); if (w) { w.style.display = 'none'; w.textContent = ''; }
+    const c = document.getElementById('np-code'); if (c) c.style.borderColor = '';
+  } else if (id === 'modal-edit-peca') {
+    const w = document.getElementById('ep-code-warn'); if (w) { w.style.display = 'none'; w.textContent = ''; }
+    const c = document.getElementById('ep-code'); if (c) c.style.borderColor = '';
+  } else if (id === 'modal-new-prog') {
+    const w = document.getElementById('npp-code-warn'); if (w) { w.style.display = 'none'; w.textContent = ''; }
+    const c = document.getElementById('npp-code'); if (c) c.style.borderColor = '';
+  }
 }
 
 // =====================================================
 // MODAL NOVA PEÇA
 // =====================================================
 /** Abre o modal de cadastro de nova peça ao banco permanente, limpando todos os campos. */
+function checkNewPecaDuplicate() {
+  const codeEl = document.getElementById('np-code');
+  const warnEl = document.getElementById('np-code-warn');
+  if (!codeEl) return null;
+  const val = codeEl.value.trim();
+  if (!val) {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+  const dup = (state.pecas || []).find(p => p.code && String(p.code).trim().toLowerCase() === val.toLowerCase());
+  if (dup) {
+    if (warnEl) {
+      warnEl.textContent = `⚠️ Código já cadastrado: "${dup.descricao}"`;
+      warnEl.style.display = 'block';
+    }
+    codeEl.style.borderColor = '#ef4444';
+    return dup;
+  } else {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+}
+
 function addPecaModal() {
   ['np-code','np-desc','np-dur','np-val','np-obs'].forEach(id =>
     document.getElementById(id).value = '');
   document.getElementById('np-type').value = 'ECHM';
+  const warnEl = document.getElementById('np-code-warn');
+  if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  const codeEl = document.getElementById('np-code');
+  if (codeEl) codeEl.style.borderColor = '';
   document.getElementById('modal-new-peca').style.display = 'flex';
 }
 
@@ -1316,6 +1356,17 @@ function saveNewPeca() {
   const val  = document.getElementById('np-val').value.trim();
   const obs  = document.getElementById('np-obs').value.trim();
   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+
+  const dup = (state.pecas || []).find(p => p.code && String(p.code).trim().toLowerCase() === code.toLowerCase());
+  if (dup) {
+    toast(`Código "${code}" já existe no banco`, 'error');
+    alert(`Código duplicado!\n\nJá existe uma peça cadastrada com o código "${code}":\n"${dup.descricao}"\n\nNão é permitido cadastrar peças com o mesmo código.`);
+    const codeEl = document.getElementById('np-code');
+    if (codeEl && typeof codeEl.focus === 'function') codeEl.focus();
+    checkNewPecaDuplicate();
+    return;
+  }
+
   state.pecas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN',
                      type, validade: val, obs: sanitizeText(obs), categoria: 'MANUAL' });
   saveState();
@@ -1328,6 +1379,32 @@ function saveNewPeca() {
 
 // ── Editar peça do banco ─────────────────────────────────────────────────────
 /** Abre o modal de edição de peça do banco preenchendo os campos com os valores da peça no índice idx de state.pecas. */
+function checkEditPecaDuplicate() {
+  const codeEl = document.getElementById('ep-code');
+  const warnEl = document.getElementById('ep-code-warn');
+  const idx = parseInt(document.getElementById('ep-idx')?.value);
+  if (!codeEl) return null;
+  const val = codeEl.value.trim();
+  if (!val) {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+  const dup = (state.pecas || []).find((p, i) => i !== idx && p.code && String(p.code).trim().toLowerCase() === val.toLowerCase());
+  if (dup) {
+    if (warnEl) {
+      warnEl.textContent = `⚠️ Código já pertence à peça "${dup.descricao}"`;
+      warnEl.style.display = 'block';
+    }
+    codeEl.style.borderColor = '#ef4444';
+    return dup;
+  } else {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+}
+
 function editPecaModal(idx) {
   const item = state.pecas[idx];
   if (!item) return;
@@ -1338,6 +1415,10 @@ function editPecaModal(idx) {
   document.getElementById('ep-type').value = item.type || 'ECHM';
   document.getElementById('ep-val').value  = item.validade || '';
   document.getElementById('ep-obs').value  = item.obs || '';
+  const warnEl = document.getElementById('ep-code-warn');
+  if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  const codeEl = document.getElementById('ep-code');
+  if (codeEl) codeEl.style.borderColor = '';
   document.getElementById('modal-edit-peca').style.display = 'flex';
   setTimeout(() => document.getElementById('ep-desc').focus(), 50);
 }
@@ -1350,6 +1431,17 @@ function saveEditPeca() {
   const code = document.getElementById('ep-code').value.trim();
   const desc = document.getElementById('ep-desc').value.trim();
   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+
+  const dup = (state.pecas || []).find((p, i) => i !== idx && p.code && String(p.code).trim().toLowerCase() === code.toLowerCase());
+  if (dup) {
+    toast(`Código "${code}" já pertence à peça "${dup.descricao}"`, 'error');
+    alert(`Código duplicado!\n\nJá existe outra peça com o código "${code}":\n"${dup.descricao}"\n\nNão é permitido usar códigos duplicados.`);
+    const codeEl = document.getElementById('ep-code');
+    if (codeEl && typeof codeEl.focus === 'function') codeEl.focus();
+    checkEditPecaDuplicate();
+    return;
+  }
+
   item.code      = code;
   item.descricao = sanitizeText(desc);
   item.tempo     = document.getElementById('ep-dur').value.trim() || '00:01:00';
@@ -1541,9 +1633,38 @@ function exportBancoJSON() {
 // MODAL NOVO PROGRAMA
 // =====================================================
 /** Abre o modal de cadastro de novo programa ao banco permanente. */
+function checkNewProgDuplicate() {
+  const codeEl = document.getElementById('npp-code');
+  const warnEl = document.getElementById('npp-code-warn');
+  if (!codeEl) return null;
+  const val = codeEl.value.trim();
+  if (!val) {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+  const dup = (state.programas || []).find(p => p.code && String(p.code).trim().toLowerCase() === val.toLowerCase());
+  if (dup) {
+    if (warnEl) {
+      warnEl.textContent = `⚠️ Código já cadastrado: "${dup.descricao}"`;
+      warnEl.style.display = 'block';
+    }
+    codeEl.style.borderColor = '#ef4444';
+    return dup;
+  } else {
+    if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    codeEl.style.borderColor = '';
+    return null;
+  }
+}
+
 function addProgModal() {
   ['npp-code','npp-desc','npp-dur'].forEach(id =>
     document.getElementById(id).value = '');
+  const warnEl = document.getElementById('npp-code-warn');
+  if (warnEl) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  const codeEl = document.getElementById('npp-code');
+  if (codeEl) codeEl.style.borderColor = '';
   document.getElementById('modal-new-prog').style.display = 'flex';
 }
 
@@ -1553,6 +1674,17 @@ function saveNewProg() {
   const desc = document.getElementById('npp-desc').value.trim();
   const dur  = document.getElementById('npp-dur').value.trim() || '00:25:00';
   if (!code || !desc) { toast('Code e descrição são obrigatórios', 'error'); return; }
+
+  const dup = (state.programas || []).find(p => p.code && String(p.code).trim().toLowerCase() === code.toLowerCase());
+  if (dup) {
+    toast(`Código "${code}" já existe no programa "${dup.descricao}"`, 'error');
+    alert(`Código duplicado!\n\nJá existe um programa cadastrado com o código "${code}":\n"${dup.descricao}"\n\nNão é permitido cadastrar programas com o mesmo código.`);
+    const codeEl = document.getElementById('npp-code');
+    if (codeEl && typeof codeEl.focus === 'function') codeEl.focus();
+    checkNewProgDuplicate();
+    return;
+  }
+
   state.programas.push({ _localOnly: true, code, descricao: sanitizeText(desc), tempo: dur, midia: '0OMN', type: 'RPRO' });
   saveState();
   renderProgramas();

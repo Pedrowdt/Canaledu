@@ -687,9 +687,51 @@ function openModal(id){
     });
   }
 
+  const warnEl = document.getElementById('f-code-warn');
+  if (warnEl && warnEl.style) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  const codeEl = document.getElementById('f-code');
+  if (codeEl && codeEl.style) codeEl.style.borderColor = '';
+
   document.getElementById('modal-overlay').style.display='flex';
 }
-function closeModal(){document.getElementById('modal-overlay').style.display='none';editingId=null;}
+/** Verifica se o código informado já existe na aba ativa. Em edição, permite manter o próprio código da peça/programa. */
+function checkDuplicateCode() {
+  const codeEl = document.getElementById('f-code');
+  const warnEl = document.getElementById('f-code-warn');
+  if (!codeEl) return null;
+  const value = codeEl.value.trim();
+  if (!value) {
+    if (warnEl && warnEl.style) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+    if (codeEl && codeEl.style) codeEl.style.borderColor = '';
+    return null;
+  }
+
+  const duplicate = items().find(item =>
+    (!editingId || item.id !== editingId) &&
+    String(item.code || '').trim().toLowerCase() === value.toLowerCase()
+  );
+  if (duplicate) {
+    if (warnEl && warnEl.style) {
+      warnEl.textContent = `⚠️ Código já cadastrado: ${duplicate.descricao || duplicate.code}`;
+      warnEl.style.display = 'block';
+    }
+    if (codeEl && codeEl.style) codeEl.style.borderColor = '#ef4444';
+    return duplicate;
+  }
+
+  if (warnEl && warnEl.style) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  if (codeEl && codeEl.style) codeEl.style.borderColor = '';
+  return null;
+}
+
+function closeModal(){
+  document.getElementById('modal-overlay').style.display='none';
+  editingId=null;
+  const warnEl = document.getElementById('f-code-warn');
+  if (warnEl && warnEl.style) { warnEl.style.display = 'none'; warnEl.textContent = ''; }
+  const codeEl = document.getElementById('f-code');
+  if (codeEl && codeEl.style) codeEl.style.borderColor = '';
+}
 
 function toggleHorario(){
   document.getElementById('horario-fields').style.display=document.getElementById('f-showh').checked?'block':'none';
@@ -701,6 +743,18 @@ function saveItem(){
   const code=document.getElementById('f-code').value.trim();
   const descricao=document.getElementById('f-desc').value.trim();
   if(!code||!descricao)return alert('Code e Descrição são obrigatórios.');
+
+  const duplicate = items().find(item =>
+    (!editingId || item.id !== editingId) &&
+    String(item.code || '').trim().toLowerCase() === code.toLowerCase()
+  );
+  if (duplicate) {
+    alert(`Código duplicado!\n\nJá existe ${isPecas ? 'uma peça cadastrada' : 'um programa cadastrado'} com o código "${code}":\n"${duplicate.descricao || 'Sem descrição'}"\n\nNão é permitido cadastrar códigos duplicados.`);
+    const codeEl = document.getElementById('f-code');
+    if (codeEl && typeof codeEl.focus === 'function') codeEl.focus();
+    checkDuplicateCode();
+    return;
+  }
 
   let p = {
     id: editingId || uid(), code, descricao,
