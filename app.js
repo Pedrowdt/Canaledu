@@ -103,13 +103,15 @@ function undoLastAction() {
 }
 
 // Versões com debounce de 220ms para renderizações disparadas por input do usuário.
-// Evita reconstruir o DOM inteiro a cada tecla pressionada.
-const renderPecasSidebarDebounced = typeof debounce === 'function'
+// Expostas em window para evitar ReferenceError caso inputs disparem precocemente.
+window.renderPecasSidebarDebounced = typeof debounce === 'function'
   ? debounce(() => renderPecasSidebar(), 220)
   : () => renderPecasSidebar();
-const renderPecasPanelDebounced = typeof debounce === 'function'
+window.renderPecasPanelDebounced = typeof debounce === 'function'
   ? debounce(() => renderPecasPanel(), 220)
   : () => renderPecasPanel();
+const renderPecasSidebarDebounced = window.renderPecasSidebarDebounced;
+const renderPecasPanelDebounced   = window.renderPecasPanelDebounced;
 
 const DAY_NAMES = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const DAY_SHORT  = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
@@ -4712,7 +4714,160 @@ function replaceAllInRoteiro() {
 // Lê uma aba com colunas Seg..Dom em slots de 5 minutos
 // (coluna A = horário) e converte em gradeByDay/gradeOrderByDay.
 // =====================================================
-let _gradeImport = { wb: null, parsed: null };
+// =====================================================
+// IDENTIFICAÇÃO E DETECÇÃO DE SEMANA DA GRADE
+// =====================================================
+const MES_MAP_GRADE = {
+  'JANEIRO': 'Janeiro', 'FEVEREIRO': 'Fevereiro', 'MARÇO': 'Março', 'MARCO': 'Março',
+  'ABRIL': 'Abril', 'MAIO': 'Maio', 'JUNHO': 'Junho', 'JULHO': 'Julho',
+  'AGOSTO': 'Agosto', 'SETEMBRO': 'Setembro', 'OUTUBRO': 'Outubro',
+  'NOVEMBRO': 'Novembro', 'DEZEMBRO': 'Dezembro'
+};
+const MESES_CANONICOS_GRADE = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+function normalizarMesGrade(m) {
+  if (!m) return null;
+  const s = String(m).toUpperCase().trim();
+  if (MES_MAP_GRADE[s]) return MES_MAP_GRADE[s];
+  const num = parseInt(s, 10);
+  if (!isNaN(num) && num >= 1 && num <= 12) return MESES_CANONICOS_GRADE[num - 1];
+  return null;
+}
+
+/**
+ * Detecta o período da semana (dia início ao dia fim, mês, ano e lista de dias)
+ * a partir do nome da aba, do nome do arquivo ou das primeiras linhas da planilha.
+ */
+function detectarPeriodoSemana(sheetName, fileName, rows) {
+  const sName = String(sheetName || '').trim();
+  const fName = String(fileName || '').trim();
+
+  const regex = /(?:^|[^\d])([0-2]?\d|3[01])\s*(?:DE\s+([A-Za-zçÇ]+))?\s*(?:A|ATÉ|-)\s*([0-2]?\d|3[01])(?:\s*(?:DE|\/|\.)\s*([A-Za-zçÇ]+|\d{1,2}))?(?:\s*(?:DE|\/|\.)\s*(\d{4}))?/i;
+
+  let diaIni = null, diaFim = null, mes = null, ano = null;
+
+  let match = sName.match(regex);
+  if (match) {
+    diaIni = parseInt(match[1], 10);
+    const m1 = normalizarMesGrade(match[2]);
+    diaFim = parseInt(match[3], 10);
+    const m2 = normalizarMesGrade(match[4]);
+    mes = m2 || m1;
+    if (match[5]) ano = parseInt(match[5], 10);
+  }
+
+  if (!diaIni || !diaFim) {
+    match = fName.match(regex);
+    if (match) {
+      diaIni = parseInt(match[1], 10);
+      const m1 = normalizarMesGrade(match[2]);
+      diaFim = parseInt(match[3], 10);
+      const m2 = normalizarMesGrade(match[4]);
+      mes = m2 || m1;
+      if (match[5]) ano = parseInt(match[5], 10);
+    }
+  }
+
+  if ((!diaIni || !diaFim) && Array.isArray(rows)) {
+    for (let r = 0; r < Math.min(rows.length, 5); r++) {
+      const lineStr = (rows[r] || []).filter(Boolean).join(' ');
+      const mLine = lineStr.match(regex);
+      if (mLine) {
+        diaIni = parseInt(mLine[1], 10);
+        const m1 = normalizarMesGrade(mLine[2]);
+        diaFim = parseInt(mLine[3], 10);
+        const m2 = normalizarMesGrade(mLine[4]);
+        mes = m2 || m1;
+        const mAnoLine = lineStr.match(/\b(202[4-9]|203\d)\b/);
+        if (mAnoLine) ano = parseInt(mAnoLine[1], 10);
+        break;
+      }
+    }
+  }
+
+  const combined = `${sName} ${fName}`;
+  if (!mes) {
+    for (const [k, v] of Object.entries(MES_MAP_GRADE)) {
+      const regexMes = new RegExp(`\\b${k}\\b`, 'i');
+      if (regexMes.test(combined)) {
+        mes = v;
+        break;
+      }
+    }
+  }
+
+  if (!ano) {
+    const mAno = combined.match(/\b(202[4-9]|203\d)\b/);
+    if (mAno) ano = parseInt(mAno[1], 10);
+  }
+
+  let diasArray = null;
+  if (diaIni && diaFim) {
+    diasArray = [];
+    if (diaIni <= diaFim && (diaFim - diaIni <= 7)) {
+      for (let i = 0; i < 7; i++) {
+        diasArray.push(String(diaIni + i).padStart(2, '0'));
+      }
+    } else {
+      let curr = diaIni;
+      for (let i = 0; i < 7; i++) {
+        diasArray.push(String(curr).padStart(2, '0'));
+        curr++;
+        if (curr > 31 || (diaFim < diaIni && curr > 30 && i < 6)) curr = 1;
+      }
+    }
+  }
+
+  let descricao = '';
+  if (diaIni && diaFim) {
+    const padIni = String(diaIni).padStart(2, '0');
+    const padFim = String(diaFim).padStart(2, '0');
+    descricao = `Dia ${padIni} até o dia ${padFim}`;
+    if (mes) descricao += ` de ${mes}`;
+    if (ano) descricao += ` (${ano})`;
+  } else if (sName) {
+    descricao = sName;
+  } else {
+    descricao = 'Grade Semanal';
+  }
+
+  return {
+    descricao,
+    diaInicio: diaIni,
+    diaFim: diaFim,
+    mes,
+    ano,
+    diasArray,
+    sheetName: sName,
+    fileName: fName
+  };
+}
+
+/** Permite ao operador editar manualmente o nome/período da semana ativa na grade. */
+function editarIdentificacaoSemana() {
+  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const infoAtual = saved.gradeSemanalInfo || saved.gradeByDay?._info || {};
+  const valorAtual = infoAtual.descricao || 'Dia 08 até dia 14 de Junho';
+  const novo = prompt('Identificação do período da semana (ex.: "Dia 08 até dia 14 de Junho"):', valorAtual);
+  if (novo === null) return;
+  const trimmed = novo.trim();
+  if (!trimmed) return;
+
+  saved.gradeSemanalInfo = {
+    ...(infoAtual || {}),
+    descricao: trimmed,
+    atualizadoEm: new Date().toISOString()
+  };
+  saved.gradeByDay = saved.gradeByDay || {};
+  saved.gradeByDay._info = saved.gradeSemanalInfo;
+  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+
+  if (typeof renderGrade === 'function') renderGrade();
+  toast('Identificação da semana atualizada', 'success');
+  if (window.CanalLog) CanalLog.registrar('grade_semanal_renomeada', { semana: trimmed });
+}
+
+let _gradeImport = { wb: null, parsed: null, fileName: '', detectedPeriodo: null };
 
 /** Mapeia o cabeçalho da coluna ("SEGUNDA\n01/06/26", "DOMINGO 07/06/26"...) para dow (0..6). */
 function _gradeDowFromHeader(h) {
@@ -4786,6 +4941,7 @@ function _gradeCellToTime(v) {
 function handleGradeSemanalImport(ev) {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;
+  _gradeImport.fileName = file.name || '';
   const reader = new FileReader();
   reader.onload = e => {
     try {
@@ -4913,14 +5069,25 @@ function _gradePreviewSelectedSheet() {
     }
   }
   _gradeImport.parsed = { gradeByDay, gradeOrderByDay };
+
+  // Detecta o período da semana para identificar a grade
+  const detected = (typeof detectarPeriodoSemana === 'function')
+    ? detectarPeriodoSemana(sheetName, _gradeImport.fileName, rows)
+    : { descricao: sheetName };
+  _gradeImport.detectedPeriodo = detected;
+
+  const inpPeriodo = document.getElementById('grade-import-periodo-input');
+  if (inpPeriodo) inpPeriodo.value = detected.descricao || '';
+
   const DAY_PT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
   const lines = Object.keys(gradeByDay).sort().map(dow => {
     const first3 = gradeOrderByDay[dow].slice(0, 3)
       .map(k => `${gradeByDay[dow][k]} ${k}`).join(' · ');
     return `<div><b style="color:var(--accent)">${DAY_PT[dow]}</b> (${gradeOrderByDay[dow].length}): ${escHtml(first3)}…</div>`;
   });
+  const periodoDestaque = detected.descricao ? `<div style="margin-bottom:6px;font-weight:600;color:var(--accent)">📅 Período identificado: ${escHtml(detected.descricao)}</div>` : '';
   document.getElementById('grade-import-preview').innerHTML =
-    `<b>Aba:</b> ${escHtml(sheetName)}<br>${lines.join('')}`;
+    `${periodoDestaque}<b>Aba selecionada:</b> ${escHtml(sheetName)}<br>${lines.join('')}`;
 }
 
 /** Aplica a grade parseada ao localStorage, substituindo a grade de cada dia detectado. */
@@ -4940,8 +5107,32 @@ function applyGradeSemanalImport() {
     totalDays++;
     totalProgs += gradeOrderByDay[dow].length;
   }
+
+  const inpPeriodo = document.getElementById('grade-import-periodo-input');
+  const descDigitada = inpPeriodo ? inpPeriodo.value.trim() : '';
+  const descFinal = descDigitada || (_gradeImport.detectedPeriodo && _gradeImport.detectedPeriodo.descricao) || document.getElementById('grade-import-sheet')?.value || 'Semana Importada';
+
+  const infoSemana = {
+    ...(_gradeImport.detectedPeriodo || {}),
+    descricao: descFinal,
+    sheetName: document.getElementById('grade-import-sheet')?.value || '',
+    fileName: _gradeImport.fileName || '',
+    importadoEm: new Date().toISOString()
+  };
+  saved.gradeSemanalInfo = infoSemana;
+  saved.gradeByDay._info = infoSemana;
+
   localStorage.setItem('roteiroApp', JSON.stringify(saved));
-  toast(`✓ Grade aplicada: ${totalDays} dias, ${totalProgs} programas`, 'success');
+  if (window.CanalLog) {
+    CanalLog.registrar('grade_semanal_importada', {
+      semana: descFinal,
+      aba: infoSemana.sheetName,
+      arquivo: infoSemana.fileName,
+      dias: totalDays,
+      programas: totalProgs
+    });
+  }
+  toast(`✓ Grade aplicada: ${descFinal} (${totalDays} dias, ${totalProgs} programas)`, 'success');
   // Fecha a barra de importação — resultado já fica visível na própria
   // aba Grade Semanal, sem precisar fechar modal nenhum.
   const bar = document.getElementById('grade-import-sheets');

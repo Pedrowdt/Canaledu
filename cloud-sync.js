@@ -308,6 +308,11 @@ async function fetchAndMergeCloudData(user) {
   merged.gradeOrder      = localVenceRoteiro ? (localRaw.gradeOrder      || userGradeOrder           || {}) : (userGradeOrder           || localRaw.gradeOrder      || {});
   merged.gradeOrderByDay = localVenceRoteiro ? (localRaw.gradeOrderByDay || userGradeOrderByDay      || {}) : (userGradeOrderByDay      || localRaw.gradeOrderByDay || {});
   merged.pecasFixas      = localRaw.pecasFixas || [];
+  // Preserva metadados de identificação da semana ativa da grade (período X a Y)
+  merged.gradeSemanalInfo = localRaw.gradeSemanalInfo || (merged.gradeByDay && merged.gradeByDay._info) || null;
+  if (merged.gradeSemanalInfo && merged.gradeByDay && !merged.gradeByDay._info) {
+    merged.gradeByDay._info = merged.gradeSemanalInfo;
+  }
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.

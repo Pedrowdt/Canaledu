@@ -1036,17 +1036,71 @@ function fmtLogData(iso) {
   } catch { return iso || ''; }
 }
 
+window._logExpandedIds = window._logExpandedIds || new Set();
+
+const ROTULOS_CATEGORIA_LOG = {
+  'inicializacao': '⚙️ Inicialização / Timing',
+  'rede_nuvem':    '🌐 Rede / Sincronização Nuvem',
+  'armazenamento': '💾 Armazenamento Local',
+  'interface_dom': '🖱️ Interface / DOM',
+  'geral':         '⚠️ Geral'
+};
+
 function fmtLogDetalhes(entrada) {
   const d = entrada.detalhe || {};
   const partes = [];
+  if (d.categoria && ROTULOS_CATEGORIA_LOG[d.categoria]) {
+    partes.push(`[${ROTULOS_CATEGORIA_LOG[d.categoria]}]`);
+  }
   if (entrada.codes && entrada.codes.length) partes.push(`codes: ${entrada.codes.join(', ')}`);
   Object.entries(d).forEach(([k, v]) => {
     if (v == null || v === '') return;
-    if (k === 'stack') return; // não polui a lista, fica só no console/objeto
+    if (k === 'stack' || k === 'categoria' || k === 'breadcrumbs' || k === 'contexto') return;
     const val = Array.isArray(v) ? v.join(', ') : (typeof v === 'object' ? JSON.stringify(v) : String(v));
     partes.push(`${k}: ${val}`);
   });
   return partes.join(' · ');
+}
+
+function toggleLogDetail(idx) {
+  if (window._logExpandedIds.has(idx)) {
+    window._logExpandedIds.delete(idx);
+  } else {
+    window._logExpandedIds.add(idx);
+  }
+  renderLog();
+}
+
+function copiarRelatorioLog(idx) {
+  const entrada = (window._logEntradasFiltradas && window._logEntradasFiltradas[idx]) || logEntradas[idx];
+  if (!entrada) return;
+  const d = entrada.detalhe || {};
+  const bcStr = (d.breadcrumbs && d.breadcrumbs.length) ? 'Últimas Ações:\n  - ' + d.breadcrumbs.join('\n  - ') : '';
+  const stackStr = d.stack ? 'Stack Trace:\n' + d.stack : '';
+  const partes = [
+    '=== RELATÓRIO DE DIAGNÓSTICO CANALEDU ===',
+    'Data/Hora: ' + (entrada.criado_em || new Date().toISOString()),
+    'Tela: ' + (entrada.tela || '—') + ' | Nível: ' + (entrada.nivel || 'info') + ' | Evento: ' + (entrada.evento || '—'),
+    'Usuário: ' + (entrada.user_email || 'anônimo'),
+    'Categoria: ' + (d.categoria || 'não categorizado'),
+    d.mensagem ? ('Mensagem: ' + d.mensagem) : '',
+    d.arquivo ? ('Arquivo: ' + d.arquivo + (d.linha ? ':' + d.linha : '') + (d.coluna ? ':' + d.coluna : '')) : '',
+    d.url ? ('URL da Página: ' + d.url) : '',
+    bcStr,
+    stackStr,
+    '========================================'
+  ];
+  const relatorio = partes.filter(Boolean).join('\n');
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(relatorio).then(() => {
+      alert('✓ Relatório copiado para a área de transferência');
+    }).catch(() => {
+      prompt('Copie o relatório abaixo (Ctrl+C):', relatorio);
+    });
+  } else {
+    prompt('Copie o relatório abaixo (Ctrl+C):', relatorio);
+  }
 }
 
 async function openLog() {
@@ -1073,8 +1127,6 @@ function closeLog() {
 async function loadLog() {
   const body = document.getElementById('log-body');
   body.innerHTML = '<div class="log-empty">Carregando…</div>';
-  // CanalLog.equipe() lê a nuvem (todos os usuários); se não houver sessão
-  // ainda ou a tabela não estiver migrada, cai para o log local deste navegador.
   logEntradas = window.CanalLog
     ? await CanalLog.equipe(200).then((r) => (r && r.length ? r : CanalLog.recentes(200).slice().reverse()))
     : [];
@@ -1083,29 +1135,87 @@ async function loadLog() {
 
 function renderLog() {
   const body = document.getElementById('log-body');
-  const filtroTela = document.getElementById('log-filter-tela').value;
-  const filtroNivel = document.getElementById('log-filter-nivel').value;
+  const filtroTela  = document.getElementById('log-filter-tela')?.value || '';
+  const filtroNivel = document.getElementById('log-filter-nivel')?.value || '';
+  const filtroTexto = (document.getElementById('log-filter-text')?.value || '').toLowerCase().trim();
 
-  const filtradas = logEntradas.filter((e) =>
-    (!filtroTela || e.tela === filtroTela) &&
-    (!filtroNivel || e.nivel === filtroNivel)
-  );
+  const filtradas = logEntradas.filter((e) => {
+    if (filtroTela && e.tela !== filtroTela) return false;
+    if (filtroNivel && e.nivel !== filtroNivel) return false;
+    if (filtroTexto) {
+      const d = e.detalhe || {};
+      const busca = [
+        e.evento, e.tela, e.nivel, e.user_email,
+        d.categoria, d.mensagem, d.arquivo, d.stack,
+        ...(e.codes || []),
+        ...(d.breadcrumbs || [])
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!busca.includes(filtroTexto)) return false;
+    }
+    return true;
+  });
+
+  window._logEntradasFiltradas = filtradas;
 
   if (!filtradas.length) {
-    body.innerHTML = '<div class="log-empty">Nenhum registro ainda. Ações como salvar, excluir ou importar peças e programas — e erros inesperados — aparecem aqui.</div>';
+    body.innerHTML = '<div class="log-empty">Nenhum registro encontrado para os filtros selecionados.</div>';
     return;
   }
 
-  const linhas = filtradas.map((e) => `
-    <tr>
-      <td style="white-space:nowrap;color:#999">${fmtLogData(e.criado_em)}</td>
-      <td><span class="log-badge ${escapeHtml(e.nivel || 'info')}">${escapeHtml(LOG_NIVEL_LABEL[e.nivel] || e.nivel || 'info')}</span></td>
-      <td style="white-space:nowrap">${escapeHtml(e.tela)}</td>
-      <td>${escapeHtml(e.evento)}</td>
-      <td style="white-space:nowrap">${escapeHtml(e.user_email || '—')}</td>
-      <td class="log-detalhes">${escapeHtml(fmtLogDetalhes(e))}</td>
-    </tr>
-  `).join('');
+  const linhas = filtradas.map((e, idx) => {
+    const d = e.detalhe || {};
+    const hasExtra = Boolean(d.stack || d.breadcrumbs || d.categoria || d.url || (e.nivel === 'error'));
+    const isExpanded = window._logExpandedIds.has(idx);
+
+    let expandRowHtml = '';
+    if (isExpanded) {
+      const breadcrumbsHtml = (d.breadcrumbs && d.breadcrumbs.length)
+        ? `<div style="margin-top:6px"><b>Últimas ações:</b> <span style="color:#999">${d.breadcrumbs.map(b => escapeHtml(b)).join(' → ')}</span></div>`
+        : '';
+      const contextHtml = d.url ? `<div style="margin-top:4px;color:#999"><b>URL:</b> ${escapeHtml(d.url)}</div>` : '';
+      const stackHtml = d.stack ? `<pre class="log-stack-pre">${escapeHtml(d.stack)}</pre>` : '';
+
+      expandRowHtml = `
+        <tr>
+          <td colspan="6" style="padding:0 12px 10px;background:rgba(0,0,0,0.15)">
+            <div class="log-detail-box">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <span style="font-weight:600;color:var(--accent, #4f8ef7)">🔍 Diagnóstico Detalhado do Evento</span>
+                <button class="btn-outline" onclick="copiarRelatorioLog(${idx})" style="padding:2px 8px;font-size:11px">📋 Copiar Relatório</button>
+              </div>
+              <div><b>Evento:</b> ${escapeHtml(e.evento)} | <b>Tela:</b> ${escapeHtml(e.tela)} ${d.categoria ? `| <b>Categoria:</b> ${escapeHtml(ROTULOS_CATEGORIA_LOG[d.categoria] || d.categoria)}` : ''}</div>
+              ${d.mensagem ? `<div style="margin-top:4px"><b>Mensagem:</b> ${escapeHtml(d.mensagem)}</div>` : ''}
+              ${d.arquivo ? `<div style="margin-top:4px;color:#999"><b>Localização:</b> ${escapeHtml(d.arquivo)}${d.linha ? ':' + d.linha : ''}</div>` : ''}
+              ${contextHtml}
+              ${breadcrumbsHtml}
+              ${stackHtml}
+            </div>
+          </td>
+        </tr>`;
+    }
+
+    const clickAttr = hasExtra ? `onclick="toggleLogDetail(${idx})" title="Clique para expandir/ocultar detalhes técnicos"` : '';
+    const btnExpandir = hasExtra
+      ? `<button class="btn-outline" onclick="event.stopPropagation();toggleLogDetail(${idx})" style="padding:1px 6px;font-size:10px;margin-left:6px">${isExpanded ? '▲ Ocultar' : '▼ Detalhes'}</button>`
+      : '';
+
+    return `
+      <tr class="${hasExtra ? 'log-row-interactive' : ''}" ${clickAttr}>
+        <td style="white-space:nowrap;color:#999">${fmtLogData(e.criado_em)}</td>
+        <td><span class="log-badge ${escapeHtml(e.nivel || 'info')}">${escapeHtml(LOG_NIVEL_LABEL[e.nivel] || e.nivel || 'info')}</span></td>
+        <td style="white-space:nowrap">${escapeHtml(e.tela)}</td>
+        <td style="font-weight:500">${escapeHtml(e.evento)}</td>
+        <td style="white-space:nowrap">${escapeHtml(e.user_email || '—')}</td>
+        <td class="log-detalhes">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span>${escapeHtml(fmtLogDetalhes(e))}</span>
+            ${btnExpandir}
+          </div>
+        </td>
+      </tr>
+      ${expandRowHtml}
+    `;
+  }).join('');
 
   body.innerHTML = `
     <table class="log-table">

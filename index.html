@@ -312,6 +312,13 @@
   .grade-drag { cursor:grab; color:var(--border2); font-size:14px; padding:0 2px; flex-shrink:0; }
   .grade-drag:hover { color:var(--muted); }
   .grade-name { flex:1; font-size:11px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* ── Estilos do Badge de Grade Semanal e Detalhes de Log ── */
+  .grade-semana-badge { display:inline-flex; align-items:center; gap:6px; font-size:11px; padding:3px 9px; border-radius:6px; background:rgba(79,142,247,.12); color:var(--accent); border:1px solid rgba(79,142,247,.28); font-weight:500; }
+  .log-row-interactive { cursor:pointer; }
+  .log-row-interactive:hover td { background:rgba(255,255,255,0.035) !important; }
+  .log-detail-box { background:var(--bg3); border:1px solid var(--border); border-radius:6px; padding:10px 14px; font-size:11px; margin-top:2px; }
+  .log-stack-pre { background:rgba(0,0,0,0.3); border:1px solid var(--border); border-radius:4px; padding:8px 10px; font-family:monospace; font-size:10.5px; color:var(--text); overflow-x:auto; white-space:pre-wrap; word-break:break-all; margin:6px 0 0; }
+
   /* ── Linha Selecionada com Alto Destaque e Acessibilidade ── */
   .row-selected {
     background: rgba(79,142,247,.18) !important;
@@ -597,6 +604,11 @@
 #switch-app-link:hover { color: var(--accent, #2f6fe0); border-color: var(--accent, #2f6fe0); }
 
 </style>
+  <script>
+    // Stubs defensivos: evitam ReferenceError caso inputs/autofill disparem antes dos scripts carregarem
+    window.renderPecasSidebarDebounced = window.renderPecasSidebarDebounced || function() {};
+    window.renderPecasPanelDebounced   = window.renderPecasPanelDebounced   || function() {};
+  </script>
 </head>
 <body>
 
@@ -711,7 +723,7 @@
           <div class="day-selector" id="day-selector"></div>
         </div>
         <div class="pecas-search">
-          <input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-search-input" oninput="renderPecasSidebarDebounced()">
+          <input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-search-input" oninput="typeof renderPecasSidebarDebounced==='function'&&renderPecasSidebarDebounced()">
         </div>
         <!-- Filtros de tipo da sidebar: clique para ativar/desativar -->
         <div class="pecas-filters" id="pecas-filters">
@@ -831,7 +843,7 @@
     <section class="panel" id="panel-pecas">
       <div class="section-header">
         <h2>Banco de Peças</h2>
-        <div class="search"><input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-panel-search" oninput="renderPecasPanelDebounced()"></div>
+        <div class="search"><input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-panel-search" oninput="typeof renderPecasPanelDebounced==='function'&&renderPecasPanelDebounced()"></div>
         <div class="filter-row" id="pecas-panel-filters">
           <button class="filter-btn" data-t="ECHM" onclick="togglePanelFilter('ECHM')">ECHM</button>
           <button class="filter-btn" data-t="ECHE" onclick="togglePanelFilter('ECHE')">ECHE</button>
@@ -951,8 +963,14 @@
          Dia atual destacado em azul. Indicadores ✓/laranja do roteiro
          ─────────────────────────────────────────────────────── -->
     <section class="panel" id="panel-grade-visual">
-      <div class="section-header">
-        <h2>Grade Semanal</h2>
+      <div class="section-header" style="flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <h2>Grade Semanal</h2>
+          <div id="grade-semana-badge-container" style="display:inline-flex;align-items:center;gap:6px">
+            <span id="grade-semana-badge" class="grade-semana-badge">📅 Grade base de referência</span>
+            <button class="btn btn-sm" onclick="editarIdentificacaoSemana()" title="Editar identificação ou período da semana ativa" style="padding:2px 6px;font-size:11px">✏️</button>
+          </div>
+        </div>
         <span style="font-size:11px;color:var(--muted);flex:1">Horários fixos da programação — dia atual destacado em azul · ✓ no horário · laranja = desvio</span>
         <input type="file" id="file-grade-import" accept=".xlsx" style="display:none" onchange="handleGradeSemanalImport(event)">
         <button class="btn btn-sm" onclick="document.getElementById('file-grade-import').click()" style="border-color:var(--accent);color:var(--accent)" title="Substitui a grade dos 7 dias a partir de uma planilha semanal (ex.: PROGRAMAÇÃO CANAL EDUCAÇÃO JUNHO 2026.xlsx)">📥 Importar planilha…</button>
@@ -968,12 +986,16 @@
       </div>
       <!-- Aparece só depois de escolher um arquivo — pré-seleciona a aba mais
            provável, mostra o preview, e some de novo depois de aplicar. -->
-      <div id="grade-import-sheets" style="display:none;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);align-items:center;gap:10px;flex-wrap:wrap">
-        <label style="font-size:10px;color:var(--muted)">Aba da semana</label>
-        <select id="grade-import-sheet" style="font-size:11px;padding:4px 6px;border-radius:5px;border:1px solid var(--border2);background:var(--bg3);color:var(--text)"></select>
-        <span id="grade-import-preview" style="font-size:10px;color:var(--muted)"></span>
-        <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
-        <button class="btn btn-sm" onclick="document.getElementById('grade-import-sheets').style.display='none'">Cancelar</button>
+      <div id="grade-import-sheets" style="display:none;padding:12px 20px;background:var(--bg3);border-bottom:1px solid var(--border);flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <label style="font-size:11px;font-weight:600;color:var(--text)">Aba da semana:</label>
+          <select id="grade-import-sheet" style="font-size:11px;padding:4px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text)"></select>
+          <label style="font-size:11px;color:var(--muted);margin-left:8px">Período da semana:</label>
+          <input type="text" id="grade-import-periodo-input" placeholder="Ex: Dia 08 até dia 14 de Junho" style="font-size:11px;padding:4px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);width:230px" title="Identificação do período que ficará gravada na grade">
+          <button class="btn btn-sm btn-primary" onclick="applyGradeSemanalImport()">✓ Aplicar grade aos 7 dias</button>
+          <button class="btn btn-sm" onclick="document.getElementById('grade-import-sheets').style.display='none'">Cancelar</button>
+        </div>
+        <div id="grade-import-preview" style="font-size:11px;color:var(--muted);line-height:1.4;background:var(--bg2);padding:8px 12px;border-radius:6px;border:1px solid var(--border)"></div>
       </div>
       <div style="flex:1;overflow:auto;padding:0;position:relative" id="grade-visual-container">
         <div class="empty"><div class="icon">📅</div><p>Clique na aba para carregar a grade.</p></div>
@@ -1144,7 +1166,8 @@
       </div>
       <button class="btn btn-sm" onclick="closeLog()">Fechar</button>
     </div>
-    <div class="log-filters">
+    <div class="log-filters" style="display:flex;gap:8px;padding:10px 20px 14px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="log-filter-text" placeholder="Buscar texto, código, erro ou usuário..." oninput="renderLog()" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-size:11px;flex:1;min-width:200px">
       <select id="log-filter-tela" onchange="renderLog()">
         <option value="">Todas as telas</option>
         <option value="cadastro">Cadastro</option>
