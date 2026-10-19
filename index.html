@@ -312,8 +312,84 @@
   .grade-drag { cursor:grab; color:var(--border2); font-size:14px; padding:0 2px; flex-shrink:0; }
   .grade-drag:hover { color:var(--muted); }
   .grade-name { flex:1; font-size:11px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .row-selected { background: rgba(79,142,247,.10) !important; outline: 1px solid rgba(79,142,247,.35); }
-  .row-selected td.col-seq { color: var(--accent); font-weight: 600; }
+  /* ── Linha Selecionada com Alto Destaque e Acessibilidade ── */
+  .row-selected {
+    background: rgba(79,142,247,.18) !important;
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg2)) !important;
+    outline: 2px solid var(--accent) !important;
+    outline-offset: -2px;
+    box-shadow: inset 5px 0 0 var(--accent), 0 2px 6px rgba(0,0,0,.12) !important;
+    position: relative;
+    z-index: 1;
+  }
+  .row-selected:hover {
+    background: color-mix(in srgb, var(--accent) 25%, var(--bg2)) !important;
+  }
+  .row-selected td {
+    color: var(--text);
+  }
+  .row-selected td.col-seq {
+    color: var(--accent) !important;
+    font-weight: 700 !important;
+  }
+  .row-selected td.col-code,
+  .row-selected td.col-desc {
+    color: var(--text) !important;
+    font-weight: 600 !important;
+  }
+  .row-selected .drag-handle {
+    color: var(--accent) !important;
+  }
+  .row-selected .row-actions {
+    opacity: 0.95 !important;
+  }
+
+  /* Ajustes por tema para contraste ideal da linha selecionada */
+  body.theme-night .row-selected {
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg2)) !important;
+  }
+  body.theme-sunset .row-selected {
+    background: color-mix(in srgb, var(--accent) 24%, var(--bg3)) !important;
+    outline-color: var(--accent) !important;
+    box-shadow: inset 5px 0 0 var(--accent), 0 2px 8px rgba(0,0,0,.35) !important;
+  }
+  body.theme-cozy .row-selected {
+    background: color-mix(in srgb, var(--accent) 20%, var(--bg2)) !important;
+    outline-color: var(--accent) !important;
+    box-shadow: inset 5px 0 0 var(--accent) !important;
+  }
+  body.theme-hicontrast .row-selected {
+    background: #252500 !important;
+    outline: 3px solid var(--accent) !important;
+    outline-offset: -3px;
+    box-shadow: inset 6px 0 0 var(--accent) !important;
+  }
+  body.theme-hicontrast .row-selected td {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+  }
+  body.theme-hicontrast .row-selected td.col-seq {
+    color: var(--accent) !important;
+  }
+  body.theme-destaque .row-selected {
+    background: color-mix(in srgb, var(--accent) 32%, var(--bg3)) !important;
+    outline: 2px solid var(--accent) !important;
+    outline-offset: -2px;
+    box-shadow: inset 6px 0 0 var(--accent), 0 2px 8px rgba(0,0,0,.4) !important;
+  }
+
+  /* Tags de teclado acessíveis (<kbd>) */
+  kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-family: var(--mono);
+    background: var(--bg3);
+    color: var(--text);
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    box-shadow: 0 1px 0 var(--border);
+  }
   .break-summary-row { background: transparent !important; cursor: default; }
   .break-summary-row:hover { background: transparent !important; }
   .break-summary { display: flex; align-items: center; gap: 8px; padding: 2px 12px 2px 48px; }
@@ -738,6 +814,10 @@
             <div class="icon">📋</div>
             <p>Roteiro vazio. Arraste peças da lateral ou clique em "+ Adicionar peça".</p>
           </div>
+        </div>
+        <!-- Barra de acessibilidade e atalhos de teclado do roteiro -->
+        <div class="roteiro-table-footer" style="padding:5px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);display:flex;gap:12px;align-items:center;background:var(--bg2);flex-shrink:0;user-select:none">
+          <span>⌨️ <strong>Teclado:</strong> <kbd>↑</kbd> <kbd>↓</kbd> navegar &nbsp;·&nbsp; <kbd>Alt</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> mover linha &nbsp;·&nbsp; <kbd>Enter</kbd> editar &nbsp;·&nbsp; <kbd>Del</kbd> remover &nbsp;·&nbsp; <kbd>Esc</kbd> desmarcar</span>
         </div>
       </div>
     </section>

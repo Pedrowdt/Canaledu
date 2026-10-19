@@ -317,6 +317,7 @@ function init() {
   renderWeekSelector();
   updateDateDisplay();
   renderAll();
+  initKeyboardNavigation();
 }
 
 /** Persiste o estado atual no localStorage: roteiro do dia, banco de peças e programas. Se o objeto API estiver disponível, também envia os dados ao servidor via HTTP PUT. Aciona o auto-backup silencioso se estiver configurado. */
@@ -651,7 +652,13 @@ function renderRoteiro() {
 
 
     if (isSlot) {
-      return `<tr class="row-slot">
+      const isSelected = state.selectedRow === i;
+      return `<tr class="row-slot ${isSelected ? 'row-selected' : ''}"
+        data-index="${i}"
+        tabindex="${isSelected ? '0' : '-1'}"
+        aria-selected="${isSelected ? 'true' : 'false'}"
+        role="row"
+        onclick="selectRow(${i}, event)">
         <td class="col-seq" style="opacity:.3">${i+1}</td>
         <td colspan="5" style="font-size:11px;color:var(--border2);font-style:italic;padding:4px 12px">${escHtml(item.descricao)}</td>
         <td class="col-act"><div class="row-actions"><button class="act-btn" onclick="removeItem(${i})" title="Remover">✕</button></div></td>
@@ -661,6 +668,10 @@ function renderRoteiro() {
     const isSelected = state.selectedRow === i;
 
     return `<tr class="${isProgram ? 'row-program' : ''} ${isEvnh ? 'row-evnh' : ''} ${rowExtra} ${isSelected ? 'row-selected' : ''}"
+      data-index="${i}"
+      tabindex="${isSelected ? '0' : '-1'}"
+      aria-selected="${isSelected ? 'true' : 'false'}"
+      role="row"
       draggable="true"
       onclick="selectRow(${i}, event)"
       ondragstart="dragStart(event,${i})"
@@ -683,13 +694,7 @@ function renderRoteiro() {
   // Inject break summary rows
   injectBreakSummaries();
   // Re-apply selected row highlight after re-render
-  if (state.selectedRow !== null) {
-    const rows = document.querySelectorAll('#roteiro-tbody tr:not(.break-summary-row)');
-    if (rows[state.selectedRow]) rows[state.selectedRow].classList.add('row-selected');
-    // Update button label
-    const btn = document.querySelector('[onclick="addItemModal()"]');
-    if (btn) btn.textContent = `+ Inserir após #${state.selectedRow + 1}`;
-  }
+  updateRowSelectionDOM(false);
 
   document.getElementById('total-items').textContent = state.roteiro.length;
   document.getElementById('total-dur').textContent   = secToTime(totalDuration());
@@ -1098,21 +1103,180 @@ function inserirBreakManual() {
   if (window.CanalLog) CanalLog.registrar("roteiro_break_manual_inserido", { data: dateKey(state.currentDate), index: insertIndex });
 }
 
-/** Seleciona ou deseleciona uma linha do roteiro como cursor de inserção. A linha selecionada fica com fundo azul e o botão de adicionar muda para "+ Inserir após #N". */
-function selectRow(i, event) {
-  // Don't select when clicking action buttons or drag handle
-  if (event.target.closest('.act-btn') || event.target.closest('.drag-handle')) return;
-  state.selectedRow = (state.selectedRow === i) ? null : i;
-  // Highlight visually without full re-render
-  document.querySelectorAll('#roteiro-tbody tr').forEach((tr, idx) => {
-    tr.classList.toggle('row-selected', idx === state.selectedRow);
+/** Atualiza visualmente no DOM a linha selecionada, atributos ARIA e botão de inserção. */
+function updateRowSelectionDOM(scrollIntoView = false) {
+  if (typeof document === 'undefined') return;
+  const rows = document.querySelectorAll('#roteiro-tbody tr[data-index]');
+  let targetRow = null;
+  rows.forEach(tr => {
+    const idx = parseInt(tr.getAttribute('data-index'), 10);
+    const isSelected = (state.selectedRow !== null && idx === state.selectedRow);
+    tr.classList.toggle('row-selected', isSelected);
+    tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+    tr.setAttribute('tabindex', isSelected ? '0' : '-1');
+    if (isSelected) targetRow = tr;
   });
-  // Update "+ Adicionar" button label to show insert position
+
   const btn = document.querySelector('[onclick="addItemModal()"]');
   if (btn) {
     btn.textContent = state.selectedRow !== null
       ? `+ Inserir após #${state.selectedRow + 1}`
       : '+ Adicionar peça';
+  }
+
+  if (scrollIntoView && targetRow) {
+    try {
+      if (typeof targetRow.scrollIntoView === 'function') {
+        targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+      if (typeof targetRow.focus === 'function' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+        targetRow.focus({ preventScroll: true });
+      }
+    } catch (_) {}
+  }
+}
+
+/** Seleciona ou deseleciona uma linha do roteiro como cursor de inserção. */
+function selectRow(i, event) {
+  if (event && (event.target.closest('.act-btn') || event.target.closest('.drag-handle'))) return;
+  state.selectedRow = (state.selectedRow === i) ? null : i;
+  updateRowSelectionDOM(false);
+}
+
+/** Navega a seleção entre as linhas pelo teclado (delta: +1 próximo, -1 anterior). */
+function navigateSelectedRow(delta) {
+  const len = (state.roteiro || []).length;
+  if (len === 0) return;
+  if (state.selectedRow === null) {
+    state.selectedRow = delta > 0 ? 0 : len - 1;
+  } else {
+    state.selectedRow = Math.max(0, Math.min(len - 1, state.selectedRow + delta));
+  }
+  updateRowSelectionDOM(true);
+}
+
+/** Move a posição da linha selecionada no roteiro (reordenação via teclado). */
+function moveSelectedRow(delta) {
+  const len = (state.roteiro || []).length;
+  if (len <= 1 || state.selectedRow === null) return;
+  const fromIdx = state.selectedRow;
+  const toIdx = fromIdx + delta;
+  if (toIdx < 0 || toIdx >= len) return;
+
+  const item = state.roteiro.splice(fromIdx, 1)[0];
+  state.roteiro.splice(toIdx, 0, item);
+  state.selectedRow = toIdx;
+
+  recalcTimes();
+  saveState();
+  renderRoteiro();
+  updateRowSelectionDOM(true);
+
+  if (window.CanalLog) {
+    CanalLog.registrar('roteiro_linha_movida_teclado', {
+      de: fromIdx,
+      para: toIdx,
+      code: item.code,
+      descricao: item.descricao
+    });
+  }
+}
+
+/** Trata os atalhos de teclado para acessibilidade e navegação no roteiro. */
+function handleRoteiroKeydown(e) {
+  // Ignora se estiver digitando em campos de formulário
+  const tag = (e.target && e.target.tagName) || '';
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) {
+    return;
+  }
+
+  // Ignora se houver algum modal aberto na tela
+  if (typeof document !== 'undefined') {
+    const anyModalOpen = Array.from(document.querySelectorAll('.modal-overlay')).some(m => {
+      return m.style.display && m.style.display !== 'none';
+    });
+    if (anyModalOpen) return;
+
+    // Ignora se não estiver na visualização do roteiro
+    const panelRoteiro = document.getElementById('panel-roteiro');
+    if (panelRoteiro && panelRoteiro.style.display === 'none') return;
+  }
+
+  const len = (state.roteiro || []).length;
+  if (len === 0) return;
+
+  // Alt + Seta para Cima / Baixo: Mover posição do item selecionado
+  if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+    e.preventDefault();
+    moveSelectedRow(e.key === 'ArrowUp' ? -1 : 1);
+    return;
+  }
+
+  // Seta para Cima: Linha anterior
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    navigateSelectedRow(-1);
+    return;
+  }
+
+  // Seta para Baixo: Próxima linha
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    navigateSelectedRow(1);
+    return;
+  }
+
+  // Home: Primeira linha
+  if (e.key === 'Home') {
+    e.preventDefault();
+    state.selectedRow = 0;
+    updateRowSelectionDOM(true);
+    return;
+  }
+
+  // End: Última linha
+  if (e.key === 'End') {
+    e.preventDefault();
+    state.selectedRow = len - 1;
+    updateRowSelectionDOM(true);
+    return;
+  }
+
+  // Escape: Desmarcar seleção
+  if (e.key === 'Escape') {
+    if (state.selectedRow !== null) {
+      e.preventDefault();
+      state.selectedRow = null;
+      updateRowSelectionDOM(false);
+    }
+    return;
+  }
+
+  // Delete ou Backspace: Remover item selecionado
+  if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedRow !== null) {
+    e.preventDefault();
+    removeItem(state.selectedRow);
+    return;
+  }
+
+  // Enter ou 'e' / 'E': Editar item selecionado (se não for slot)
+  if ((e.key === 'Enter' || e.key === 'e' || e.key === 'E') && state.selectedRow !== null) {
+    const item = state.roteiro[state.selectedRow];
+    if (item && item.type !== '__SLOT__' && typeof editItemModal === 'function') {
+      e.preventDefault();
+      editItemModal(state.selectedRow);
+    }
+    return;
+  }
+}
+
+/** Inicializa listener global de teclado para navegação no roteiro. */
+function initKeyboardNavigation() {
+  if (typeof window !== 'undefined' && !window._roteiroKeyboardNavInitialized) {
+    window._roteiroKeyboardNavInitialized = true;
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('keydown', handleRoteiroKeydown);
+    }
   }
 }
 
