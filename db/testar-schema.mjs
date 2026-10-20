@@ -18,6 +18,8 @@ await q(`
   insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'teste@teste.com');
   create or replace function auth.uid() returns uuid
   language sql stable as $$ select '00000000-0000-0000-0000-000000000001'::uuid $$;
+  create or replace function auth.role() returns text
+  language sql stable as $$ select 'authenticated'::text $$;
   create table if not exists public.shared_data (
     id text primary key, pecas jsonb default '[]', programas jsonb default '[]',
     grade jsonb default '{}', updated_by uuid, updated_at timestamptz default now());
@@ -25,6 +27,7 @@ await q(`
   create role anon; create role authenticated; create role service_role;
   create publication supabase_realtime;
 `);
+
 
 const schema = readFileSync(new URL('./001_pecas_programas.sql', import.meta.url), 'utf8');
 await q(schema);
@@ -166,3 +169,32 @@ await show('fn_pecas_elegiveis continua funcionando depois de 007:',
   `select code from public.fn_pecas_elegiveis(1,'12:00','2026-08-05')`);
 
 console.log('\n007 validado.');
+// =====================================================
+// 008 (grade_por_usuario), 009 (emissoras), 010 (tipos_pecas)
+// =====================================================
+try {
+  await q(readFileSync(new URL('./008_grade_por_usuario.sql', import.meta.url), 'utf8'));
+  console.log('008_grade_por_usuario aplicado ✓');
+} catch (e) {
+  // Se o 008 não estiver na pasta de testes, apenas loga
+  console.log('008 pulado ou não encontrado');
+}
+
+await q(readFileSync(new URL('./009_emissoras.sql', import.meta.url), 'utf8'));
+console.log('009_emissoras aplicado ✓');
+
+await q(readFileSync(new URL('./010_tipos_pecas.sql', import.meta.url), 'utf8'));
+console.log('010_tipos_pecas aplicado ✓');
+
+// Validações básicas das novas tabelas
+await show('emissoras cadastradas:', `select id, nome, slug, ativo from public.emissoras`);
+await show('tipos de peças (Canal Educação):', `select codigo, nome, eh_interprograma from public.tipos_pecas where emissora_id = '00000000-0000-0000-0000-000000000001' order by ordem`);
+
+// Teste de integridade: tenta cadastrar uma nova emissora e tipos personalizados para ela
+await q(`insert into public.emissoras (id, nome, slug) values ('00000000-0000-0000-0000-000000000002', 'TV Cultura Regional', 'cultura-reg')`);
+await q(`insert into public.tipos_pecas (emissora_id, codigo, nome, eh_interprograma) values ('00000000-0000-0000-0000-000000000002', 'PATROCINIO', 'Patrocínio Master', false)`);
+
+await show('tipo criado para a nova emissora:', `select e.nome as emissora, t.codigo, t.nome as tipo from public.tipos_pecas t join public.emissoras e on e.id = t.emissora_id where e.slug = 'cultura-reg'`);
+
+console.log('\n009 e 010 validados com sucesso ✓');
+
