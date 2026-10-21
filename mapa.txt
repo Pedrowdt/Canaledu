@@ -1,0 +1,81 @@
+1. Objetivo geral
+
+Evoluir o sistema de roteirização do Canal Educação para uma arquitetura white-label multi-tenant, permitindo que outras emissoras usem a mesma plataforma com isolamento de dados, tipos de peças customizados, regras próprias e identidade visual independente, sem quebrar o fluxo que já está em produção.
+
+
+2. O que foi implementado e validado
+
+A. Diagnóstico e pré-requisitos
+
+Hotfix de importação do Notion: diagnóstico da inversão de ordem dos blocos durante a importação e validação da ordenação via roteiroBlocosOrdem.test.mjs.
+
+Harness de testes de banco (db/testar-schema.mjs): execução das migrações em Postgres real (via PGlite/WASM) com stubs para o ambiente Supabase (auth.uid(), auth.role()).
+
+B. Fundação de Banco de Dados Multi-tenant (Fase 1)
+
+009_emissoras.sql:
+
+Tabela emissoras com slug, nome, status e configurações de layout/grade.
+Cadastro padrão do tenant Canal Educação (00000000-0000-0000-0000-000000000001).
+
+010_tipos_pecas.sql:
+
+Tabela tipos_pecas vinculada a cada emissora.
+Carga dos 5 tipos padrão do Canal Educação (CHAMADA_QUENTE, INTERPROGRAMA, VINHETA, PROGRAMAETE, OUTROS) com suporte a tipos exclusivos para novas emissoras.
+
+011_vincular_emissora_dados.sql:
+
+Adição de emissora_id em pecas, programas e activity_log, apontando retroativamente para o Canal Educação.
+Preservação estrita do fluxo de mão única (tg_cadastro_guard, app.cadastro_scope) e das assinaturas legadas das funções de gravação.
+
+012_usuarios_emissoras.sql:
+
+Tabela associativa com papéis (admin, operador, leitor).
+Associação automática e idempotente dos usuários atuais ao Canal Educação.
+Funções de checagem de autorização (fn_usuario_tem_acesso_emissora e fn_usuario_papel_emissora).
+
+013_escrita_multiemissora.sql e testes de aceitação:
+
+Migração de unicidade global de código para unicidade composta (emissora_id, code).
+Remoção de constraints e índices legados que barravam códigos repetidos entre emissoras distintas.
+Novas sobrecargas de 3 argumentos para gravação com validação de vínculo ativo, mantendo sobrecargas de 2 argumentos para compatibilidade.
+
+C. Estabilização e suíte de testes
+
+Localização e recuperação da fixture real de backup (roteiro-canal-educacao-2026-10-17.json, 467 itens).
+Desacoplamento do teste copiarImportarDatas.test.mjs de caminhos do container, apontando para tests/fixtures/.
+Status atual dos testes:
+npm run test:db: 100% aprovado (todas as migrations de 001 a 013 validadas com sucesso).
+npm test: 27 arquivos e 256 testes passando (100% verde).
+
+
+Progresso Geral: [████████████░░░░░░░░░░░░░░░░░░] 40%
+
+[CONCLUÍDO] FASE 0: Diagnóstico e Estabilização               100%
+├── Investigação do bug de importação Notion                 ✓
+├── Teste de ordenação de blocos (roteiroBlocosOrdem)        ✓
+└── Restauração de fixture e suíte geral verde (256/256)     ✓
+
+[CONCLUÍDO] FASE 1: Fundação de Banco e Multi-tenancy         100%
+├── 009_emissoras (tabela de tenants e Canal Educação)       ✓
+├── 010_tipos_pecas (tipos configuráveis por emissora)       ✓
+├── 011_vincular_emissora_dados (vínculo de peças/programas) ✓
+├── 012_usuarios_emissoras (papéis e checagem de acesso)     ✓
+└── 013_escrita_multiemissora (unicidade composta e RLS)     ✓
+
+[A SEGUIR]  FASE 2: Frontend, Contexto e Tipos Dinâmicos        0% ◄ ESTAMOS AQUI
+├── Contexto de emissora ativa (session / localStorage)      ○
+├── Atualização do PecasRepo para enviar emissora_id         ○
+├── Carregamento dinâmico de tipos na tela de cadastro       ○
+└── Validação do fluxo de mão única com multi-tenancy        ○
+
+[PENDENTE]  FASE 3: Motor de Grade e Regras Configuráveis       0%
+├── Grade semanal desacoplada por emissora                   ○
+├── Regras de breaks configuráveis (knapsack / posições)     ○
+└── Isolamento de sincronização cloudSync por tenant         ○
+
+[PENDENTE]  FASE 4: Identidade Visual e Homologação             0%
+├── Suporte a temas / logotipos por emissora                 ○
+├── Seletor de emissoras para administradores                ○
+└── Teste ponta a ponta de uma segunda emissora piloto       ○
+
