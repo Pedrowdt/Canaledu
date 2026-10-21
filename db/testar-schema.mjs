@@ -197,4 +197,69 @@ await q(`insert into public.tipos_pecas (emissora_id, codigo, nome, eh_interprog
 await show('tipo criado para a nova emissora:', `select e.nome as emissora, t.codigo, t.nome as tipo from public.tipos_pecas t join public.emissoras e on e.id = t.emissora_id where e.slug = 'cultura-reg'`);
 
 console.log('\n009 e 010 validados com sucesso ✓');
+// --- 011_vincular_emissora_dados.sql ---
+const s011 = readFileSync(new URL('./011_vincular_emissora_dados.sql', import.meta.url), 'utf8');
+await q(s011);
+console.log('011_vincular_emissora_dados aplicado ✓');
+
+// 011 só vincula os dados existentes ao Canal Educação e mantém o contrato
+// original das funções da migration 006 (jsonb, text[]). Multiemissora ainda
+// não é habilitada nesta etapa.
+const emissoraLegada = '00000000-0000-0000-0000-000000000001';
+await show('peças vinculadas à emissora legada:',
+  `select count(*) as total, count(*) filter (where emissora_id = '${emissoraLegada}') as canal_educacao from public.pecas`);
+await show('programas vinculados à emissora legada:',
+  `select count(*) as total, count(*) filter (where emissora_id = '${emissoraLegada}') as canal_educacao from public.programas`);
+
+// Verifica gravação pelo contrato legado e aplicação do default de emissora_id.
+await q(`select public.fn_salvar_pecas(
+  '[{"code":"011_TESTE_LEGADO","descricao":"Teste 011","tempo":"00:00:05","type":"ECHE","categoria":"CHAMADA_QUENTE"}]'::jsonb,
+  '{}'::text[]
+)`);
+await q(`select public.fn_salvar_programas(
+  '[{"code":"011_PROG_LEGADO","descricao":"Teste 011","tempo":"00:01:00","type":"RPRO"}]'::jsonb,
+  '{}'::text[]
+)`);
+await show('peça criada pelo contrato legado mantém Canal Educação:',
+  `select code, emissora_id from public.pecas where code = '011_TESTE_LEGADO'`);
+await show('programa criado pelo contrato legado mantém Canal Educação:',
+  `select code, emissora_id from public.programas where code = '011_PROG_LEGADO'`);
+
+// Confirma que as assinaturas de gravação continuam com dois parâmetros.
+await show('assinatura legada de fn_salvar_pecas:',
+  `select to_regprocedure('public.fn_salvar_pecas(jsonb,text[])') is not null as existe`);
+await show('assinatura legada de fn_salvar_programas:',
+  `select to_regprocedure('public.fn_salvar_programas(jsonb,text[])') is not null as existe`);
+
+console.log('011 validado: vínculo legado e funções preservados ✓');
+
+
+// --- 012_usuarios_emissoras.sql ---
+const s012 = readFileSync(new URL('./012_usuarios_emissoras.sql', import.meta.url), 'utf8');
+await q(s012);
+console.log('012_usuarios_emissoras aplicado ✓');
+
+await show('vínculo retrocompatível do usuário de teste:',
+  `select usuario_id, emissora_id, papel, ativo from public.usuarios_emissoras where usuario_id = '00000000-0000-0000-0000-000000000001'`);
+await show('função confirma acesso ao Canal Educação:',
+  `select public.fn_usuario_tem_acesso_emissora('00000000-0000-0000-0000-000000000001'::uuid) as permitido`);
+await show('sem vínculo automático à emissora de teste:',
+  `select public.fn_usuario_tem_acesso_emissora('00000000-0000-0000-0000-000000000002'::uuid) as permitido`);
+await show('papel do usuário no Canal Educação:',
+  `select public.fn_usuario_papel_emissora('00000000-0000-0000-0000-000000000001'::uuid) as papel`);
+
+// Idempotência: reaplicar 012 não duplica nem altera vínculos existentes.
+await q(s012);
+await show('vínculos após reaplicar 012:',
+  `select count(*) as total from public.usuarios_emissoras where usuario_id = '00000000-0000-0000-0000-000000000001'`);
+console.log('012 validado: associação, verificação de acesso e idempotência ✓');
+
+// =====================================================
+// 013 — ESCRITA E ISOLAMENTO MULTIEMISSORA
+// =====================================================
+await q(readFileSync(new URL('./013_escrita_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('013_escrita_multiemissora aplicado ✓');
+
+await q(readFileSync(new URL('./013_testes_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('013 testes de aceitação executados ✓');
 
