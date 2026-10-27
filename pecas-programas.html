@@ -15,6 +15,7 @@
 <script src="pecas-repo.js"></script>
 <script src="cadastro-sync.js"></script>
 <script src="src/core/pecasDeduplicador.js"></script>
+<script src="src/core/emissoraContext.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -188,12 +189,21 @@ tbody tr:hover{background:#f5f5f3}
 
 <div class="topnav">
   <a href="index.html">← Voltar</a>
-  <div class="right">
+   <div class="right" style="display:flex;align-items:center;gap:10px">
     <span class="sync" id="sync-status"></span>
     <button type="button" class="btn-outline" style="width:auto;padding:4px 12px;font-size:12px" onclick="openLog()">🕘 Log</button>
+    
+    <!-- Seletor de Emissora Ativa -->
+    <div id="emissora-wrap" style="display:none;align-items:center;gap:4px">
+      <label for="select-emissora" style="font-size:11px;color:#666">Emissora:</label>
+      <select id="select-emissora" onchange="trocarEmissoraAtiva(this.value)" style="padding:3px 8px;font-size:12px;border:1px solid #ccc;border-radius:4px;background:#fff;font-weight:600">
+      </select>
+    </div>
+
     <span id="user-email"></span>
     <a href="#" id="logout-link">Sair</a>
   </div>
+
 </div>
 
 <div class="tabs">

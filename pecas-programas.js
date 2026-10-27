@@ -271,15 +271,66 @@ function wireGateLogin() {
   [email, pass].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
 }
 
+// =====================================================
+// CONTEXTO DE EMISSORA NA TELA
+// =====================================================
+async function trocarEmissoraAtiva(novaEmissoraId) {
+  if (!novaEmissoraId) return;
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+  }
+  if (window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
+    PecasRepo.setEmissoraId(novaEmissoraId);
+  }
+  setGateMessage('Carregando peças da emissora...');
+  document.getElementById('gate').style.display = 'flex';
+  try {
+    const dados = await PecasRepo.loadAll();
+    pecas = Array.isArray(dados.pecas) ? dados.pecas : [];
+    programas = Array.isArray(dados.programas) ? dados.programas : [];
+    deletedPecas = [];
+    deletedProgramas = [];
+    render();
+  } catch (e) {
+    console.error('[Peças e Programas] Erro ao trocar emissora:', e);
+  } finally {
+    document.getElementById('gate').style.display = 'none';
+  }
+}
+
 async function startApp(user) {
   currentUser = user;
   setGateMessage('Carregando cadastro...');
   document.getElementById('user-email').textContent = currentUser.email;
   document.getElementById('logout-link').addEventListener('click', async (e) => {
     e.preventDefault();
-    // Logout único: encerra a sessão e volta ao ponto de entrada.
     await CanalAuth.signOut('index.html');
   });
+
+  // Carrega e preenche o seletor de emissoras
+  if (window.EmissoraContext && supabaseClient) {
+    try {
+      const emissoras = await EmissoraContext.carregarEmissoras(supabaseClient, currentUser.id);
+      if (emissoras && emissoras.length > 0) {
+        const ativa = EmissoraContext.resolverEmissoraAtiva(emissoras);
+        const sel = document.getElementById('select-emissora');
+        const wrap = document.getElementById('emissora-wrap');
+        if (sel && wrap) {
+          sel.innerHTML = emissoras.map(e => `
+            <option value="${e.id}" ${ativa && ativa.id === e.id ? 'selected' : ''}>
+              ${escapeHtml(e.nome)}
+            </option>
+          `).join('');
+          wrap.style.display = 'flex';
+        }
+        if (ativa && window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
+          PecasRepo.setEmissoraId(ativa.id);
+        }
+      }
+    } catch (err) {
+      console.warn('[Peças e Programas] Não foi possível listar emissoras:', err);
+    }
+  }
 
   try {
     // Banco relacional (public.pecas / public.programas) com fallback
@@ -289,6 +340,7 @@ async function startApp(user) {
       CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
     }
     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
+
     if (window.CadastroSync) {
       // Única tela autorizada a gravar no cadastro (fluxo de mão única).
       CadastroSync.init({
