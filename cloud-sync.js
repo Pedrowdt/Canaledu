@@ -564,6 +564,78 @@ function setupRealtime() {
 // =====================================================
 // FLUXO PRINCIPAL
 // =====================================================
+
+// =====================================================
+// CONTEXTO DE EMISSORA NO ROTEIRO
+// =====================================================
+function atualizarBrandingEmissora(emissora) {
+  const nome = emissora && emissora.nome ? emissora.nome : "Canal Educação";
+  const logoEl = document.getElementById("app-logo-title");
+  if (logoEl) {
+    logoEl.innerHTML = escapeHtml(nome.toUpperCase()) + " — <span>ROTEIRO</span>";
+  }
+  document.title = "Roteiro — " + nome;
+}
+
+function escapeHtml(str) {
+  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+async function inicializarEmissorasRoteiro() {
+  if (!window.EmissoraContext || !supabaseClient || !currentUser) return;
+  try {
+    const emissoras = await EmissoraContext.carregarEmissoras(supabaseClient, currentUser.id);
+    if (emissoras && emissoras.length > 0) {
+      const ativa = EmissoraContext.resolverEmissoraAtiva(emissoras);
+      const sel = document.getElementById("select-emissora");
+      const wrap = document.getElementById("emissora-wrap");
+      if (sel && wrap) {
+        sel.innerHTML = emissoras.map(e => `
+          <option value="${e.id}" ${ativa && ativa.id === e.id ? "selected" : ""}>
+            ${escapeHtml(e.nome)}
+          </option>
+        `).join("");
+        wrap.style.display = "flex";
+      }
+      if (ativa) {
+        atualizarBrandingEmissora(ativa);
+        if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
+          PecasRepo.setEmissoraId(ativa.id);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("cloud-sync: erro ao carregar emissoras", err);
+  }
+}
+
+async function trocarEmissoraNoRoteiro(novaEmissoraId) {
+  if (!novaEmissoraId) return;
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+    const emissoras = EmissoraContext.getEmissorasCache();
+    const ativa = emissoras.find(e => e.id === novaEmissoraId);
+    if (ativa) atualizarBrandingEmissora(ativa);
+  }
+  if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
+    PecasRepo.setEmissoraId(novaEmissoraId);
+  }
+  if (typeof toast === "function") {
+    toast("Alternando para a emissora selecionada...", "info");
+  }
+  try {
+    await fetchAndMergeCloudData(currentUser);
+    if (typeof window.reloadStateFromStorageAndRender === "function") {
+      window.reloadStateFromStorageAndRender();
+    } else if (typeof renderAll === "function") {
+      renderAll();
+    }
+  } catch (err) {
+    console.error("Erro ao recarregar dados da nova emissora:", err);
+  }
+}
+window.trocarEmissoraNoRoteiro = trocarEmissoraNoRoteiro;
+
 async function onAuthenticated(user) {
   currentUser = user;
   if (window.CanalLog) {
@@ -582,6 +654,7 @@ async function cloudSyncOpenRoteiro() {
     // Já entramos no Roteiro antes nesta sessão — só reexibe, sem recarregar nada.
     document.querySelector('.app').style.display = '';
     document.getElementById('switch-app-link').style.display = 'inline-block';
+    await inicializarEmissorasRoteiro();
     return;
   }
 

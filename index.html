@@ -188,11 +188,7 @@
   .filter-btn[data-t="ECHM"].active { color: var(--amber); border-color: var(--amber); background: rgba(240,167,66,.08); }
   .filter-btn[data-t="ECHE"].active { color: var(--pink); border-color: var(--pink); background: rgba(236,72,153,.08); }
   .filter-btn[data-t="EINT"].active { color: var(--cyan); border-color: var(--cyan); background: rgba(56,209,227,.08); }
-  .filter-btn[data-t="RCOM"].active { color: var(--gre<script src="auth.js"></script>
-<script src="canal-log.js"></script>
-<script src="src/core/emissoraContext.js"></script>
-<script src="pecas-repo.js"></script>
-en); border-color: var(--green); background: rgba(45,202,114,.08); }
+  .filter-btn[data-t="RCOM"].active { color: var(--green); border-color: var(--green); background: rgba(45,202,114,.08); }
   .filter-btn[data-t="RPOL"].active { color: var(--pink); border-color: var(--pink); background: rgba(232,121,166,.08); }
   .filter-btn[data-t="EVNH"].active { color: var(--muted); border-color: var(--muted); background: rgba(136,145,176,.08); }
   .filter-btn[data-t="RPRO"].active { color: var(--accent2); border-color: var(--accent2); background: rgba(124,92,247,.08); }
@@ -664,8 +660,14 @@ en); border-color: var(--green); background: rgba(45,202,114,.08); }
        TOPBAR: Logo, abas de navegação e botões de exportação
        ═══════════════════════════════════════════════════════ -->
   <header class="topbar">
-    <div class="logo">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
+    <div class="logo" id="app-logo-title">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
     <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)">⇆ Peças e Programas</a>
+    <!-- Seletor de Emissora Ativa -->
+    <div id="emissora-wrap" style="display:none;align-items:center;gap:4px;margin-left:10px">
+      <label for="select-emissora" style="font-size:11px;color:var(--muted,#888)">Emissora:</label>
+      <select id="select-emissora" onchange="trocarEmissoraNoRoteiro(this.value)" style="padding:2px 8px;font-size:12px;border:1px solid var(--border,#ccc);border-radius:4px;background:var(--bg3,#fff);color:var(--text,#eee);font-weight:600">
+      </select>
+    </div>
     <nav class="tabs">
       <button class="tab active" onclick="showPanel('roteiro')">Roteiro do Dia</button>
       <button class="tab" onclick="showPanel('pecas')">Banco de Peças <span class="tab-badge" id="badge-pecas">0</span></button>
