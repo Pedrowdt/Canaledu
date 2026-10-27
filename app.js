@@ -219,21 +219,26 @@ const REGRAS_DEFAULT = {
   vhDaquiAPouco:    true,   // Se false, buildSmartRoteiro não usa VH daqui a pouco como separador
 };
 
-/**
- * Carrega as regras de negócio do localStorage (customizações do admin)
- * com fallback para REGRAS_DEFAULT. Garante que novos campos sempre existem.
- */
+function getRegrasStorageKey() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  return emissoraId ? `roteiroRegras_${emissoraId}` : 'roteiroRegras';
+}
 function loadRegras() {
-  const saved = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
+  const key = getRegrasStorageKey();
+  // Se for chave com emissora específica e ainda não existir gravação própria,
+  // faz fallback gracioso para o 'roteiroRegras' global existente ou default
+  const savedRaw = localStorage.getItem(key) || (key !== 'roteiroRegras' ? localStorage.getItem('roteiroRegras') : null);
+  const saved = JSON.parse(savedRaw || '{}');
   return { ...REGRAS_DEFAULT, ...saved };
 }
-
 /**
  * Salva as regras de negócio customizadas no localStorage.
  * Só armazena os campos que diferem dos defaults.
  */
 function saveRegras(regras) {
-  localStorage.setItem('roteiroRegras', JSON.stringify(regras));
+  localStorage.setItem(getRegrasStorageKey(), JSON.stringify(regras));
 }
 
 // Regras ativas — carregadas uma vez no boot, recarregadas após Admin salvar
@@ -5163,10 +5168,12 @@ function executarDistribuicaoBreaks() {
   }
 
   const curDow = state.currentDate ? state.currentDate.getDay() : (new Date()).getDay();
+  const curDateStr = state.currentDate ? dateKey(state.currentDate) : null;
   const res = fnDist(state.roteiro, state.pecas || [], {
     startSec: (typeof START_SECONDS !== 'undefined' ? START_SECONDS : 21600),
     regras: (typeof REGRAS !== 'undefined' ? REGRAS : {}),
-    dow: curDow
+    dow: curDow,
+    date: curDateStr
   });
 
   if (res.resultado.totalAlocado === 0) {
