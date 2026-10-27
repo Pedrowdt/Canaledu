@@ -576,6 +576,105 @@ function renderSidebar(){
   document.getElementById('alert-box').innerHTML=alerts>0?`<div class="alert-box">⚠ ${alerts} com validade crítica</div>`:'';
 }
 function setCat(c){activeCat=c;render();}
+// =====================================================
+// DUPLICADOS E SELEÇÃO EM LOTE
+// =====================================================
+let filtroDuplicadosApenas = false;
+let selectedCodes = new Set();
+
+function toggleFiltroDuplicados() {
+  filtroDuplicadosApenas = !filtroDuplicadosApenas;
+  const btn = document.getElementById('btn-toggle-duplicados');
+  if (btn) {
+    btn.style.background = filtroDuplicadosApenas ? '#FFE58F' : '';
+    btn.style.fontWeight = filtroDuplicadosApenas ? '600' : 'normal';
+  }
+  render();
+}
+
+function toggleSelectAll(checked) {
+  const checkboxes = document.querySelectorAll('.batch-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedCodes.add(cb.value);
+    else selectedCodes.delete(cb.value);
+  });
+  atualizarBarraLote();
+}
+
+function toggleSelectRow(code, checked) {
+  if (checked) selectedCodes.add(code);
+  else selectedCodes.delete(code);
+  atualizarBarraLote();
+}
+
+function limparSelecao() {
+  selectedCodes.clear();
+  const selectAllCb = document.getElementById('select-all-cb');
+  if (selectAllCb) selectAllCb.checked = false;
+  document.querySelectorAll('.batch-checkbox').forEach(cb => cb.checked = false);
+  atualizarBarraLote();
+}
+
+function atualizarBarraLote() {
+  const bar = document.getElementById('batch-bar');
+  const countSpan = document.getElementById('batch-count');
+  if (!bar || !countSpan) return;
+
+  if (selectedCodes.size > 0 || filtroDuplicadosApenas) {
+    bar.style.display = 'flex';
+    countSpan.textContent = `${selectedCodes.size} ite${selectedCodes.size === 1 ? 'm' : 'ns'} selecionado${selectedCodes.size === 1 ? '' : 's'}`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function selecionarSugeridosLimpeza() {
+  if (!window.PecasDeduplicador) {
+    alert('Módulo de deduplicação não carregado.');
+    return;
+  }
+  const lista = items();
+  const grupos = window.PecasDeduplicador.encontrarDuplicados(lista);
+  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, 'manter_recente');
+  
+  selectedCodes = new Set(descartar);
+  render();
+  atualizarBarraLote();
+}
+
+function executarAcaoLote(acao) {
+  if (selectedCodes.size === 0) {
+    alert('Nenhum item selecionado.');
+    return;
+  }
+  const codes = Array.from(selectedCodes);
+  const qtd = codes.length;
+
+  if (acao === 'excluir') {
+    if (!confirm(`Tem certeza que deseja excluir ${qtd} ite${qtd === 1 ? 'm' : 'ns'} selecionado${qtd === 1 ? '' : 's'}?`)) {
+      return;
+    }
+    marcarExcluidos(codes);
+    setItems(items().filter(x => !selectedCodes.has(x.code)));
+    limparSelecao();
+    render();
+    scheduleSync();
+    if (window.toast) window.toast(`${qtd} itens excluídos.`);
+  } else if (acao === 'desativar') {
+    const atualizados = items().map(x => {
+      if (selectedCodes.has(x.code)) {
+        return { ...x, ativo: false };
+      }
+      return x;
+    });
+    setItems(atualizados);
+    limparSelecao();
+    render();
+    scheduleSync();
+    if (window.toast) window.toast(`${qtd} itens desativados.`);
+  }
+}
 
 // =====================================================
 // RENDER PRINCIPAL
@@ -583,34 +682,57 @@ function setCat(c){activeCat=c;render();}
 function render(){
   const isPecas = activeTab === 'pecas';
   const q=document.getElementById('search').value.toLowerCase();
-  const list = items();
+  let list = items();
+
+  // Contagem e identificação de duplicados
+  let duplicateCodes = new Set();
+  if (window.PecasDeduplicador) {
+    const grupos = window.PecasDeduplicador.encontrarDuplicados(list);
+    for (const normalizado in grupos) {
+      grupos[normalizado].forEach(p => duplicateCodes.add(p.code));
+    }
+    const lblDuplicados = document.getElementById('lbl-duplicados');
+    if (lblDuplicados) {
+      lblDuplicados.textContent = `Apenas duplicados (${duplicateCodes.size})`;
+    }
+  }
+
   const filtered=list.filter(p=>{
+    if(filtroDuplicadosApenas && !duplicateCodes.has(p.code)) return false;
     if(isPecas && activeCat!=='ALL' && p.categoria!==activeCat)return false;
     if(q)return (p.code||'').toLowerCase().includes(q)||(p.descricao||'').toLowerCase().includes(q)||(p.type||'').toLowerCase().includes(q);
     return true;
   });
 
   const noun = isPecas ? 'peça' : 'programa';
-  const sub=`${filtered.length} ${noun}${filtered.length!==1?'s':''}${isPecas&&activeCat!=='ALL'?' · '+catMeta(activeCat).label:''}`;
+  const sub=`${filtered.length} ${noun}${filtered.length!==1?'s':''}${isPecas&&activeCat!=='ALL'?' · '+catMeta(activeCat).label:''}${filtroDuplicadosApenas?' · [Duplicados]':''}`;
   document.getElementById('header-sub').textContent = sub;
-
+  
   const thead = document.getElementById('thead');
   thead.innerHTML = isPecas
-    ? `<tr><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
-    : `<tr><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
+    ? `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
+    : `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
 
   if(filtered.length===0){
-    const colspan = isPecas ? 8 : 7;
-    document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.'}</td></tr>`;
+    const colspan = isPecas ? 9 : 8;
+    document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':(filtroDuplicadosApenas?'Nenhum item duplicado encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.')}</td></tr>`;
     if (isPecas) renderSidebar();
+    atualizarBarraLote();
     return;
   }
 
-  document.getElementById('tbody').innerHTML=filtered.map(p=> isPecas ? `
-    <tr>
+  document.getElementById('tbody').innerHTML=filtered.map(p=> {
+    const isChecked = selectedCodes.has(p.code) ? 'checked' : '';
+    const isDupl = duplicateCodes.has(p.code);
+    const rowStyle = isDupl ? 'background:#FFFDF5;' : '';
+    const duplBadge = isDupl ? '<span style="background:#FFE58F;color:#874D00;font-size:10px;padding:1px 4px;border-radius:3px;margin-left:4px">duplicado</span>' : '';
+
+    return isPecas ? `
+    <tr style="${rowStyle}">
+      <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
       <td>
-        <div class="desc-main">${escapeHtml(p.descricao)}</div>
+        <div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div>
         ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
         ${funcaoBadgeHtml(p)}
       </td>
@@ -626,9 +748,10 @@ function render(){
         </div>
       </td>
     </tr>` : `
-    <tr>
+    <tr style="${rowStyle}">
+      <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
-      <td><div class="desc-main">${escapeHtml(p.descricao)}</div></td>
+      <td><div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div></td>
       <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
       <td class="type-cell">${escapeHtml(p.type)}</td>
       <td class="hor-cell">${escapeHtml(p.midia||'')}</td>
@@ -639,10 +762,11 @@ function render(){
           <button class="icon-btn del" onclick="openDel('${p.id}')" title="Excluir">🗑</button>
         </div>
       </td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
 
   if (isPecas) renderSidebar();
+  atualizarBarraLote();
 }
 
 // =====================================================
