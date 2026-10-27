@@ -840,6 +840,9 @@ function openModal(id){
   if (isPecas) {
     document.getElementById('f-cat').value = p?.categoria || 'CHAMADA_QUENTE';
     document.getElementById('f-validade').value = p?.validade || '';
+    document.getElementById('f-finalidade').value = p?.tipoFinalidade || p?.finalidade || '';
+    document.getElementById('f-data-alvo').value = p?.dataEstreia || p?.dataAlvo || '';
+    document.getElementById('f-peso').value = (p?.peso != null && p?.peso !== '') ? p.peso : '';
     document.getElementById('f-obs').value = p?.obs || '';
     document.getElementById('f-hini').value = p?.hIni || '';
     document.getElementById('f-hfim').value = p?.hFim || '';
@@ -943,10 +946,17 @@ function saveItem(){
     const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>normalizeDia(b.dataset.d));
     const showH=document.getElementById('f-showh').checked;
     const funcao = document.getElementById('f-funcao').value;
+    const pesoEl = document.getElementById('f-peso');
+    const pesoVal = pesoEl ? pesoEl.value.trim() : '';
+    const finalidadeEl = document.getElementById('f-finalidade');
+    const dataAlvoEl = document.getElementById('f-data-alvo');
     p = {
       ...p,
       categoria: document.getElementById('f-cat').value,
       validade: document.getElementById('f-validade').value || '',
+      tipoFinalidade: finalidadeEl ? finalidadeEl.value : '',
+      dataEstreia: dataAlvoEl ? dataAlvoEl.value : '',
+      peso: pesoVal !== '' && !isNaN(Number(pesoVal)) ? Number(pesoVal) : undefined,
       dias: showH?dias:[],
       hIni: showH?document.getElementById('f-hini').value:'',
       hFim: showH?document.getElementById('f-hfim').value:'',
@@ -959,7 +969,9 @@ function saveItem(){
       programaRelacionado: (p.type === 'EVNH' && FUNCOES_COM_PROGRAMA.has(funcao))
         ? document.getElementById('f-programa-relacionado').value.trim() : '',
     };
-  } else {
+  }
+
+  else {
     // Campos estruturados (MVP-CADASTRO.md, Fase 1): calculados automaticamente
     // da descrição, mesma extração já usada pelo importador de grade em
     // app.js — o cadastro manual ganha o mesmo benefício sem digitar de novo.
