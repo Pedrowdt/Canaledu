@@ -741,8 +741,10 @@ function render(){
   let duplicateCodes = new Set();
   if (window.PecasDeduplicador) {
     const grupos = window.PecasDeduplicador.encontrarDuplicados(list);
-    for (const normalizado in grupos) {
-      grupos[normalizado].forEach(p => duplicateCodes.add(p.code));
+    if (Array.isArray(grupos)) {
+      grupos.forEach(g => (g.itens || []).forEach(p => duplicateCodes.add(p.code)));
+    } else if (grupos && typeof grupos === "object") {
+      Object.values(grupos).forEach(arr => (Array.isArray(arr) ? arr : []).forEach(p => duplicateCodes.add(p.code)));
     }
     const lblDuplicados = document.getElementById('lbl-duplicados');
     if (lblDuplicados) {
@@ -1000,11 +1002,15 @@ function saveItem(){
 function openDel(id){
   deleteId=id;
   const isPecas = activeTab === 'pecas';
-  const p=items().find(x=>x.id===id);
+  const p = items().find(x => x.id === id || x.code === id);
+  if (!p) {
+    console.warn("Item não encontrado para exclusão:", id);
+    return;
+  }
   document.getElementById('del-title').textContent = `Excluir ${isPecas?'peça':'programa'}`;
-  document.getElementById('del-code').textContent=p.code;
-  document.getElementById('del-desc').textContent=(p.descricao||'').slice(0,60);
-  document.getElementById('del-overlay').style.display='flex';
+  document.getElementById('del-code').textContent = p.code || id;
+  document.getElementById('del-desc').textContent = (p.descricao || p.programa_titulo || '').slice(0,60);
+  document.getElementById('del-overlay').style.display = 'flex';
 }
 
 // [NOVO] Botão "Excluir todos" — usa o mesmo modal de confirmação,
