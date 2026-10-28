@@ -322,6 +322,7 @@ async function startApp(user) {
             </option>
           `).join('');
           wrap.style.display = 'flex';
+          sel.onchange = (e) => trocarEmissoraAtiva(e.target.value);
         }
         if (ativa && window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
           PecasRepo.setEmissoraId(ativa.id);
