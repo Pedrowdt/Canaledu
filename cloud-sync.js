@@ -1,3 +1,11 @@
+
+function getRoteiroStorageKey() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  return emissoraId ? 'roteiroApp_' + emissoraId : 'roteiroApp';
+}
+window.getRoteiroStorageKey = getRoteiroStorageKey;
 // =====================================================
 // CLOUD SYNC — Login + sincronização em nuvem (Supabase)
 // Roteiro Canal Educação
@@ -39,8 +47,9 @@ const SCRIPTS_TO_LOAD = [
 let supabaseClient = null;
 let currentUser = null;
 let scriptsLoaded = false;
-let _origSetItem = null;
-let _origGetItem = null;
+let _origGetItem = typeof Storage !== 'undefined' ? Storage.prototype.getItem : null;
+let _origSetItem = typeof Storage !== 'undefined' ? Storage.prototype.setItem : null;
+let _origRemoveItem = typeof Storage !== 'undefined' ? Storage.prototype.removeItem : null;
 let _pushTimer = null;
 let _pushInFlight = false; // true durante o await do pushToCloud
 let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma edição nova chegou durante um push já em andamento
@@ -109,7 +118,11 @@ function getGuard() {
   const SG = window.StorageGuard;
   if (!SG) return null; // módulo ausente: cai no caminho simples (try/catch)
   _guard = SG.criar({
-    storage: localStorage,
+    storage: {
+      getItem: (k) => _origGetItem.call(localStorage, k),
+      setItem: (k, v) => _origSetItem.call(localStorage, k, v),
+      removeItem: (k) => _origRemoveItem.call(localStorage, k),
+    },
     setItemOriginal: (k, v) => _origSetItem.call(localStorage, k, v),
     getItemOriginal: (k) => _origGetItem.call(localStorage, k),
     protegidos: _diaAberto,
@@ -223,21 +236,23 @@ async function fetchAndMergeCloudData(user) {
   // FONTE DA VERDADE do banco de peças/programas: as tabelas relacionais
   // preenchidas pela tela "Peças e Programas". A ponte cai para o espelho
   // shared_data automaticamente se a migração ainda não foi aplicada.
+  const emissoraAtivaId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
   const cadastro = await RoteiroPecasBridge.carregarCadastro({
     client: supabaseClient,
     sharedRow: shared,
     workspaceId: WORKSPACE_ID,
+    emissoraId: emissoraAtivaId,
   });
   console.info('[cloud-sync] cadastro carregado de:', cadastro.origem,
     '· peças:', cadastro.pecas.length, '· programas:', cadastro.programas.length);
+  let userQuery = supabaseClient.from('user_data').select('*').eq('user_id', user.id);
+  if (emissoraAtivaId) userQuery = userQuery.eq('emissora_id', emissoraAtivaId);
+  const { data: userRow } = await userQuery.maybeSingle();
 
-  const { data: userRow } = await supabaseClient
-    .from('user_data')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
 
-  const localRaw    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _chaveAtiva = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const localRaw    = JSON.parse(localStorage.getItem(_chaveAtiva) || '{}');
   const localRegras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
   const sharedEmpty  = !cadastro.pecas.length && !cadastro.programas.length;
@@ -316,7 +331,8 @@ async function fetchAndMergeCloudData(user) {
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
-  gravarLocal('roteiroApp', JSON.stringify(merged));
+  const _chaveApp = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  gravarLocal(_chaveApp, JSON.stringify(merged));
   const _ret = getGuard() && getGuard().aplicarRetencao();
   if (_ret && _ret.total) {
     // Reflete a poda em `merged` para o upsert inicial (abaixo) não reenviar o histórico descartado.
@@ -326,8 +342,11 @@ async function fetchAndMergeCloudData(user) {
   }
 
   if (!userRow) {
+    const emissoraUpsertId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId() : '00000000-0000-0000-0000-000000000001';
     await supabaseClient.from('user_data').upsert({
       user_id: user.id,
+      emissora_id: emissoraUpsertId,
       roteiros: merged.roteiros,
       pecas_dia: merged.pecasDia,
       grade: merged.grade,
@@ -424,9 +443,9 @@ async function pushToCloud() {
       })
       .eq('id', WORKSPACE_ID);
 
-    await supabaseClient
-      .from('user_data')
-      .update({
+    const emissoraPushId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId() : null;
+    let uQuery = supabaseClient.from('user_data').update({
         roteiros: app.roteiros || {},
         pecas_dia: app.pecasDia || {},
         grade: app.grade || {},
@@ -434,8 +453,9 @@ async function pushToCloud() {
         grade_order: app.gradeOrder || {},
         grade_order_by_day: app.gradeOrderByDay || {},
         updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', currentUser.id);
+      }).eq('user_id', currentUser.id);
+    if (emissoraPushId) uQuery = uQuery.eq('emissora_id', emissoraPushId);
+    await uQuery;
 
     if (window.CadastroSync) await CadastroSync.flush().catch(() => {});
     if (window.CanalLog) CanalLog.registrar('roteiro_sincronizado', { grade: Object.keys(app.grade || {}).length });
@@ -624,6 +644,13 @@ async function trocarEmissoraNoRoteiro(novaEmissoraId) {
     toast("Alternando para a emissora selecionada...", "info");
   }
   try {
+    // Reseta estado em memória para evitar vazamento visual entre emissoras
+    if (typeof state !== 'undefined' && state) {
+      state.pecas = [];
+      state.programas = [];
+      state.pecasDia = [];
+      state.roteiro = [];
+    }
     await fetchAndMergeCloudData(currentUser);
     if (typeof window.reloadStateFromStorageAndRender === "function") {
       window.reloadStateFromStorageAndRender();
@@ -665,6 +692,7 @@ async function cloudSyncOpenRoteiro() {
     scriptsLoaded = true;
     document.querySelector('.app').style.display = '';
     document.getElementById('switch-app-link').style.display = 'inline-block';
+    await inicializarEmissorasRoteiro();
     patchLocalStorage();
     if (window.CadastroSync) {
       // Fila de pendências do cadastro: sobe o que foi criado/editado no

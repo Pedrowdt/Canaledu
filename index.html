@@ -131,8 +131,8 @@
   html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; }
 
   /* LAYOUT */
-  .app { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
-  .topbar { display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; }
+  .app { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; height: 100%; box-sizing: border-box; }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; min-height: 44px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: visible; flex-shrink: 0; }
   .topbar .logo { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--accent); letter-spacing: 0.07em; white-space: nowrap; flex-shrink: 0; }
   .topbar .logo span { color: var(--muted); }
   .tabs { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }

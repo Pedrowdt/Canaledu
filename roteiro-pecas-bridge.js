@@ -192,11 +192,14 @@
    * { pecas, programas, origem, autoritativo } — origem ajuda no diagnóstico
    * ('relacional' | 'shared_data' | 'local').
    */
-  async function carregarCadastro({ client, repo, sharedRow, workspaceId } = {}) {
+  async function carregarCadastro({ client, repo, sharedRow, workspaceId, emissoraId } = {}) {
     const repositorio = repo || global.PecasRepo;
     if (repositorio && client) {
       try {
         const mode = await repositorio.init(client, workspaceId);
+        if (emissoraId && typeof repositorio.setEmissoraId === 'function') {
+          repositorio.setEmissoraId(emissoraId);
+        }
         const dados = await repositorio.loadAll();
         const origem = mode === 'relational' ? 'relacional' : 'shared_data';
         return {
