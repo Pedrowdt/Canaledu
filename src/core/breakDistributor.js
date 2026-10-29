@@ -151,8 +151,74 @@
     if (!dias.length) return true;
     return dias.map(normalizeDia).includes(DIAS_SEMANA_ABREV[dow]);
   }
+  const PESOS_FINALIDADE = {
+    estreia: 10,
+    promocional: 7,
+    comercial: 6,
+    vinhetas: 5,
+    calhau: 5
+  };
+
+  function parseDateToYMD(str) {
+    if (!str) return null;
+    const s = String(str).trim();
+    if (s.includes('/')) {
+      const parts = s.split('/');
+      if (parts.length === 3) {
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        const y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+        return `${y}-${m}-${d}`;
+      }
+    } else if (s.includes('-')) {
+      const parts = s.split('-');
+      if (parts.length === 3) {
+        if (parts[0].length === 4) return s;
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        const y = parts[2].length === 2 ? '20' + parts[2] : parts[2];
+        return `${y}-${m}-${d}`;
+      }
+    }
+    return null;
+  }
+
+  function diffDays(dateA, dateB) {
+    const ymdA = parseDateToYMD(dateA);
+    const ymdB = parseDateToYMD(dateB);
+    if (!ymdA || !ymdB) return null;
+    const tA = new Date(ymdA + 'T00:00:00Z').getTime();
+    const tB = new Date(ymdB + 'T00:00:00Z').getTime();
+    return Math.round((tB - tA) / (1000 * 60 * 60 * 24));
+  }
+
+  function calcularScorePeca(p, dataRoteiro, countExibicoes = 0) {
+    let score = null;
+    if (p.peso != null && !isNaN(Number(p.peso))) {
+      score = Number(p.peso);
+    } else {
+      const fin = String(p.tipoFinalidade || p.finalidade || p.tag || '').trim().toLowerCase();
+      score = PESOS_FINALIDADE[fin] ?? 5;
+    }
+
+    const dataAlvo = p.dataAlvo || p.dataExibicao || p.dataEstreia;
+    if (dataAlvo && dataRoteiro) {
+      const dDias = diffDays(dataRoteiro, dataAlvo);
+      if (dDias !== null) {
+        if (dDias === 0) score += 15;
+        else if (dDias === 1) score += 8;
+        else if (dDias === 2) score += 4;
+        else if (dDias >= 3 && dDias <= 7) score += 1;
+        else if (dDias < 0) score -= 30;
+      }
+    }
+
+    score -= (Number(countExibicoes || 0) * 3);
+    return score;
+  }
 
   function distribuirPecasNosBreaks(roteiro, pecas, options = {}) {
+     const dateStr = options.date ? String(options.date).trim() : null;
     const startSec = Number(options.startSec) || 21600;
     const regras = options.regras || {};
     const dow = options.dow != null ? Number(options.dow) : (options.date ? new Date(options.date).getDay() : null);
@@ -228,23 +294,24 @@
       return true;
     }
 
-    function pickBestPeca(candidates, currentSec, neighborProgTheme) {
+        function pickBestPeca(candidates, currentSec, neighborProgTheme) {
       const eligible = candidates.filter(p => isEligible(p, currentSec, neighborProgTheme));
       if (eligible.length === 0) return null;
-
       eligible.sort((a, b) => {
         const countA = exibições[a.code] || 0;
         const countB = exibições[b.code] || 0;
-        if (countA !== countB) return countA - countB;
-
+        const scoreA = calcularScorePeca(a, dateStr, countA);
+        const scoreB = calcularScorePeca(b, dateStr, countB);
+        if (scoreA !== scoreB) {
+          return scoreB - scoreA; // maior score primeiro
+        }
         const durA = timeToSec(a.tempo);
         const durB = timeToSec(b.tempo);
         return durB - durA;
       });
-
       return eligible[0];
     }
-
+    
     for (let i = 0; i < roteiro.length; i++) {
       const it = { ...roteiro[i] };
       const isGap = it.code === '__GAP__' || it.type === '__GAP__';
@@ -348,8 +415,10 @@
     distribuirPecasNosBreaks,
     findCombinationForDuration,
     isValidadeExpired,
-    extractTheme
+    extractTheme,
+    calcularScorePeca
   };
+
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

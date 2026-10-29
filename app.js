@@ -91,10 +91,11 @@ function undoLastAction() {
   // ponto de desfazer, e clicar em "desfazer" de novo simplesmente
   // alternaria para sempre entre os dois últimos estados em vez de voltar
   // mais um passo no histórico real.
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   if (!saved.roteiros) saved.roteiros = {};
   saved.roteiros[dk] = state.roteiro;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
 
   renderRoteiro();
   renderWeekSelector();
@@ -219,21 +220,35 @@ const REGRAS_DEFAULT = {
   vhDaquiAPouco:    true,   // Se false, buildSmartRoteiro não usa VH daqui a pouco como separador
 };
 
-/**
- * Carrega as regras de negócio do localStorage (customizações do admin)
- * com fallback para REGRAS_DEFAULT. Garante que novos campos sempre existem.
- */
+
+function getRoteiroStorageKey() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  return emissoraId ? `roteiroApp_${emissoraId}` : 'roteiroApp';
+}
+window.getRoteiroStorageKey = getRoteiroStorageKey;
+
+function getRegrasStorageKey() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  return emissoraId ? `roteiroRegras_${emissoraId}` : 'roteiroRegras';
+}
 function loadRegras() {
-  const saved = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
+  const key = getRegrasStorageKey();
+  // Se for chave com emissora específica e ainda não existir gravação própria,
+  // faz fallback gracioso para o 'roteiroRegras' global existente ou default
+  const savedRaw = localStorage.getItem(key) || (key !== 'roteiroRegras' ? localStorage.getItem('roteiroRegras') : null);
+  const saved = JSON.parse(savedRaw || '{}');
   return { ...REGRAS_DEFAULT, ...saved };
 }
-
 /**
  * Salva as regras de negócio customizadas no localStorage.
  * Só armazena os campos que diferem dos defaults.
  */
 function saveRegras(regras) {
-  localStorage.setItem('roteiroRegras', JSON.stringify(regras));
+  localStorage.setItem(getRegrasStorageKey(), JSON.stringify(regras));
 }
 
 // Regras ativas — carregadas uma vez no boot, recarregadas após Admin salvar
@@ -324,14 +339,15 @@ function init() {
 
 /** Persiste o estado atual no localStorage: roteiro do dia, banco de peças e programas. Se o objeto API estiver disponível, também envia os dados ao servidor via HTTP PUT. Aciona o auto-backup silencioso se estiver configurado. */
 function saveState() {
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   if (!saved.roteiros) saved.roteiros = {};
   const dk = dateKey(state.currentDate);
   registrarUndoSeMudou(dk, saved.roteiros[dk], state.roteiro);
   saved.roteiros[dk] = state.roteiro;
   saved.pecas     = state.pecas;
   saved.programas = state.programas;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
   // FLUXO DE MÃO ÚNICA: o Roteiro NUNCA grava no cadastro (public.pecas /
   // public.programas). Tudo aqui é local (localStorage + user_data).
   // Alterações no cadastro só acontecem na tela "Peças e Programas".
@@ -471,7 +487,8 @@ function changeWeek(delta) {
   // Load roteiro and pecasDia for the new date (sem isso, o painel de
   // Peças do Dia ficava mostrando o conteúdo do dia anterior até alguém
   // reabrir a aba manualmente).
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   state.roteiro = saved.roteiros?.[dateKey(d)] || [];
   state.pecasDia = saved.pecasDia?.[dateKey(d)] || [];
   renderWeekSelector();
@@ -495,7 +512,8 @@ function selectDate(key) {
   const diffMs = mondayNew - mondayToday;
   state.weekOffset = Math.round(diffMs / (7 * 86400000));
   // Load roteiro and pecasDia
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   state.roteiro = saved.roteiros?.[key] || [];
   state.pecasDia = saved.pecasDia?.[key] || [];
   renderWeekSelector();
@@ -1397,7 +1415,8 @@ function openCopiarRoteiroModal() {
   const btn = document.getElementById('btn-confirmar-copiar-roteiro');
   if (destInfo) destInfo.textContent = `${formatDataLegivel(destKey)} (${(state.roteiro || []).length} itens)`;
   if (alerta && qtd) { qtd.textContent = (state.roteiro || []).length; alerta.style.display = state.roteiro?.length ? 'block' : 'none'; }
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   const roteiros = saved.roteiros || {};
   const keys = Object.keys(roteiros).filter(k => k !== destKey && Array.isArray(roteiros[k]) && roteiros[k].length > 0).sort().reverse();
   if (select && semOrigem && btn) {
@@ -1423,7 +1442,8 @@ function executarCopiarRoteiro(origemKeyOverride, incluirPecasDiaOverride) {
   if (!origemKey || origemKey === destKey) { toast('Selecione um dia de origem válido para copiar', 'error'); return { success:false, error:'Origem inválida' }; }
   const check = document.getElementById('copiar-incluir-pecas-dia');
   const incluirPecasDia = incluirPecasDiaOverride === undefined ? !!(check && check.checked) : incluirPecasDiaOverride;
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   if (!Array.isArray(saved.roteiros?.[origemKey])) { toast('O dia selecionado não possui roteiro salvo para copiar', 'error'); return { success:false, error:'Roteiro de origem vazio' }; }
   if (!Array.isArray(saved.roteiros[origemKey]) || !saved.roteiros[origemKey].length) { toast('O roteiro de origem está vazio', 'error'); return { success:false, error:'Roteiro vazio' }; }
   const novoRoteiro = JSON.parse(JSON.stringify(saved.roteiros[origemKey]));
@@ -1436,7 +1456,7 @@ function executarCopiarRoteiro(origemKeyOverride, incluirPecasDiaOverride) {
     saved.pecasDia ||= {}; saved.pecasDia[destKey] = state.pecasDia; copiouPecasDia = true;
   }
   saved.pecas = state.pecas; saved.programas = state.programas;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
   renderAll(); renderWeekSelector(); atualizarBotaoUndo(); closeModal('modal-copiar-roteiro');
   toast(`Roteiro copiado (${novoRoteiro.length} itens de ${formatDataLegivel(origemKey)})${copiouPecasDia ? ' com Peças do Dia' : ''}`, 'success');
   if (window.CanalLog) CanalLog.registrar('roteiro_copiado_de_outro_dia', { origem:origemKey, destino:destKey, itens:novoRoteiro.length, copiouPecasDia });
@@ -2052,12 +2072,13 @@ function importJSON(text) {
     Object.values(roteirosEntrada).forEach(rot => { if (Array.isArray(rot)) mergeBancoFromRoteiro(rot); });
 
     // Preserva todas as datas do backup, sem apagar datas locais que não vieram nele.
-    const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
     saved.roteiros ||= {};
     Object.entries(roteirosEntrada).forEach(([key, roteiro]) => { if (Array.isArray(roteiro)) saved.roteiros[key] = roteiro; });
     if (data.pecasDia && typeof data.pecasDia === 'object') { saved.pecasDia ||= {}; Object.assign(saved.pecasDia, data.pecasDia); }
     saved.pecas = state.pecas; saved.programas = state.programas;
-    localStorage.setItem('roteiroApp', JSON.stringify(saved));
+    localStorage.setItem(_storageKey, JSON.stringify(saved));
 
     const curKey = state.currentDate ? dateKey(state.currentDate) : null;
     const datasComRoteiro = Object.entries(roteirosEntrada).filter(([,items]) => Array.isArray(items) && items.length > 0);
@@ -2103,7 +2124,8 @@ function confirmarImportRoteiroData(opcaoEscolhida) {
   const chosenKey = opcaoEscolhida || (radio && radio.value);
   const { data, curKey } = _pendingImportData;
   if (!curKey || !chosenKey || !Array.isArray(data.roteiros?.[chosenKey])) { toast('Selecione uma data ativa e um roteiro válido', 'error'); return { success:false, error:'Data ou roteiro inválido' }; }
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   const roteiro = JSON.parse(JSON.stringify(data.roteiros[chosenKey]));
   registrarUndoSeMudou(curKey, saved.roteiros?.[curKey], roteiro);
   state.roteiro = roteiro;
@@ -3438,7 +3460,8 @@ async function setupAutoBackup() {
 async function runAutoBackup() {
   if (!_backupDirHandle) return;
   try {
-    const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
     const data  = JSON.stringify({
       ...saved,
       _backup: { gerado: new Date().toISOString(), versao: '2.0' }
@@ -3836,13 +3859,14 @@ function _currentDow() {
 /** Carrega a grade de horários do dia da semana dow. Prioridade: (1) customizações do usuário no localStorage, (2) dados base do GRADE_BASE extraídos do xlsx de programação. */
 function loadGrade(dow) {
   if (dow === undefined) dow = _currentDow();
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   // Migrate legacy flat grade → weekday 4 (Thursday) on first run
   if (saved.grade && !saved.gradeByDay) {
     saved.gradeByDay    = { 4: saved.grade };
     saved.gradeOrderByDay = { 4: saved.gradeOrder || [] };
     delete saved.grade; delete saved.gradeOrder;
-    localStorage.setItem('roteiroApp', JSON.stringify(saved));
+    localStorage.setItem(_storageKey, JSON.stringify(saved));
   }
   const custom = (saved.gradeByDay || {})[dow];
   if (custom && Object.keys(custom).length > 0) return custom;
@@ -3856,16 +3880,18 @@ function loadGrade(dow) {
 /** Persiste a grade de horários do dia dow no localStorage. Se o servidor API estiver disponível, sincroniza também via HTTP PUT. */
 function saveGrade(grade, dow) {
   if (dow === undefined) dow = _currentDow();
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   if (!saved.gradeByDay) saved.gradeByDay = {};
   saved.gradeByDay[dow] = grade;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
 }
 
 /** Retorna a ordem dos programas na grade para o dia dow. Fallback para GRADE_BASE.gradeOrderByDay se não houver customização salva. */
 function loadGradeOrder(dow) {
   if (dow === undefined) dow = _currentDow();
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   const custom = ((saved.gradeOrderByDay || {})[dow]) || [];
   if (custom.length > 0) return custom;
   if (typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeOrderByDay) {
@@ -3877,10 +3903,11 @@ function loadGradeOrder(dow) {
 /** Persiste a ordem dos programas da grade para o dia dow no localStorage. */
 function saveGradeOrder(order, dow) {
   if (dow === undefined) dow = _currentDow();
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   if (!saved.gradeOrderByDay) saved.gradeOrderByDay = {};
   saved.gradeOrderByDay[dow] = order;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
 }
 
 // Current working order while modal is open (array of names)
@@ -4845,7 +4872,8 @@ function detectarPeriodoSemana(sheetName, fileName, rows) {
 
 /** Permite ao operador editar manualmente o nome/período da semana ativa na grade. */
 function editarIdentificacaoSemana() {
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   const infoAtual = saved.gradeSemanalInfo || saved.gradeByDay?._info || {};
   const valorAtual = infoAtual.descricao || 'Dia 08 até dia 14 de Junho';
   const novo = prompt('Identificação do período da semana (ex.: "Dia 08 até dia 14 de Junho"):', valorAtual);
@@ -4860,7 +4888,7 @@ function editarIdentificacaoSemana() {
   };
   saved.gradeByDay = saved.gradeByDay || {};
   saved.gradeByDay._info = saved.gradeSemanalInfo;
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
 
   if (typeof renderGrade === 'function') renderGrade();
   toast('Identificação da semana atualizada', 'success');
@@ -5097,7 +5125,8 @@ function applyGradeSemanalImport() {
     return;
   }
   const { gradeByDay, gradeOrderByDay } = _gradeImport.parsed;
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   saved.gradeByDay = saved.gradeByDay || {};
   saved.gradeOrderByDay = saved.gradeOrderByDay || {};
   let totalDays = 0, totalProgs = 0;
@@ -5122,7 +5151,7 @@ function applyGradeSemanalImport() {
   saved.gradeSemanalInfo = infoSemana;
   saved.gradeByDay._info = infoSemana;
 
-  localStorage.setItem('roteiroApp', JSON.stringify(saved));
+  localStorage.setItem(_storageKey, JSON.stringify(saved));
   if (window.CanalLog) {
     CanalLog.registrar('grade_semanal_importada', {
       semana: descFinal,
@@ -5163,10 +5192,12 @@ function executarDistribuicaoBreaks() {
   }
 
   const curDow = state.currentDate ? state.currentDate.getDay() : (new Date()).getDay();
+  const curDateStr = state.currentDate ? dateKey(state.currentDate) : null;
   const res = fnDist(state.roteiro, state.pecas || [], {
     startSec: (typeof START_SECONDS !== 'undefined' ? START_SECONDS : 21600),
     regras: (typeof REGRAS !== 'undefined' ? REGRAS : {}),
-    dow: curDow
+    dow: curDow,
+    date: curDateStr
   });
 
   if (res.resultado.totalAlocado === 0) {
@@ -5199,7 +5230,8 @@ function executarDistribuicaoBreaks() {
  * Utilizado após sincronização manual ou atualização remota em nuvem.
  */
 function reloadStateFromStorageAndRender() {
-  const saved = localStorage.getItem("roteiroApp");
+  const storageKey = typeof getRoteiroStorageKey === "function" ? getRoteiroStorageKey() : "roteiroApp";
+  const saved = localStorage.getItem(storageKey) || localStorage.getItem("roteiroApp");
   if (saved && state.currentDate) {
     const parsed = JSON.parse(saved);
     const dk = dateKey(state.currentDate);

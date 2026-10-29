@@ -138,7 +138,7 @@
       return { json: JSON.stringify(r.app), ...r };
     }
 
-    function gravarApp(value) {
+    function gravarApp(value, targetKey = CHAVE_APP) {
       // 0) Acima do limite suave: poda antes mesmo de incomodar o navegador.
       let candidato = value;
       if (value.length > politica.limiteSuaveChars) {
@@ -148,7 +148,7 @@
           emitir('poda_preventiva', { removidos: p.removidos, total: p.total, dias: politica.diasRetencao });
         }
       }
-      if (tentar(CHAVE_APP, candidato)) return { ok: true, valor: candidato, podado: candidato !== value };
+      if (tentar(targetKey, candidato)) return { ok: true, valor: candidato, podado: candidato !== value };
 
       // 1) Cota estourou: retenção normal e depois degraus de emergência.
       const degraus = [politica.diasRetencao, ...politica.niveisEmergencia]
@@ -158,7 +158,7 @@
         const p = podarSerializado(candidato, dias);
         if (!p) break; // JSON inválido: não dá para podar com segurança
         if (!p.total) continue; // nada a remover neste degrau
-        if (tentar(CHAVE_APP, p.json)) {
+        if (tentar(targetKey, p.json)) {
           emitir('poda_por_cota', { removidos: p.removidos, total: p.total, dias });
           return { ok: true, valor: p.json, podado: true, dias };
         }
@@ -166,8 +166,8 @@
       }
 
       // 2) Fallback: mantém só em memória; a sessão e o sync continuam.
-      memoria.set(CHAVE_APP, candidato);
-      emitir('fallback_memoria', { chave: CHAVE_APP, tamanho: candidato.length });
+      memoria.set(targetKey, candidato);
+      emitir('fallback_memoria', { chave: targetKey, tamanho: candidato.length });
       return { ok: false, emMemoria: true, valor: candidato };
     }
 
@@ -200,8 +200,8 @@
       /** Substituto de localStorage.setItem. Nunca lança para chaves críticas. */
       setItem(key, value) {
         const v = String(value);
-        if (key === CHAVE_APP) return gravarApp(v);
-        if (CHAVES_CRITICAS.includes(key)) return gravarCriticaSimples(key, v);
+        if (key === CHAVE_APP || key.startsWith('roteiroApp_')) return gravarApp(v, key);
+        if (CHAVES_CRITICAS.includes(key) || key.startsWith('roteiroRegras_')) return gravarCriticaSimples(key, v);
         // Demais chaves: uma única tentativa extra após liberar espaço; se
         // ainda falhar, propaga o erro original (quem chama já tem try/catch).
         try { setRaw(key, v); memoria.delete(key); return { ok: true }; }

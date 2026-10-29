@@ -14,21 +14,18 @@
 // =====================================================
 (function (global) {
   'use strict';
-
   const DIAS_VALIDOS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
   const FAIXAS = ['infantil', 'jovem', 'adulto'];
-
   let client = null;
   let mode = 'unknown'; // 'relational' | 'legacy'
   let workspaceId = 'workspace';
+  let emissoraId = null; // Definido dinamicamente via setEmissoraId()
 
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
-
   const hhmm = (v) => (/^\d{2}:\d{2}$/.test(v || '') ? v : null);
   const hhmmss = (v) => (/^\d{1,2}:[0-5]\d:[0-5]\d$/.test(v || '') ? v : '00:00:00');
-
   /* ---------- mapeamento banco <-> tela ---------- */
   function pecaFromRow(r) {
     return {
@@ -56,10 +53,9 @@
       // Carimbo de recência usado pela ponte para decidir quem ganha quando
       // a mesma peça existe local e na nuvem.
       updatedAt: r.updated_at || null,
-
+      emissoraId: r.emissora_id || null,
     };
   }
-
   function pecaToRow(p) {
     return {
       code: String(p.code || '').trim(),
@@ -82,7 +78,6 @@
       row_version: p.rowVersion ?? null,
     };
   }
-
   function programaFromRow(r) {
     return {
       id: r.id || uid(),
@@ -100,10 +95,9 @@
       bloco: r.bloco ?? null,
       rowVersion: r.row_version ?? null,
       updatedAt: r.updated_at || null,
-
+      emissoraId: r.emissora_id || null,
     };
   }
-
   function programaToRow(p) {
     const faixa = String((p.assinatura || [])[0] || '').toLowerCase();
     return {
@@ -121,17 +115,14 @@
       row_version: p.rowVersion ?? null,
     };
   }
-
   /* ---------- init ---------- */
   // baseline = último estado conhecido do banco (por code) — base do DELTA.
   const baseline = { pecas: new Map(), programas: new Map() };
-
   /** Identidade do conteúdo de uma linha, ignorando row_version. */
   function fingerprint(row) {
     const { row_version, ...rest } = row;
     return JSON.stringify(Object.keys(rest).sort().map((k) => [k, rest[k]]));
   }
-
   function setBaseline(kind, rows, toRow) {
     const map = new Map();
     rows.forEach((r) => {
@@ -140,7 +131,6 @@
     });
     baseline[kind] = map;
   }
-
   /** Linhas alteradas/novas em relação ao baseline (nunca a lista inteira). */
   function diff(kind, items, toRow) {
     const base = baseline[kind];
@@ -154,7 +144,6 @@
     });
     return upserts;
   }
-
   async function init(supabaseClient, wsId) {
     client = supabaseClient;
     if (wsId) workspaceId = wsId;
@@ -163,27 +152,32 @@
     if (error) console.warn('[PecasRepo] usando modo legado (shared_data):', error.message);
     return mode;
   }
-
   /* ---------- leitura ---------- */
   // O PostgREST corta toda listagem no limite do servidor (1000 linhas por
   // padrão). Sem paginar, tudo que passava desse corte simplesmente não vinha
   // — e, como a ponte trata a lista relacional como "tudo que existe", cada
   // atualização apagava da tela do Roteiro as peças que ficaram de fora.
   const PAGINA = 1000;
-
   /** Lê a tabela inteira em páginas. Retorna { linhas, parcial }. */
   async function lerTabelaCompleta(table, aplicarOrdem) {
+    function criarQuery() {
+      let q = client.from(table).select('*');
+      if (emissoraId && typeof q.eq === 'function') {
+        q = q.eq('emissora_id', emissoraId);
+      }
+      return aplicarOrdem(q);
+    }
     // Cliente sem `range` (mocks/versões antigas): leitura única, como antes.
-    const suportaRange = typeof aplicarOrdem(client.from(table).select('*')).range === 'function';
+    const queryInicial = criarQuery();
+    const suportaRange = typeof queryInicial.range === 'function';
     if (!suportaRange) {
-      const { data, error } = await aplicarOrdem(client.from(table).select('*'));
+      const { data, error } = await queryInicial;
       if (error) throw error;
       return { linhas: data || [], parcial: false };
     }
-
     const linhas = [];
     for (let inicio = 0; ; inicio += PAGINA) {
-      const { data, error } = await aplicarOrdem(client.from(table).select('*')).range(inicio, inicio + PAGINA - 1);
+      const { data, error } = await criarQuery().range(inicio, inicio + PAGINA - 1);
       if (error) throw error;
       const pagina = data || [];
       linhas.push(...pagina);
@@ -193,7 +187,6 @@
     }
     return { linhas, parcial: false };
   }
-
   async function loadAll() {
     if (mode === 'relational') {
       const [rp, rg] = await Promise.all([
@@ -208,7 +201,6 @@
       // ela nunca remove itens da tela por ausência.
       return { pecas, programas, parcial: rp.parcial || rg.parcial };
     }
-
     const { data, error } = await client
       .from('shared_data')
       .select('pecas, programas')
@@ -221,16 +213,18 @@
     setBaseline('programas', programas, programaToRow);
     return { pecas, programas };
   }
-
   /* ---------- escrita (DELTA) ---------- */
   function rpcAusente(error) {
     const msg = ((error && (error.message || error.details)) || '').toLowerCase();
     return msg.includes('does not exist') || msg.includes('could not find the function') || error?.code === 'PGRST202';
   }
-
   async function salvarTabela(kind, rpcName, upserts, deletes) {
     if (!upserts.length && !deletes.length) return { aplicados: 0, removidos: 0, conflitos: [] };
-    const { data, error } = await client.rpc(rpcName, { p_upserts: upserts, p_deletes: deletes });
+    const rpcParams = { p_upserts: upserts, p_deletes: deletes };
+    if (emissoraId) {
+      rpcParams.p_emissora_id = emissoraId;
+    }
+    const { data, error } = await client.rpc(rpcName, rpcParams);
     if (error) {
       // Não existe mais caminho de escrita direta: as RPCs SECURITY DEFINER
       // são as ÚNICAS portas de gravação do cadastro (migração 006).
@@ -244,7 +238,6 @@
     }
     return data || { aplicados: upserts.length, removidos: deletes.length, conflitos: [] };
   }
-
   /**
    * Grava APENAS o que mudou desde o último loadAll/saveDelta:
    *   - upserts: linhas novas ou editadas nesta tela
@@ -256,21 +249,17 @@
     if (mode !== 'relational') {
       return await saveLegacy({ pecas, programas, deletedPecas, deletedProgramas, userId });
     }
-
     const upPecas = diff('pecas', pecas, pecaToRow);
     const upProgs = diff('programas', programas, programaToRow);
     const delPecas = [...new Set(deletedPecas.filter(Boolean))];
     const delProgs = [...new Set(deletedProgramas.filter(Boolean))];
-
     const [rp, rg] = [
       await salvarTabela('pecas', 'fn_salvar_pecas', upPecas, delPecas),
       await salvarTabela('programas', 'fn_salvar_programas', upProgs, delProgs),
     ];
-
     const conflitos = [...(rp.conflitos || []), ...(rg.conflitos || [])];
     return { conflitos, aplicados: (rp.aplicados || 0) + (rg.aplicados || 0), removidos: (rp.removidos || 0) + (rg.removidos || 0) };
   }
-
   /**
    * Modo legado (sem as tabelas relacionais): mescla o delta local com o que
    * está na nuvem AGORA, para não apagar o que outro usuário acabou de gravar.
@@ -295,7 +284,6 @@
     if (error) throw error;
     return { conflitos: [], aplicados: (pecas || []).length, removidos: (deletedPecas || []).length };
   }
-
   async function loadAllRemotoLegacy() {
     const { data, error } = await client
       .from('shared_data')
@@ -305,7 +293,6 @@
     if (error) throw error;
     return { pecas: data?.pecas || [], programas: data?.programas || [] };
   }
-
   /**
    * Compatibilidade: deriva as exclusões comparando com o baseline DESTE
    * cliente (nunca apaga codes que este cliente nunca viu) e delega ao delta.
@@ -322,21 +309,23 @@
       userId,
     });
   }
-
   /** Peças elegíveis para um dia/horário — usado pela confecção de roteiros. */
   async function pecasElegiveis({ dow, hora } = {}) {
     if (mode !== 'relational') {
       const { pecas } = await loadAll();
       return pecas;
     }
-    const { data, error } = await client.rpc('fn_pecas_elegiveis', {
+    const rpcParams = {
       p_dow: dow ?? new Date().getDay(),
       p_hora: hora ?? new Date().toTimeString().slice(0, 5),
-    });
+    };
+    if (emissoraId) {
+      rpcParams.p_emissora_id = emissoraId;
+    }
+    const { data, error } = await client.rpc('fn_pecas_elegiveis', rpcParams);
     if (error) throw error;
     return (data || []).map(pecaFromRow);
   }
-
   /** Assina mudanças feitas por outros usuários. */
   function onRemoteChange(handler) {
     const tables = mode === 'relational' ? ['pecas', 'programas'] : ['shared_data'];
@@ -347,7 +336,6 @@
     channel.subscribe();
     return () => client.removeChannel(channel);
   }
-
   global.PecasRepo = {
     init,
     loadAll,
@@ -355,6 +343,8 @@
     saveDelta,
     pecasElegiveis,
     onRemoteChange,
+    setEmissoraId: (id) => { emissoraId = id || null; },
+    getEmissoraId: () => emissoraId,
     get mode() {
       return mode;
     },

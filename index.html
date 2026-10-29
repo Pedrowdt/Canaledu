@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Roteiro Canal Educação</title>
+<script src="src/ui/admin-painel.js"></script>
+
 <!-- xlsx-js-style: drop-in replacement do SheetJS com suporte real a estilos (cores, fontes, bordas) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -131,8 +133,8 @@
   html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; }
 
   /* LAYOUT */
-  .app { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
-  .topbar { display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; }
+  .app { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; height: 100%; box-sizing: border-box; }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; min-height: 44px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: visible; flex-shrink: 0; }
   .topbar .logo { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--accent); letter-spacing: 0.07em; white-space: nowrap; flex-shrink: 0; }
   .topbar .logo span { color: var(--muted); }
   .tabs { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -651,6 +653,11 @@
         <div class="hub-card-title">Peças e Programas</div>
         <div class="hub-card-sub">Cadastrar/editar o banco compartilhado</div>
       </div>
+      <div class="hub-card" id="hub-card-admin" style="display: none;" onclick="window.AdminPainel && window.AdminPainel.abrir()">
+        <div class="hub-card-icon">⚙️</div>
+        <div class="hub-card-title">Administração</div>
+        <div class="hub-card-sub">Emissoras e operadores</div>
+      </div>
     </div>
   </div>
 </div>
@@ -660,8 +667,14 @@
        TOPBAR: Logo, abas de navegação e botões de exportação
        ═══════════════════════════════════════════════════════ -->
   <header class="topbar">
-    <div class="logo">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
+    <div class="logo" id="app-logo-title">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
     <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)">⇆ Peças e Programas</a>
+    <!-- Seletor de Emissora Ativa -->
+    <div id="emissora-wrap" style="display:none;align-items:center;gap:4px;margin-left:10px">
+      <label for="select-emissora" style="font-size:11px;color:var(--muted,#888)">Emissora:</label>
+      <select id="select-emissora" onchange="trocarEmissoraNoRoteiro(this.value)" style="padding:2px 8px;font-size:12px;border:1px solid var(--border,#ccc);border-radius:4px;background:var(--bg3,#fff);color:var(--text,#eee);font-weight:600">
+      </select>
+    </div>
     <nav class="tabs">
       <button class="tab active" onclick="showPanel('roteiro')">Roteiro do Dia</button>
       <button class="tab" onclick="showPanel('pecas')">Banco de Peças <span class="tab-badge" id="badge-pecas">0</span></button>
@@ -1569,6 +1582,7 @@
 <!-- auth.js e a ponte cadastro->roteiro precisam existir antes do cloud-sync -->
 <script src="auth.js"></script>
 <script src="canal-log.js"></script>
+<script src="src/core/emissoraContext.js"></script>
 <script src="pecas-repo.js"></script>
 <!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
 <script src="assinatura-programa.js"></script>
