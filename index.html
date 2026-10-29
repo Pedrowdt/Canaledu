@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Roteiro Canal Educação</title>
+<script src="src/ui/admin-painel.js"></script>
+
 <!-- xlsx-js-style: drop-in replacement do SheetJS com suporte real a estilos (cores, fontes, bordas) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -650,6 +652,11 @@
         <div class="hub-card-icon">🗂️</div>
         <div class="hub-card-title">Peças e Programas</div>
         <div class="hub-card-sub">Cadastrar/editar o banco compartilhado</div>
+      </div>
+      <div class="hub-card" id="hub-card-admin" style="display: none;" onclick="window.AdminPainel && window.AdminPainel.abrir()">
+        <div class="hub-card-icon">⚙️</div>
+        <div class="hub-card-title">Administração</div>
+        <div class="hub-card-sub">Emissoras e operadores</div>
       </div>
     </div>
   </div>

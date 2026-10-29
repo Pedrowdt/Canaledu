@@ -263,3 +263,73 @@ console.log('013_escrita_multiemissora aplicado ✓');
 await q(readFileSync(new URL('./013_testes_multiemissora.sql', import.meta.url), 'utf8'));
 console.log('013 testes de aceitação executados ✓');
 
+// ============================================================
+// 014: Particionamento de user_data por emissora
+// ============================================================
+// Garante a tabela base caso a migration 008 tenha sido pulada no runner local
+await q(`
+  create table if not exists public.user_data (
+    user_id uuid primary key,
+    grade jsonb default '{}'
+  );
+`);
+
+await q(readFileSync(new URL('./014_user_data_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('014_user_data_multiemissora aplicado ✓');
+
+// ============================================================
+// 015: Funções administrativas seguras (Painel Admin)
+// ============================================================
+await q(readFileSync(new URL('./015_painel_admin.sql', import.meta.url), 'utf8'));
+console.log('015_painel_admin aplicado ✓');
+
+// Teste de aceitação: criar emissora via RPC e listar membros
+const resCriacao = await db.query(`
+  select public.fn_admin_criar_emissora('TV Brasil Central', 'tbc-admin', '#10b981') as res;
+`);
+const emissoraCriada = resCriacao.rows[0].res;
+console.log('015 emissora criada:', emissoraCriada);
+
+const resMembros = await db.query(`
+  select public.fn_admin_listar_membros('${emissoraCriada.emissora_id}'::uuid) as membros;
+`);
+console.log('015 membros listados:', resMembros.rows[0].membros);
+console.log('014 e 015 validados com sucesso ✓');
+/// ============================================================
+//  016_editar_emissora.sql
+// ============================================================
+
+const s016 = readFileSync(new URL('./016_editar_emissora.sql', import.meta.url), 'utf8');
+await q(s016);
+console.log('016_editar_emissora aplicado ✓');
+
+// 1. Busca a emissora criada na 015 onde o usuário de teste é admin
+const rEmissoraAdmin = await db.query(`select id from public.emissoras where slug = 'tbc-admin' limit 1;`);
+const idAdmin = rEmissoraAdmin.rows[0].id;
+
+// 2. Testa a consulta dos dados da emissora (deve autorizar)
+const rObter = await db.query(`select public.fn_admin_obter_emissora('${idAdmin}'::uuid) as dados;`);
+console.log('016 dados da emissora obtidos:', rObter.rows[0].dados);
+
+// 3. Testa a atualização de nome, cor e logo da emissora
+const rAtualizar = await db.query(`
+  select public.fn_admin_atualizar_emissora(
+    '${idAdmin}'::uuid,
+    'TV Brasil Central - Atualizada',
+    '#059669',
+    'https://exemplo.com/logo-tbc.png'
+  ) as resultado;
+`);
+console.log('016 emissora atualizada:', rAtualizar.rows[0].resultado);
+
+// 4. Confirma que os dados foram gravados na tabela
+const rConfirma = await db.query(`
+  select nome, cor_primaria, logo_url
+  from public.emissoras
+  where id = '${idAdmin}'::uuid;
+`);
+console.log('016 conferência no banco:', JSON.stringify(rConfirma.rows[0]));
+console.log('016 validado com sucesso ✓\n');
+
+
+

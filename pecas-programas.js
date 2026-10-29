@@ -297,7 +297,9 @@ async function trocarEmissoraAtiva(novaEmissoraId) {
     document.getElementById('gate').style.display = 'none';
   }
 }
-
+  if (window.AdminPainel) {
+    window.AdminPainel.atualizarBotao();
+  }
 async function startApp(user) {
   currentUser = user;
   setGateMessage('Carregando cadastro...');
@@ -326,6 +328,9 @@ async function startApp(user) {
         }
         if (ativa && window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
           PecasRepo.setEmissoraId(ativa.id);
+        }
+                if (window.AdminPainel && supabaseClient && currentUser) {
+          window.AdminPainel.init(supabaseClient, currentUser);
         }
       }
     } catch (err) {

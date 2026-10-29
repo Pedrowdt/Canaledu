@@ -623,6 +623,9 @@ async function inicializarEmissorasRoteiro() {
           PecasRepo.setEmissoraId(ativa.id);
         }
       }
+            if (window.AdminPainel && supabaseClient && currentUser) {
+        window.AdminPainel.init(supabaseClient, currentUser);
+      }
     }
   } catch (err) {
     console.warn("cloud-sync: erro ao carregar emissoras", err);
@@ -661,6 +664,10 @@ async function trocarEmissoraNoRoteiro(novaEmissoraId) {
     console.error("Erro ao recarregar dados da nova emissora:", err);
   }
 }
+  if (window.AdminPainel) {
+    window.AdminPainel.atualizarBotao();
+  }
+
 window.trocarEmissoraNoRoteiro = trocarEmissoraNoRoteiro;
 
 async function onAuthenticated(user) {
@@ -671,6 +678,10 @@ async function onAuthenticated(user) {
   }
   document.getElementById('login-overlay').style.display = 'none';
   addLogoutUI(user.email);
+    if (window.AdminPainel && supabaseClient) {
+    window.AdminPainel.init(supabaseClient, user);
+  }
+
   document.getElementById('hub-overlay').style.display = 'flex';
 }
 
