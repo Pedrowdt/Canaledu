@@ -1,17 +1,51 @@
--- =============================================================================
--- Migration 016: Edição de Dados da Emissora (Painel Admin)
--- Permite que administradores atualizem nome, cor e logo da sua emissora.
--- =============================================================================
-
+-- =============================================================
+-- 016_editar_emissora.sql
+-- Listagem de emissoras para administração e atualização de dados
+-- cadastrais, incluindo alteração segura de SLUG.
+-- =============================================================
 begin;
 
--- Garante que as colunas visuais existam na tabela emissoras
-alter table public.emissoras add column if not exists cor_primaria text default '#0066cc';
-alter table public.emissoras add column if not exists logo_url text;
+-- 1. RPC: Listar emissoras que o usuário autenticado administra
+create or replace function public.fn_admin_listar_emissoras()
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, public, auth
+as $$
+declare
+  v_resultado jsonb;
+begin
+  if auth.uid() is null then
+    raise exception 'Apenas usuários autenticados podem listar emissoras.';
+  end if;
 
--- -----------------------------------------------------------------------------
--- 1. RPC para buscar os dados completos da emissora para edição
--- -----------------------------------------------------------------------------
+  select coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', e.id,
+      'nome', e.nome,
+      'slug', e.slug,
+      'cor_primaria', coalesce(e.cor_primaria, '#0066cc'),
+      'logo_url', e.logo_url,
+      'ativo', e.ativo,
+      'papel', ue.papel,
+      'total_membros', (
+        select count(*) from public.usuarios_emissoras ue2 where ue2.emissora_id = e.id and ue2.ativo
+      )
+    ) order by e.nome asc
+  ), '[]'::jsonb)
+  into v_resultado
+  from public.emissoras e
+  join public.usuarios_emissoras ue on ue.emissora_id = e.id
+  where ue.usuario_id = auth.uid()
+    and ue.papel = 'admin'
+    and ue.ativo = true
+    and e.ativo = true;
+
+  return v_resultado;
+end;
+$$;
+
+-- 2. RPC: Obter dados de uma emissora específica
 create or replace function public.fn_admin_obter_emissora(
   p_emissora_id uuid
 ) returns jsonb
@@ -20,34 +54,33 @@ security definer
 set search_path = pg_catalog, public, auth
 as $$
 declare
-  v_dados jsonb;
+  v_emissora jsonb;
 begin
   if not public.fn_usuario_eh_admin_emissora(p_emissora_id) then
-    raise exception 'Acesso negado: apenas administradores podem consultar esta emissora.';
+    raise exception 'Acesso negado: apenas administradores podem visualizar esta emissora.';
   end if;
 
   select jsonb_build_object(
-    'id', id,
-    'nome', nome,
-    'slug', slug,
-    'cor_primaria', coalesce(cor_primaria, '#0066cc'),
-    'logo_url', logo_url,
-    'ativo', ativo
+    'id', e.id,
+    'nome', e.nome,
+    'slug', e.slug,
+    'cor_primaria', coalesce(e.cor_primaria, '#0066cc'),
+    'logo_url', e.logo_url,
+    'ativo', e.ativo
   )
-  into v_dados
-  from public.emissoras
-  where id = p_emissora_id;
+  into v_emissora
+  from public.emissoras e
+  where e.id = p_emissora_id;
 
-  return v_dados;
+  return v_emissora;
 end;
 $$;
 
--- -----------------------------------------------------------------------------
--- 2. RPC para salvar as alterações da emissora
--- -----------------------------------------------------------------------------
+-- 3. RPC: Atualizar emissora (inclusive o SLUG)
 create or replace function public.fn_admin_atualizar_emissora(
   p_emissora_id uuid,
   p_nome text,
+  p_slug text default null,
   p_cor text default null,
   p_logo_url text default null
 ) returns jsonb
@@ -56,40 +89,59 @@ security definer
 set search_path = pg_catalog, public, auth
 as $$
 declare
-  v_nome_limpo text;
-  v_cor_limpa text;
+  v_slug text;
 begin
-  -- Trava de segurança: só quem tem papel 'admin' nesta emissora específica
   if not public.fn_usuario_eh_admin_emissora(p_emissora_id) then
     raise exception 'Acesso negado: apenas administradores podem editar esta emissora.';
   end if;
 
-  v_nome_limpo := trim(coalesce(p_nome, ''));
-  if v_nome_limpo = '' then
+  if trim(coalesce(p_nome, '')) = '' then
     raise exception 'O nome da emissora é obrigatório.';
   end if;
 
-  v_cor_limpa := trim(coalesce(p_cor, '#0066cc'));
+  -- Se slug foi informado, formata e valida
+  if p_slug is not null and trim(p_slug) <> '' then
+    v_slug := lower(trim(p_slug));
+    v_slug := regexp_replace(v_slug, '[^a-z0-9_-]+', '-', 'g');
+    v_slug := regexp_replace(v_slug, '^-+|-+$', '', 'g');
+  else
+    -- Se não passou novo slug, mantém o atual
+    select slug into v_slug from public.emissoras where id = p_emissora_id;
+  end if;
+
+  if trim(coalesce(v_slug, '')) = '' then
+    raise exception 'O slug da emissora não pode ser vazio.';
+  end if;
+
+  -- Garante que o slug não colide com outra emissora
+  if exists (
+    select 1 from public.emissoras
+    where slug = v_slug and id <> p_emissora_id
+  ) then
+    raise exception 'O slug "%" já está em uso por outra emissora.', v_slug;
+  end if;
 
   update public.emissoras
-  set nome = v_nome_limpo,
-      cor_primaria = v_cor_limpa,
-      logo_url = nullif(trim(p_logo_url), ''),
-      updated_at = now()
+  set nome = trim(p_nome),
+      slug = v_slug,
+      cor_primaria = coalesce(nullif(trim(p_cor), ''), cor_primaria, '#0066cc'),
+      logo_url = nullif(trim(p_logo_url), '')
   where id = p_emissora_id;
 
   return jsonb_build_object(
     'ok', true,
     'id', p_emissora_id,
-    'nome', v_nome_limpo,
-    'cor', v_cor_limpa
+    'nome', trim(p_nome),
+    'slug', v_slug,
+    'cor_primaria', coalesce(nullif(trim(p_cor), ''), '#0066cc'),
+    'logo_url', nullif(trim(p_logo_url), '')
   );
 end;
 $$;
 
+grant execute on function public.fn_admin_listar_emissoras() to authenticated, service_role;
 grant execute on function public.fn_admin_obter_emissora(uuid) to authenticated, service_role;
-grant execute on function public.fn_admin_atualizar_emissora(uuid, text, text, text) to authenticated, service_role;
+grant execute on function public.fn_admin_atualizar_emissora(uuid, text, text, text, text) to authenticated, service_role;
 
 commit;
-
 notify pgrst, 'reload schema';
