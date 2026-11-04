@@ -747,31 +747,28 @@ function cloudSyncBackToHub(e) {
 }
 
 async function cloudSyncOpenPecasProgramas() {
-  // Garante que qualquer edição feita nos últimos 900ms (ainda no debounce)
-  // chegue na nuvem ANTES de trocar de página — sem isso, um clique logo após
-  // editar o roteiro perde a corrida com o timer e a edição nunca é
-  // enviada (ver haSyncPendente()/patchLocalStorage acima).
   try {
     setSyncStatus('Salvando antes de trocar de tela...');
     await flushPendingSync();
   } catch (e) {
     console.warn('cloud-sync: falha ao salvar antes de abrir Peças e Programas', e);
-    // Mesmo falhando o envio, a marca de "pendente" continua salva no
-    // localStorage — o próximo carregamento do Roteiro vai preferir o
-    // local e tentar reenviar (ver fetchAndMergeCloudData).
   }
+  location.href = PECAS_PROGRAMAS_PAGE;
+}
 
 async function cloudSyncOpenGradeEditor() {
   try {
-    setSyncStatus("Salvando antes de trocar de tela...");
+    setSyncStatus('Salvando antes de trocar de tela...');
     await flushPendingSync();
   } catch (e) {
-    console.warn("cloud-sync: falha ao salvar antes de abrir Grade", e);
+    console.warn('cloud-sync: falha ao salvar antes de abrir Grade', e);
   }
-  location.href = "grade-editor.html";
+  location.href = 'grade-editor.html';
 }
-  location.href = PECAS_PROGRAMAS_PAGE;
-}
+
+window.cloudSyncOpenGradeEditor = cloudSyncOpenGradeEditor;
+window.cloudSyncOpenPecasProgramas = cloudSyncOpenPecasProgramas;
+window.cloudSyncOpenRoteiro = cloudSyncOpenRoteiro;
 
 // Rede de segurança para navegação/fechamento fora do controle do app
 // (botão voltar do navegador, fechar a aba, F5): dispara o envio em modo
