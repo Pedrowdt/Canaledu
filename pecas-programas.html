@@ -190,7 +190,10 @@ tbody tr:hover{background:#f5f5f3}
 <script>document.getElementById('version-badge').textContent = window.APP_VERSION ? 'v' + window.APP_VERSION : '';</script>
 
 <div class="topnav">
-  <a href="index.html">← Voltar</a>
+  <div style="display:flex;align-items:center;gap:12px">
+    <a href="index.html">← Voltar</a>
+    <a href="grade-editor.html" style="color:#fff;text-decoration:none;opacity:.85">📅 Confecção de Grade</a>
+  </div>
    <div class="right" style="display:flex;align-items:center;gap:10px">
     <span class="sync" id="sync-status"></span>
     <button type="button" class="btn-outline" style="width:auto;padding:4px 12px;font-size:12px" onclick="openLog()">🕘 Log</button>

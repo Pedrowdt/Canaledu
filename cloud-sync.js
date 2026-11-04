@@ -760,6 +760,16 @@ async function cloudSyncOpenPecasProgramas() {
     // localStorage — o próximo carregamento do Roteiro vai preferir o
     // local e tentar reenviar (ver fetchAndMergeCloudData).
   }
+
+async function cloudSyncOpenGradeEditor() {
+  try {
+    setSyncStatus("Salvando antes de trocar de tela...");
+    await flushPendingSync();
+  } catch (e) {
+    console.warn("cloud-sync: falha ao salvar antes de abrir Grade", e);
+  }
+  location.href = "grade-editor.html";
+}
   location.href = PECAS_PROGRAMAS_PAGE;
 }
 
