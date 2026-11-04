@@ -3857,6 +3857,15 @@ function _currentDow() {
 }
 
 /** Carrega a grade de horários do dia da semana dow. Prioridade: (1) customizações do usuário no localStorage, (2) dados base do GRADE_BASE extraídos do xlsx de programação. */
+function _gradeBasePertenceAEmissoraAtiva() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  // grade_base.js contém exclusivamente a programação histórica do Canal Educação.
+  // Em outra emissora, uma grade vazia deve permanecer vazia, nunca herdar essa base.
+  return !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+}
+
 function loadGrade(dow) {
   if (dow === undefined) dow = _currentDow();
   const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
@@ -3871,7 +3880,7 @@ function loadGrade(dow) {
   const custom = (saved.gradeByDay || {})[dow];
   if (custom && Object.keys(custom).length > 0) return custom;
   // Fallback: Grade Semanal base (admin) — usada como régua mestre
-  if (typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeByDay) {
+  if (_gradeBasePertenceAEmissoraAtiva() && typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeByDay) {
     return GRADE_BASE.gradeByDay[String(dow)] || {};
   }
   return {};
@@ -3894,7 +3903,7 @@ function loadGradeOrder(dow) {
   const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
   const custom = ((saved.gradeOrderByDay || {})[dow]) || [];
   if (custom.length > 0) return custom;
-  if (typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeOrderByDay) {
+  if (_gradeBasePertenceAEmissoraAtiva() && typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeOrderByDay) {
     return (GRADE_BASE.gradeOrderByDay[String(dow)] || []).slice();
   }
   return [];
@@ -5231,7 +5240,7 @@ function executarDistribuicaoBreaks() {
  */
 function reloadStateFromStorageAndRender() {
   const storageKey = typeof getRoteiroStorageKey === "function" ? getRoteiroStorageKey() : "roteiroApp";
-  const saved = localStorage.getItem(storageKey) || localStorage.getItem("roteiroApp");
+  const saved = localStorage.getItem(storageKey);
   if (saved && state.currentDate) {
     const parsed = JSON.parse(saved);
     const dk = dateKey(state.currentDate);

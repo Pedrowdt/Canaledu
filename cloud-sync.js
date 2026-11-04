@@ -1,9 +1,19 @@
 
-function getRoteiroStorageKey() {
-  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
-    ? EmissoraContext.getEmissoraAtivaId()
-    : null;
+function getRoteiroStorageKey(emissoraId) {
+  if (emissoraId === undefined) {
+    emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId()
+      : null;
+  }
   return emissoraId ? 'roteiroApp_' + emissoraId : 'roteiroApp';
+}
+function getPendingSyncStorageKey(emissoraId) {
+  if (emissoraId === undefined) {
+    emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId()
+      : null;
+  }
+  return emissoraId ? 'roteiroSyncPending_' + emissoraId : 'roteiroSyncPending';
 }
 window.getRoteiroStorageKey = getRoteiroStorageKey;
 // =====================================================
@@ -61,12 +71,10 @@ let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma
 // página (Roteiro -> Peças e Programas -> Roteiro) que o app perde o
 // estado em memória e precisa saber, ao recarregar, se pode confiar na
 // versão que acabou de vir do servidor ou se o localStorage está à frente.
-const PENDING_SYNC_KEY = 'roteiroSyncPending';
-
 // Escritas "de serviço" (marca de pendência) nunca podem derrubar o app:
 // se o disco estiver cheio, a marca é apenas ignorada (a próxima poda libera espaço).
 function _gravarMarca(valor) {
-  try { _origSetItem.call(localStorage, PENDING_SYNC_KEY, valor); }
+  try { _origSetItem.call(localStorage, getPendingSyncStorageKey(), valor); }
   catch (e) { console.warn('cloud-sync: não foi possível gravar a marca de pendência', e); }
 }
 
@@ -79,7 +87,7 @@ function marcarSyncConfirmado() {
 }
 
 function haSyncPendente() {
-  return localStorage.getItem(PENDING_SYNC_KEY) === '1';
+  return localStorage.getItem(getPendingSyncStorageKey()) === '1';
 }
 
 // =====================================================
@@ -299,10 +307,12 @@ async function fetchAndMergeCloudData(user) {
   // Grade agora é por usuário (user_data), permitindo que operadores diferentes
   // importem semanas diferentes simultaneamente sem um sobrepor a do outro.
   // Fallback em cascata: user_data -> localStorage -> shared_data legado.
-  const userGrade           = userRow?.grade || (sharedEmpty && localHasData ? (localRaw.grade || {}) : (shared?.grade || {}));
-  const userGradeByDay      = userRow?.grade_by_day || (sharedEmpty && localHasData ? (localRaw.gradeByDay || {}) : (shared?.grade_by_day || {}));
-  const userGradeOrder      = userRow?.grade_order || (sharedEmpty && localHasData ? (localRaw.gradeOrder || {}) : (shared?.grade_order || {}));
-  const userGradeOrderByDay = userRow?.grade_order_by_day || (sharedEmpty && localHasData ? (localRaw.gradeOrderByDay || {}) : (shared?.grade_order_by_day || {}));
+  const gradeLegadaPermitida = !emissoraAtivaId || emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
+  const gradeLocalLegada = sharedEmpty && localHasData;
+  const userGrade           = userRow?.grade || (gradeLocalLegada ? (localRaw.grade || {}) : (gradeLegadaPermitida ? (shared?.grade || {}) : {}));
+  const userGradeByDay      = userRow?.grade_by_day || (gradeLocalLegada ? (localRaw.gradeByDay || {}) : (gradeLegadaPermitida ? (shared?.grade_by_day || {}) : {}));
+  const userGradeOrder      = userRow?.grade_order || (gradeLocalLegada ? (localRaw.gradeOrder || {}) : (gradeLegadaPermitida ? (shared?.grade_order || {}) : {}));
+  const userGradeOrderByDay = userRow?.grade_order_by_day || (gradeLocalLegada ? (localRaw.gradeOrderByDay || {}) : (gradeLegadaPermitida ? (shared?.grade_order_by_day || {}) : {}));
 
   // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
   // sumiu o roteiro". `userRow.roteiros` é o último snapshot que CONSEGUIU
@@ -336,7 +346,7 @@ async function fetchAndMergeCloudData(user) {
   const _ret = getGuard() && getGuard().aplicarRetencao();
   if (_ret && _ret.total) {
     // Reflete a poda em `merged` para o upsert inicial (abaixo) não reenviar o histórico descartado.
-    const podado = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    const podado = JSON.parse(localStorage.getItem(_chaveApp) || '{}');
     merged.roteiros = podado.roteiros || {};
     merged.pecasDia = podado.pecasDia || {};
   }
@@ -378,7 +388,7 @@ function patchLocalStorage() {
     // Antes: _origSetItem.call(localStorage, key, value) lançava QuotaExceededError
     // e derrubava a edição. Agora: retenção + poda por cota + fallback, sem exceção.
     gravarLocal(key, value);
-    if (key === 'roteiroApp' || key === 'roteiroRegras') {
+    if (key === getRoteiroStorageKey() || key === 'roteiroRegras') {
       // Marca "pendente" JÁ AQUI, antes do debounce — se a página for
       // trocada (Roteiro -> Peças e Programas) nos próximos 900ms, essa
       // marca persiste no localStorage e avisa a próxima carga da página
@@ -424,7 +434,9 @@ async function pushToCloud() {
   // cima do que está sendo enviado agora nem do que ainda não terminou de subir.
   _pushInFlight = true;
   const seqAtStart = _editSeq; // se uma edição nova chegar durante os awaits abaixo, isso muda
-  const app    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const emissoraPushId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  const app    = JSON.parse(localStorage.getItem(getRoteiroStorageKey(emissoraPushId)) || '{}');
   const regras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
   setSyncStatus('Sincronizando...');
@@ -443,8 +455,6 @@ async function pushToCloud() {
       })
       .eq('id', WORKSPACE_ID);
 
-    const emissoraPushId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
-      ? EmissoraContext.getEmissoraAtivaId() : null;
     let uQuery = supabaseClient.from('user_data').update({
         roteiros: app.roteiros || {},
         pecas_dia: app.pecasDia || {},
@@ -487,7 +497,8 @@ function setupRealtime() {
       (payload) => {
         if (!payload.new || payload.new.updated_by === currentUser.id) return; // ignora a própria escrita
 
-        const app = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+        const appStorageKey = getRoteiroStorageKey();
+        const app = JSON.parse(localStorage.getItem(appStorageKey) || '{}');
         // Peças/programas passam SEMPRE pela ponte: ela une o que veio da
         // nuvem com o que este usuário ainda não sincronizou. Atribuir
         // payload.new.pecas direto apagava da tela peças locais (e as do
@@ -517,7 +528,7 @@ function setupRealtime() {
           // outro usuário só precisa ver após a tela recarregar. Evita
           // apagar uma edição de grade feita há poucos instantes e ainda
           // não enviada — a mesma causa raiz que fazia peças "sumirem".
-          gravarLocal('roteiroApp', JSON.stringify(app));
+          gravarLocal(appStorageKey, JSON.stringify(app));
           if (typeof state !== 'undefined') {
             state.pecas     = app.pecas;
             state.programas = app.programas;
@@ -532,7 +543,7 @@ function setupRealtime() {
 
         // Grade agora é por usuário (user_data), portanto alterações em
         // shared_data vindas de outro usuário NÃO alteram a grade deste usuário.
-        gravarLocal('roteiroApp', JSON.stringify(app));
+        gravarLocal(appStorageKey, JSON.stringify(app));
         gravarLocal('roteiroRegras', JSON.stringify(payload.new.regras || {}));
 
         if (typeof state !== 'undefined') {
@@ -565,11 +576,12 @@ function setupRealtime() {
           client: supabaseClient,
           workspaceId: WORKSPACE_ID,
         });
+        const appStorageKey = getRoteiroStorageKey();
         const app = RoteiroPecasBridge.mergeCadastro(
-          JSON.parse(localStorage.getItem('roteiroApp') || '{}'),
+          JSON.parse(localStorage.getItem(appStorageKey) || '{}'),
           cadastro
         );
-        gravarLocal('roteiroApp', JSON.stringify(app));
+        gravarLocal(appStorageKey, JSON.stringify(app));
         if (typeof state !== 'undefined' && RoteiroPecasBridge.aplicarNoEstado(state, cadastro)) {
           if (typeof renderAll === 'function') renderAll();
           setSyncStatus('Cadastro atualizado ✓');
@@ -634,6 +646,15 @@ async function inicializarEmissorasRoteiro() {
 
 async function trocarEmissoraNoRoteiro(novaEmissoraId) {
   if (!novaEmissoraId) return;
+  const emissoraAnteriorId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  if (emissoraAnteriorId === novaEmissoraId) return;
+  // Salva e envia tudo ainda sob o ID antigo. Assim, uma troca rápida não pode
+  // gravar a grade da emissora anterior na linha user_data da próxima emissora.
+  if (typeof saveState === 'function') saveState();
+  try { await flushPendingSync(); } catch (err) {
+    console.warn('Não foi possível sincronizar antes da troca de emissora:', err);
+  }
   if (window.EmissoraContext) {
     EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
     const emissoras = EmissoraContext.getEmissorasCache();
