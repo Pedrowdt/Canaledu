@@ -194,7 +194,7 @@
     const wrap = document.getElementById('emissora-wrap');
     const sel = document.getElementById('select-emissora');
     if (!wrap || !sel) return;
-    sel.innerHTML = emissoras.map(e => `<option value="${e.id}" ${e.id === ativaId ? 'selected' : ''>${escapeHtml(e.nome)}</option>`).join('');
+    sel.innerHTML = emissoras.map(e => `<option value="${e.id}" ${e.id === ativaId ? 'selected' : ''}>${escapeHtml(e.nome)}</option>`).join('');
     wrap.style.display = emissoras.length > 1 ? 'flex' : 'none';
   }
 
