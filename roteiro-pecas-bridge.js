@@ -86,16 +86,32 @@
    * mas NUNCA toca em roteiros/pecasDia/grade — esses são do
    * roteiro e pertencem a cada usuário.
    */
-  function mergeCadastro(app, cadastro, pendentes) {
+  function mergeCadastro(app, cadastro, pendentes, opcoesExtra) {
     const base = app && typeof app === 'object' ? app : {};
-    const opcoes = { autoritativo: ehAutoritativo(cadastro) };
+    const autoritativo = ehAutoritativo(cadastro);
+    const emissoraId = (opcoesExtra && opcoesExtra.emissoraId) || (cadastro && cadastro.emissoraId)
+      || (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId ? EmissoraContext.getEmissoraAtivaId() : null);
+    const ehCanalEdu = !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+
+    const opcoes = { autoritativo, emissoraId, ehCanalEdu };
     const pecas = combinar(apenasAtivos(cadastro && cadastro.pecas), base.pecas, pendentes, 'pecas', opcoes);
     const programas = combinar(apenasAtivos(cadastro && cadastro.programas), base.programas, pendentes, 'programas', opcoes);
+
+    // Se for outra emissora e a leitura relacional for autoritativa:
+    // Uma emissora sem peças cadastradas deve permanecer com 0 peças!
+    // Não pode herdar base.pecas do Canal Educação ou de cache local contaminado.
+    if (!ehCanalEdu && autoritativo) {
+      return Object.assign({}, base, {
+        pecas: pecas,
+        programas: programas,
+      });
+    }
+
     return Object.assign({}, base, {
-      // Se o cadastro voltar vazio por falha de leitura, preservamos o
+      // Se o cadastro voltar vazio por falha de leitura (ou Canal Educação sem dados), preservamos o
       // que já estava local para não zerar a tela do usuário.
-      pecas: pecas.length ? pecas : base.pecas || [],
-      programas: programas.length ? programas : base.programas || [],
+      pecas: pecas.length ? pecas : (ehCanalEdu ? (base.pecas || []) : []),
+      programas: programas.length ? programas : (ehCanalEdu ? (base.programas || []) : []),
     });
   }
 
@@ -194,6 +210,7 @@
    */
   async function carregarCadastro({ client, repo, sharedRow, workspaceId, emissoraId } = {}) {
     const repositorio = repo || global.PecasRepo;
+    const ehCanalEdu = !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
     if (repositorio && client) {
       try {
         const mode = await repositorio.init(client, workspaceId);
@@ -206,6 +223,7 @@
           pecas: dados.pecas || [],
           programas: dados.programas || [],
           origem,
+          emissoraId,
           // `parcial` vem do PecasRepo quando a paginação não conseguiu ler
           // a tabela inteira: nesse caso nada pode ser removido da tela.
           parcial: dados.parcial === true,
@@ -216,10 +234,12 @@
         console.warn('[Ponte] não foi possível ler o cadastro relacional:', e);
       }
     }
+    const sharedValido = ehCanalEdu ? sharedRow : null;
     return {
-      pecas: (sharedRow && sharedRow.pecas) || [],
-      programas: (sharedRow && sharedRow.programas) || [],
-      origem: sharedRow ? 'shared_data' : 'local',
+      pecas: (sharedValido && sharedValido.pecas) || [],
+      programas: (sharedValido && sharedValido.programas) || [],
+      origem: sharedValido ? 'shared_data' : 'local',
+      emissoraId,
       autoritativo: false,
     };
   }

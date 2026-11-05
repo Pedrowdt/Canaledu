@@ -201,6 +201,13 @@
       // ela nunca remove itens da tela por ausência.
       return { pecas, programas, parcial: rp.parcial || rg.parcial };
     }
+    // Modo legado: só permitido para Canal Educação
+    const ehCanalEdu = !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+    if (!ehCanalEdu) {
+      setBaseline('pecas', [], pecaToRow);
+      setBaseline('programas', [], programaToRow);
+      return { pecas: [], programas: [] };
+    }
     const { data, error } = await client
       .from('shared_data')
       .select('pecas, programas')

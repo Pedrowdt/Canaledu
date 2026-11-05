@@ -243,12 +243,14 @@ async function fetchAndMergeCloudData(user) {
 
   // FONTE DA VERDADE do banco de peças/programas: as tabelas relacionais
   // preenchidas pela tela "Peças e Programas". A ponte cai para o espelho
-  // shared_data automaticamente se a migração ainda não foi aplicada.
+  // shared_data automaticamente apenas para o Canal Educação.
   const emissoraAtivaId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
     ? EmissoraContext.getEmissoraAtivaId() : null;
+  const ehCanalEdu = !emissoraAtivaId || emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
+
   const cadastro = await RoteiroPecasBridge.carregarCadastro({
     client: supabaseClient,
-    sharedRow: shared,
+    sharedRow: ehCanalEdu ? shared : null,
     workspaceId: WORKSPACE_ID,
     emissoraId: emissoraAtivaId,
   });
@@ -268,10 +270,9 @@ async function fetchAndMergeCloudData(user) {
 
   const merged = {};
 
-  if (sharedEmpty && localHasData) {
-    // Primeiro acesso: este navegador já tinha dados locais (uso anterior
-    // sem login) e a nuvem ainda está vazia -> usamos os dados locais como
-    // ponto de partida do banco compartilhado da equipe.
+  if (ehCanalEdu && sharedEmpty && localHasData) {
+    // Primeiro acesso apenas para Canal Educação legado: usamos os dados locais
+    // como ponto de partida do banco compartilhado da equipe.
     merged.pecas           = localRaw.pecas || [];
     merged.programas       = localRaw.programas || [];
     merged.grade           = localRaw.grade || {};
@@ -291,12 +292,15 @@ async function fetchAndMergeCloudData(user) {
     gravarLocal('roteiroRegras', JSON.stringify(localRegras));
   } else {
     // Cadastro manda: o que veio das tabelas relacionais substitui o
-    // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
-    // Cadastro manda, MAS o que este usuário criou/editou e ainda não
-    // sincronizou continua em tela (fila do CadastroSync).
+    // snapshot local. Para outras emissoras, basePecas/baseProgramas é vazio para
+    // nunca herdar o banco do Canal Educação nem resíduo contaminado local.
+    const basePecas = ehCanalEdu ? (localRaw.pecas || []) : [];
+    const baseProgramas = ehCanalEdu ? (localRaw.programas || []) : [];
     const unidoInicial = RoteiroPecasBridge.mergeCadastro(
-      { pecas: localRaw.pecas || [], programas: localRaw.programas || [] },
-      cadastro
+      { pecas: basePecas, programas: baseProgramas },
+      cadastro,
+      null,
+      { emissoraId: emissoraAtivaId }
     );
     merged.pecas           = unidoInicial.pecas;
     merged.programas       = unidoInicial.programas;
@@ -327,7 +331,7 @@ async function fetchAndMergeCloudData(user) {
   // e o localStorage está à frente da nuvem — nesse caso o local vence.
   const localVenceRoteiro = haSyncPendente();
   merged.roteiros        = localVenceRoteiro ? (localRaw.roteiros        || userRow?.roteiros        || {}) : (userRow?.roteiros        || localRaw.roteiros        || {});
-  merged.pecasDia        = localVenceRoteiro ? (localRaw.pecasDia        || userRow?.pecas_dia       || {}) : (userRow?.pecas_dia       || localRaw.pecasDia        || {});
+  merged.pecasDia        = localVenceRoteiro ? (localRaw.pecasDia        || userRow?.pecas_dia       || {}) : (userRow?.pecas_dia       || (ehCanalEdu ? (localRaw.pecasDia || {}) : {}) || {});
   merged.grade           = localVenceRoteiro ? (localRaw.grade           || userGrade                || {}) : (userGrade                || localRaw.grade           || {});
   merged.gradeByDay      = localVenceRoteiro ? (localRaw.gradeByDay      || userGradeByDay           || {}) : (userGradeByDay           || localRaw.gradeByDay      || {});
   merged.gradeOrder      = localVenceRoteiro ? (localRaw.gradeOrder      || userGradeOrder           || {}) : (userGradeOrder           || localRaw.gradeOrder      || {});
@@ -719,12 +723,12 @@ async function cloudSyncOpenRoteiro() {
 
   setSyncStatus('Carregando dados da equipe...');
   try {
+    await inicializarEmissorasRoteiro();
     await fetchAndMergeCloudData(currentUser);
     await loadScriptsSequentially();
     scriptsLoaded = true;
     document.querySelector('.app').style.display = '';
     document.getElementById('switch-app-link').style.display = 'inline-block';
-    await inicializarEmissorasRoteiro();
     patchLocalStorage();
     if (window.CadastroSync) {
       // Fila de pendências do cadastro: sobe o que foi criado/editado no

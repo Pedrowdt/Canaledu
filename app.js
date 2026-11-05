@@ -311,26 +311,33 @@ function init() {
   state.weekOffset  = 0;
 
 
-  const saved = localStorage.getItem('roteiroApp');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId()
+    : null;
+  const ehCanalEdu = !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+
+  const saved = localStorage.getItem(_storageKey);
   if (saved) {
     const parsed = JSON.parse(saved);
-    state.pecas      = parsed.pecas      || INITIAL_PECAS;
-    state.programas  = parsed.programas  || INITIAL_PROGRAMAS;
+    state.pecas      = parsed.pecas      || (ehCanalEdu ? INITIAL_PECAS : []);
+    state.programas  = parsed.programas  || (ehCanalEdu ? INITIAL_PROGRAMAS : []);
     state.pecasFixas = parsed.pecasFixas || [];
     state.roteiro    = parsed.roteiros?.[dateKey(today)] || [];
+    state.pecasDia   = parsed.pecasDia?.[dateKey(today)] || [];
   } else {
-    state.pecas      = INITIAL_PECAS;
-    state.programas  = INITIAL_PROGRAMAS;
+    state.pecas      = ehCanalEdu ? INITIAL_PECAS : [];
+    state.programas  = ehCanalEdu ? INITIAL_PROGRAMAS : [];
     state.pecasFixas = [];
-    // Seed Thursday 19/03/2026 roteiro from imported data
-    const seed = { pecas: state.pecas, programas: state.programas,
-                   roteiros: { '2026-03-19': INITIAL_ROTEIRO_QUI } };
-    localStorage.setItem('roteiroApp', JSON.stringify(seed));
+    if (ehCanalEdu) {
+      // Seed Thursday 19/03/2026 roteiro from imported data apenas para Canal Educação
+      const seed = { pecas: state.pecas, programas: state.programas,
+                     roteiros: { '2026-03-19': INITIAL_ROTEIRO_QUI } };
+      localStorage.setItem(_storageKey, JSON.stringify(seed));
+    }
     state.roteiro = [];
+    state.pecasDia = [];
   }
-  // Load pecasDia for today
-  const savedPD = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
-  state.pecasDia = savedPD.pecasDia?.[dateKey(today)] || [];
   renderWeekSelector();
   updateDateDisplay();
   renderAll();
@@ -448,7 +455,8 @@ function renderWeekSelector() {
   const dates   = getWeekDates(state.weekOffset);
   const todayKey = dateKey(nowForGrade());
   const curKey   = dateKey(state.currentDate);
-  const saved    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved    = JSON.parse(localStorage.getItem(_storageKey) || '{}');
 
   // Week label (e.g. "17/03 – 23/03/2026")
   const first = dates[0], last = dates[6];
@@ -3131,10 +3139,11 @@ function exportPDF() {
 
 /** Exporta backup completo do sistema em JSON: todos os roteiros, banco de peças, programas, peças do dia e grade semanal. Pode ser reimportado via handleImport(). */
 function exportJSON() {
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
   const data = {
     pecas: state.pecas,
     programas: state.programas,
-    roteiros: JSON.parse(localStorage.getItem('roteiroApp') || '{}').roteiros || {}
+    roteiros: JSON.parse(localStorage.getItem(_storageKey) || '{}').roteiros || {}
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a    = document.createElement('a');
@@ -5239,17 +5248,16 @@ function executarDistribuicaoBreaks() {
  * Utilizado após sincronização manual ou atualização remota em nuvem.
  */
 function reloadStateFromStorageAndRender() {
-  const storageKey = typeof getRoteiroStorageKey === "function" ? getRoteiroStorageKey() : "roteiroApp";
+  const storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
   const saved = localStorage.getItem(storageKey);
-  if (saved && state.currentDate) {
-    const parsed = JSON.parse(saved);
-    const dk = dateKey(state.currentDate);
-    if (parsed.pecas) state.pecas = parsed.pecas;
-    if (parsed.programas) state.programas = parsed.programas;
-    if (parsed.pecasFixas) state.pecasFixas = parsed.pecasFixas;
-    state.roteiro = parsed.roteiros?.[dk] || [];
-    state.pecasDia = parsed.pecasDia?.[dk] || [];
-  }
+  const parsed = saved ? JSON.parse(saved) : {};
+  const dk = state.currentDate ? dateKey(state.currentDate) : null;
+  state.pecas      = parsed.pecas || [];
+  state.programas  = parsed.programas || [];
+  state.pecasFixas = parsed.pecasFixas || [];
+  state.roteiro    = (dk && parsed.roteiros?.[dk]) || [];
+  state.pecasDia   = (dk && parsed.pecasDia?.[dk]) || [];
+
   REGRAS = loadRegras();
   renderWeekSelector();
   updateDateDisplay();
