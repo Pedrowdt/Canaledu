@@ -13,8 +13,11 @@
 
   let _supabase = null;
   let _user = null;
+  let _emissorasLista = [];
+  let _emissoraSelecionadaId = null;
 
   function obterEmissoraAtivaId() {
+    if (_emissoraSelecionadaId) return _emissoraSelecionadaId;
     if (window.EmissoraContext && typeof window.EmissoraContext.getEmissoraAtivaId === 'function') {
       return window.EmissoraContext.getEmissoraAtivaId();
     }
@@ -23,6 +26,8 @@
   }
 
   function obterEmissoraAtivaNome() {
+    const selecionada = _emissorasLista.find(e => e.id === _emissoraSelecionadaId);
+    if (selecionada) return selecionada.nome;
     const sel = document.getElementById('select-emissora');
     if (sel && sel.selectedOptions && sel.selectedOptions[0]) {
       return sel.selectedOptions[0].text.trim();
@@ -111,13 +116,29 @@
         </div>
 
         <div style="display: flex; gap: 8px; border-bottom: 1px solid #334155; margin-bottom: 18px; flex-wrap: wrap;">
-          <button id="admin-tab-membros" style="padding: 8px 14px; background: none; border: none; border-bottom: 2px solid #38bdf8; color: #38bdf8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Equipe da Emissora</button>
+          <button id="admin-tab-emissoras" style="padding: 8px 14px; background: none; border: none; border-bottom: 2px solid #38bdf8; color: #38bdf8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Emissoras Cadastradas</button>
+          <button id="admin-tab-membros" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Equipe da Emissora</button>
           <button id="admin-tab-nova" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">+ Nova Emissora</button>
           <button id="admin-tab-saude" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">🩺 Saúde do Sistema</button>
         </div>
 
+        <!-- ABA: EMISSORAS CADASTRADAS -->
+        <div id="admin-painel-emissoras">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <strong style="font-size:.86rem;color:#cbd5e1;">Emissoras disponíveis para sua conta</strong>
+            <button id="admin-btn-recarregar-emissoras" type="button" style="background:none;border:0;color:#38bdf8;cursor:pointer;">↻ Atualizar</button>
+          </div>
+          <div id="admin-lista-emissoras" style="border:1px solid #334155;border-radius:8px;overflow:hidden;background:#0f172a;">
+            <p style="padding:14px;color:#94a3b8;margin:0;font-size:.85rem;">Carregando emissoras...</p>
+          </div>
+        </div>
+
         <!-- ABA 1: MEMBROS -->
-        <div id="admin-painel-membros">
+        <div id="admin-painel-membros" style="display:none;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;background:#0f172a;padding:10px 14px;border-radius:8px;border:1px solid #334155;">
+            <label for="admin-select-emissora-equipe" style="font-size:.85rem;font-weight:600;color:#cbd5e1;white-space:nowrap;">Equipe de:</label>
+            <select id="admin-select-emissora-equipe" style="background:#1e293b;color:#fff;border:1px solid #475569;padding:6px 10px;border-radius:6px;font-size:.85rem;flex:1;"><option value="">Carregando...</option></select>
+          </div>
           <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
             <div style="font-size: 0.85rem; font-weight: 600; margin-bottom: 8px; color: #cbd5e1;">Adicionar ou Atualizar Membro</div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -258,7 +279,13 @@
     document.getElementById('admin-btn-fechar').onclick = fecharModal;
     modal.onclick = (e) => { if (e.target === modal) fecharModal(); };
 
+    document.getElementById('admin-tab-emissoras').onclick = () => alternarAba('emissoras');
     document.getElementById('admin-tab-membros').onclick = () => alternarAba('membros');
+    document.getElementById('admin-btn-recarregar-emissoras').onclick = carregarListaEmissoras;
+    document.getElementById('admin-select-emissora-equipe').onchange = (e) => {
+      _emissoraSelecionadaId = e.target.value || null;
+      carregarMembros();
+    };
     document.getElementById('admin-tab-nova').onclick = () => alternarAba('nova');
     document.getElementById('admin-tab-saude').onclick = () => alternarAba('saude');
 
@@ -277,24 +304,31 @@
   }
 
   function alternarAba(aba) {
+    const tabE = document.getElementById('admin-tab-emissoras');
     const tabM = document.getElementById('admin-tab-membros');
     const tabN = document.getElementById('admin-tab-nova');
     const tabS = document.getElementById('admin-tab-saude');
+    const painelE = document.getElementById('admin-painel-emissoras');
     const painelM = document.getElementById('admin-painel-membros');
     const painelN = document.getElementById('admin-painel-nova');
     const painelS = document.getElementById('admin-painel-saude');
 
-    [tabM, tabN, tabS].forEach(t => {
+    [tabE, tabM, tabN, tabS].forEach(t => {
       if (t) {
         t.style.borderBottom = 'none';
         t.style.color = '#94a3b8';
       }
     });
-    [painelM, painelN, painelS].forEach(p => {
+    [painelE, painelM, painelN, painelS].forEach(p => {
       if (p) p.style.display = 'none';
     });
 
-    if (aba === 'membros') {
+    if (aba === 'emissoras') {
+      tabE.style.borderBottom = '2px solid #38bdf8';
+      tabE.style.color = '#38bdf8';
+      painelE.style.display = 'block';
+      carregarListaEmissoras();
+    } else if (aba === 'membros') {
       tabM.style.borderBottom = '2px solid #38bdf8';
       tabM.style.color = '#38bdf8';
       painelM.style.display = 'block';
@@ -311,12 +345,13 @@
     }
   }
 
-  function abrirModal() {
+  async function abrirModal() {
     const modal = document.getElementById('modal-admin-painel');
     if (!modal) return;
-    document.getElementById('admin-subtitulo-emissora').textContent = 'Emissora atual: ' + obterEmissoraAtivaNome();
     modal.style.display = 'flex';
-    alternarAba('membros');
+    await carregarListaEmissoras();
+    document.getElementById('admin-subtitulo-emissora').textContent = 'Emissora atual: ' + obterEmissoraAtivaNome();
+    alternarAba('emissoras');
   }
 
   function fecharModal() {
@@ -652,10 +687,57 @@
   // ABA 1 & 2: MEMBROS E NOVA EMISSORA
   // ==========================================
 
+
+  async function carregarListaEmissoras() {
+    const lista = document.getElementById('admin-lista-emissoras');
+    const selectEquipe = document.getElementById('admin-select-emissora-equipe');
+    if (!lista || !_supabase) return;
+    lista.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Buscando emissoras...</p>';
+    try {
+      const { data, error } = await _supabase.rpc('fn_admin_listar_emissoras');
+      if (error) throw error;
+      _emissorasLista = Array.isArray(data) ? data : [];
+      if (!_emissoraSelecionadaId || !_emissorasLista.some(e => e.id === _emissoraSelecionadaId)) {
+        const ativa = window.EmissoraContext?.getEmissoraAtivaId?.();
+        _emissoraSelecionadaId = _emissorasLista.some(e => e.id === ativa) ? ativa : (_emissorasLista[0]?.id || null);
+      }
+      if (selectEquipe) {
+        selectEquipe.innerHTML = _emissorasLista.length
+          ? _emissorasLista.map(e => `<option value="${escapeHtml(e.id)}" ${e.id === _emissoraSelecionadaId ? 'selected' : ''}>${escapeHtml(e.nome)}</option>`).join('')
+          : '<option value="">Nenhuma emissora vinculada</option>';
+      }
+      if (!_emissorasLista.length) {
+        lista.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Nenhuma emissora administrada foi encontrada para este usuário.</p>';
+        return;
+      }
+      lista.innerHTML = _emissorasLista.map(e => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border-bottom:1px solid #334155;gap:10px;">
+          <div><div style="font-weight:600;color:#f8fafc;">${escapeHtml(e.nome)}</div>
+          <div style="font-size:.75rem;color:#94a3b8;">Slug: ${escapeHtml(e.slug || '—')} · ${Number(e.total_membros || 0)} membro(s)</div></div>
+          <button class="admin-ver-equipe" data-id="${escapeHtml(e.id)}" style="background:#1e293b;border:1px solid #38bdf8;color:#38bdf8;padding:5px 9px;border-radius:6px;cursor:pointer;">Ver equipe</button>
+        </div>`).join('');
+      lista.querySelectorAll('.admin-ver-equipe').forEach(btn => btn.onclick = () => {
+        _emissoraSelecionadaId = btn.dataset.id;
+        if (selectEquipe) selectEquipe.value = _emissoraSelecionadaId;
+        alternarAba('membros');
+      });
+    } catch (err) {
+      lista.innerHTML = `<p style="padding:14px;color:#ef4444;margin:0;">Não foi possível listar emissoras: ${escapeHtml(err.message)}. Confirme a migration 016.</p>`;
+    }
+  }
+
   async function carregarMembros() {
     const corpo = document.getElementById('admin-corpo-lista-membros');
     const emissoraId = obterEmissoraAtivaId();
-    if (!corpo || !emissoraId || !_supabase) return;
+    if (!corpo) return;
+    if (!_supabase) {
+      corpo.innerHTML = '<p style="padding:14px;color:#ef4444;margin:0;">Cliente Supabase não inicializado. Recarregue e entre novamente.</p>';
+      return;
+    }
+    if (!emissoraId) {
+      corpo.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Selecione uma emissora para carregar a equipe.</p>';
+      return;
+    }
 
     corpo.innerHTML = '<p style="padding: 12px; color: #94a3b8; margin: 0; font-size: 0.85rem;">Buscando membros...</p>';
 
@@ -726,7 +808,8 @@
       msg.style.color = '#10b981';
       msg.textContent = 'Vínculo atualizado com sucesso!';
       emailInput.value = '';
-      carregarMembros();
+      carregarMembros(emissoraId);
+      carregarListaEmissoras();
     } catch (err) {
       msg.style.color = '#ef4444';
       msg.textContent = 'Erro: ' + err.message;
@@ -744,7 +827,8 @@
       });
 
       if (error) throw error;
-      carregarMembros();
+      carregarMembros(emissoraId);
+      carregarListaEmissoras();
     } catch (err) {
       alert('Erro: ' + err.message);
     }
@@ -769,11 +853,10 @@
       if (error) throw error;
 
       msg.style.color = '#10b981';
-      msg.textContent = `Emissora "${nome}" criada! Atualizando...`;
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      msg.textContent = `Emissora "${nome}" criada! Atualizando lista...`;
+      if (data?.emissora_id) _emissoraSelecionadaId = data.emissora_id;
+      await carregarListaEmissoras();
+      setTimeout(() => alternarAba('emissoras'), 500);
 
     } catch (err) {
       msg.style.color = '#ef4444';
