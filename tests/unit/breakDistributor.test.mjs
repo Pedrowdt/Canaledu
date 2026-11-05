@@ -9,6 +9,87 @@ describe('breakDistributor v2', () => {
     expect(isValidadeExpired('31/12/2099')).toBe(false);
     expect(isValidadeExpired('')).toBe(false);
   });
+    it('prioriza chamada de estreia de hoje em relação a chamada de 3 dias depois', () => {
+    const roteiro = [
+      { type: 'PGM', descricao: 'PGM CIENCIA', tempo: '00:15:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — chamada ]', tempo: '00:00:30' }
+    ];
+    const pecas = [
+      {
+        code: 'CHM_3DIAS',
+        type: 'ECHM',
+        descricao: 'CHAMADA DAQUI A 3 DIAS',
+        tipoFinalidade: 'estreia',
+        dataEstreia: '30/10/2026',
+        tempo: '00:00:30',
+        ativo: true
+      },
+      {
+        code: 'CHM_HOJE',
+        type: 'ECHM',
+        descricao: 'CHAMADA ESTREIA HOJE',
+        tipoFinalidade: 'estreia',
+        dataEstreia: '27/10/2026',
+        tempo: '00:00:30',
+        ativo: true
+      }
+    ];
+
+    const res = BreakDistributor.distribuirPecasNosBreaks(roteiro, pecas, {
+      date: '27/10/2026',
+      regras: { breakIntervaloMinChamada: 0 }
+    });
+
+    expect(res.roteiro[1].code).toBe('CHM_HOJE');
+  });
+
+  it('prioriza interprograma promocional sobre calhau quando ambos empatam em exibições', () => {
+    const roteiro = [
+      { type: 'PGM', descricao: 'PGM HISTORIA', tempo: '00:15:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — interprograma ]', tempo: '00:01:00' }
+    ];
+    const pecas = [
+      {
+        code: 'INT_CALHAU',
+        type: 'EINT',
+        descricao: 'INTERPROGRAMA CALHAU',
+        tipoFinalidade: 'calhau',
+        tempo: '00:01:00',
+        ativo: true
+      },
+      {
+        code: 'INT_PROMO',
+        type: 'EINT',
+        descricao: 'INTERPROGRAMA PROMOCIONAL',
+        tipoFinalidade: 'promocional',
+        tempo: '00:01:00',
+        ativo: true
+      }
+    ];
+
+    const res = BreakDistributor.distribuirPecasNosBreaks(roteiro, pecas, {
+      date: '27/10/2026',
+      regras: { breakIntervaloMinInterprograma: 0 }
+    });
+
+    expect(res.roteiro[1].code).toBe('INT_PROMO');
+  });
+
+  it('rotatividade: reduz score com exibições acumuladas para dar oportunidade a outras peças', () => {
+    const p1 = { code: 'P1', tipoFinalidade: 'promocional' }; // base 7
+    const p2 = { code: 'P2', tipoFinalidade: 'calhau' };      // base 5
+
+    // Sem exibição: P1 (7) ganha de P2 (5)
+    expect(BreakDistributor.calcularScorePeca(p1, '27/10/2026', 0)).toBe(7);
+    expect(BreakDistributor.calcularScorePeca(p2, '27/10/2026', 0)).toBe(5);
+
+    // Após 1 exibição de P1: score cai para 7 - 3 = 4, logo P2 (5) assume a vez!
+    expect(BreakDistributor.calcularScorePeca(p1, '27/10/2026', 1)).toBe(4);
+    expect(BreakDistributor.calcularScorePeca(p1, '27/10/2026', 1)).toBeLessThan(
+      BreakDistributor.calcularScorePeca(p2, '27/10/2026', 0)
+    );
+  });
+
 
   it('extrai tema do programa relacionado ou título', () => {
     expect(extractTheme({ programaRelacionado: 'MASSINHAS' })).toBe('MASSINHAS');

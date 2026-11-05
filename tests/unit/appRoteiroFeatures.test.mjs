@@ -16,7 +16,7 @@ const src = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
 // roda no nível superior do script.
 const srcSemBoot = src.replace(/\ninit\(\);\s*$/, '\n');
 
-function loadPure({ localStorage } = {}) {
+function loadPure({ localStorage, emissoraContext = {}, gradeBase = { gradeByDay: { '1': { 'GRADE CANAL EDUCACAO': '08:00:00' } }, gradeOrderByDay: { '1': ['GRADE CANAL EDUCACAO'] } } } = {}) {
   const g = { addEventListener() {}, removeEventListener() {} };
   g.window = g;
   const ls = localStorage || {
@@ -37,7 +37,10 @@ function loadPure({ localStorage } = {}) {
     'localStorage',
     'document',
     'confirm',
+    'EmissoraContext',
+    'GRADE_BASE',
     `${srcSemBoot}\nreturn {
+      loadGrade, loadGradeOrder,
       registrarUndoSeMudou, popUndoEntry, sortPecasByTempo, dateKey, timeToSec, saveState,
       findVhSeguir, findVhAssistindo, findVhPorFuncaoNoCadastro, baseProgramTitle, _normalizeProgKey,
       inserirBreakManual, reloadStateFromStorageAndRender,
@@ -48,7 +51,7 @@ function loadPure({ localStorage } = {}) {
       __test_setRegras: (v) => { Object.assign(REGRAS, v); },
     };`
   );
-  return factory.call(g, g.window, g, ls, document, confirm);
+  return factory.call(g, g.window, g, ls, document, confirm, emissoraContext, gradeBase);
 }
 
 function makeLocalStorage() {
@@ -60,6 +63,38 @@ function makeLocalStorage() {
     _store: store,
   };
 }
+
+
+describe('Grade Semanal — isolamento por emissora', () => {
+  it('usa a grade base apenas no Canal Educação e não a herda em outra emissora', () => {
+    let ativa = '00000000-0000-0000-0000-000000000001';
+    const context = { getEmissoraAtivaId: () => ativa };
+    const { loadGrade, loadGradeOrder } = loadPure({ emissoraContext: context });
+
+    expect(loadGrade(1)).toEqual({ 'GRADE CANAL EDUCACAO': '08:00:00' });
+    expect(loadGradeOrder(1)).toEqual(['GRADE CANAL EDUCACAO']);
+
+    ativa = 'uuid-tv-central';
+    expect(loadGrade(1)).toEqual({});
+    expect(loadGradeOrder(1)).toEqual([]);
+  });
+
+  it('carrega a grade customizada da chave da emissora ativa', () => {
+    let ativa = 'uuid-tv-central';
+    const context = { getEmissoraAtivaId: () => ativa };
+    const store = new Map([
+      ['roteiroApp_uuid-tv-central', JSON.stringify({ gradeByDay: { '1': { 'PROGRAMA TBC': '09:00:00' } }, gradeOrderByDay: { '1': ['PROGRAMA TBC'] } })],
+      ['roteiroApp_00000000-0000-0000-0000-000000000001', JSON.stringify({ gradeByDay: { '1': { 'PROGRAMA CANAL EDUCACAO': '08:00:00' } } })],
+    ]);
+    const ls = { getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
+    const { loadGrade, loadGradeOrder } = loadPure({ localStorage: ls, emissoraContext: context });
+
+    expect(loadGrade(1)).toEqual({ 'PROGRAMA TBC': '09:00:00' });
+    expect(loadGradeOrder(1)).toEqual(['PROGRAMA TBC']);
+    ativa = '00000000-0000-0000-0000-000000000001';
+    expect(loadGrade(1)).toEqual({ 'PROGRAMA CANAL EDUCACAO': '08:00:00' });
+  });
+});
 
 describe('registrarUndoSeMudou — quando um ponto de desfazer é criado', () => {
   let app;

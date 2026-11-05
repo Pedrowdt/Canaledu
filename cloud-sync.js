@@ -1,3 +1,21 @@
+
+function getRoteiroStorageKey(emissoraId) {
+  if (emissoraId === undefined) {
+    emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId()
+      : null;
+  }
+  return emissoraId ? 'roteiroApp_' + emissoraId : 'roteiroApp';
+}
+function getPendingSyncStorageKey(emissoraId) {
+  if (emissoraId === undefined) {
+    emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId()
+      : null;
+  }
+  return emissoraId ? 'roteiroSyncPending_' + emissoraId : 'roteiroSyncPending';
+}
+window.getRoteiroStorageKey = getRoteiroStorageKey;
 // =====================================================
 // CLOUD SYNC — Login + sincronização em nuvem (Supabase)
 // Roteiro Canal Educação
@@ -39,8 +57,9 @@ const SCRIPTS_TO_LOAD = [
 let supabaseClient = null;
 let currentUser = null;
 let scriptsLoaded = false;
-let _origSetItem = null;
-let _origGetItem = null;
+let _origGetItem = typeof Storage !== 'undefined' ? Storage.prototype.getItem : null;
+let _origSetItem = typeof Storage !== 'undefined' ? Storage.prototype.setItem : null;
+let _origRemoveItem = typeof Storage !== 'undefined' ? Storage.prototype.removeItem : null;
 let _pushTimer = null;
 let _pushInFlight = false; // true durante o await do pushToCloud
 let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma edição nova chegou durante um push já em andamento
@@ -52,12 +71,10 @@ let _editSeq = 0; // incrementado a cada edição local; usado para saber se uma
 // página (Roteiro -> Peças e Programas -> Roteiro) que o app perde o
 // estado em memória e precisa saber, ao recarregar, se pode confiar na
 // versão que acabou de vir do servidor ou se o localStorage está à frente.
-const PENDING_SYNC_KEY = 'roteiroSyncPending';
-
 // Escritas "de serviço" (marca de pendência) nunca podem derrubar o app:
 // se o disco estiver cheio, a marca é apenas ignorada (a próxima poda libera espaço).
 function _gravarMarca(valor) {
-  try { _origSetItem.call(localStorage, PENDING_SYNC_KEY, valor); }
+  try { _origSetItem.call(localStorage, getPendingSyncStorageKey(), valor); }
   catch (e) { console.warn('cloud-sync: não foi possível gravar a marca de pendência', e); }
 }
 
@@ -70,7 +87,7 @@ function marcarSyncConfirmado() {
 }
 
 function haSyncPendente() {
-  return localStorage.getItem(PENDING_SYNC_KEY) === '1';
+  return localStorage.getItem(getPendingSyncStorageKey()) === '1';
 }
 
 // =====================================================
@@ -109,7 +126,11 @@ function getGuard() {
   const SG = window.StorageGuard;
   if (!SG) return null; // módulo ausente: cai no caminho simples (try/catch)
   _guard = SG.criar({
-    storage: localStorage,
+    storage: {
+      getItem: (k) => _origGetItem.call(localStorage, k),
+      setItem: (k, v) => _origSetItem.call(localStorage, k, v),
+      removeItem: (k) => _origRemoveItem.call(localStorage, k),
+    },
     setItemOriginal: (k, v) => _origSetItem.call(localStorage, k, v),
     getItemOriginal: (k) => _origGetItem.call(localStorage, k),
     protegidos: _diaAberto,
@@ -222,22 +243,26 @@ async function fetchAndMergeCloudData(user) {
 
   // FONTE DA VERDADE do banco de peças/programas: as tabelas relacionais
   // preenchidas pela tela "Peças e Programas". A ponte cai para o espelho
-  // shared_data automaticamente se a migração ainda não foi aplicada.
+  // shared_data automaticamente apenas para o Canal Educação.
+  const emissoraAtivaId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  const ehCanalEdu = !emissoraAtivaId || emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
+
   const cadastro = await RoteiroPecasBridge.carregarCadastro({
     client: supabaseClient,
-    sharedRow: shared,
+    sharedRow: ehCanalEdu ? shared : null,
     workspaceId: WORKSPACE_ID,
+    emissoraId: emissoraAtivaId,
   });
   console.info('[cloud-sync] cadastro carregado de:', cadastro.origem,
     '· peças:', cadastro.pecas.length, '· programas:', cadastro.programas.length);
+  let userQuery = supabaseClient.from('user_data').select('*').eq('user_id', user.id);
+  if (emissoraAtivaId) userQuery = userQuery.eq('emissora_id', emissoraAtivaId);
+  const { data: userRow } = await userQuery.maybeSingle();
 
-  const { data: userRow } = await supabaseClient
-    .from('user_data')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
 
-  const localRaw    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const _chaveAtiva = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const localRaw    = JSON.parse(localStorage.getItem(_chaveAtiva) || '{}');
   const localRegras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
   const sharedEmpty  = !cadastro.pecas.length && !cadastro.programas.length;
@@ -245,10 +270,9 @@ async function fetchAndMergeCloudData(user) {
 
   const merged = {};
 
-  if (sharedEmpty && localHasData) {
-    // Primeiro acesso: este navegador já tinha dados locais (uso anterior
-    // sem login) e a nuvem ainda está vazia -> usamos os dados locais como
-    // ponto de partida do banco compartilhado da equipe.
+  if (ehCanalEdu && sharedEmpty && localHasData) {
+    // Primeiro acesso apenas para Canal Educação legado: usamos os dados locais
+    // como ponto de partida do banco compartilhado da equipe.
     merged.pecas           = localRaw.pecas || [];
     merged.programas       = localRaw.programas || [];
     merged.grade           = localRaw.grade || {};
@@ -268,12 +292,15 @@ async function fetchAndMergeCloudData(user) {
     gravarLocal('roteiroRegras', JSON.stringify(localRegras));
   } else {
     // Cadastro manda: o que veio das tabelas relacionais substitui o
-    // snapshot local, então uma peça cadastrada agora já aparece no roteiro.
-    // Cadastro manda, MAS o que este usuário criou/editou e ainda não
-    // sincronizou continua em tela (fila do CadastroSync).
+    // snapshot local. Para outras emissoras, basePecas/baseProgramas é vazio para
+    // nunca herdar o banco do Canal Educação nem resíduo contaminado local.
+    const basePecas = ehCanalEdu ? (localRaw.pecas || []) : [];
+    const baseProgramas = ehCanalEdu ? (localRaw.programas || []) : [];
     const unidoInicial = RoteiroPecasBridge.mergeCadastro(
-      { pecas: localRaw.pecas || [], programas: localRaw.programas || [] },
-      cadastro
+      { pecas: basePecas, programas: baseProgramas },
+      cadastro,
+      null,
+      { emissoraId: emissoraAtivaId }
     );
     merged.pecas           = unidoInicial.pecas;
     merged.programas       = unidoInicial.programas;
@@ -284,10 +311,12 @@ async function fetchAndMergeCloudData(user) {
   // Grade agora é por usuário (user_data), permitindo que operadores diferentes
   // importem semanas diferentes simultaneamente sem um sobrepor a do outro.
   // Fallback em cascata: user_data -> localStorage -> shared_data legado.
-  const userGrade           = userRow?.grade || (sharedEmpty && localHasData ? (localRaw.grade || {}) : (shared?.grade || {}));
-  const userGradeByDay      = userRow?.grade_by_day || (sharedEmpty && localHasData ? (localRaw.gradeByDay || {}) : (shared?.grade_by_day || {}));
-  const userGradeOrder      = userRow?.grade_order || (sharedEmpty && localHasData ? (localRaw.gradeOrder || {}) : (shared?.grade_order || {}));
-  const userGradeOrderByDay = userRow?.grade_order_by_day || (sharedEmpty && localHasData ? (localRaw.gradeOrderByDay || {}) : (shared?.grade_order_by_day || {}));
+  const gradeLegadaPermitida = emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
+  const gradeLocalLegada = gradeLegadaPermitida && sharedEmpty && localHasData;
+  const userGrade           = userRow?.grade || (gradeLocalLegada ? (localRaw.grade || {}) : (gradeLegadaPermitida ? (shared?.grade || {}) : {}));
+  const userGradeByDay      = userRow?.grade_by_day || (gradeLocalLegada ? (localRaw.gradeByDay || {}) : (gradeLegadaPermitida ? (shared?.grade_by_day || {}) : {}));
+  const userGradeOrder      = userRow?.grade_order || (gradeLocalLegada ? (localRaw.gradeOrder || {}) : (gradeLegadaPermitida ? (shared?.grade_order || {}) : {}));
+  const userGradeOrderByDay = userRow?.grade_order_by_day || (gradeLocalLegada ? (localRaw.gradeOrderByDay || {}) : (gradeLegadaPermitida ? (shared?.grade_order_by_day || {}) : {}));
 
   // Aqui mora o bug relatado: "saio para Peças e Programas e quando volto,
   // sumiu o roteiro". `userRow.roteiros` é o último snapshot que CONSEGUIU
@@ -302,7 +331,7 @@ async function fetchAndMergeCloudData(user) {
   // e o localStorage está à frente da nuvem — nesse caso o local vence.
   const localVenceRoteiro = haSyncPendente();
   merged.roteiros        = localVenceRoteiro ? (localRaw.roteiros        || userRow?.roteiros        || {}) : (userRow?.roteiros        || localRaw.roteiros        || {});
-  merged.pecasDia        = localVenceRoteiro ? (localRaw.pecasDia        || userRow?.pecas_dia       || {}) : (userRow?.pecas_dia       || localRaw.pecasDia        || {});
+  merged.pecasDia        = localVenceRoteiro ? (localRaw.pecasDia        || userRow?.pecas_dia       || {}) : (userRow?.pecas_dia       || (ehCanalEdu ? (localRaw.pecasDia || {}) : {}) || {});
   merged.grade           = localVenceRoteiro ? (localRaw.grade           || userGrade                || {}) : (userGrade                || localRaw.grade           || {});
   merged.gradeByDay      = localVenceRoteiro ? (localRaw.gradeByDay      || userGradeByDay           || {}) : (userGradeByDay           || localRaw.gradeByDay      || {});
   merged.gradeOrder      = localVenceRoteiro ? (localRaw.gradeOrder      || userGradeOrder           || {}) : (userGradeOrder           || localRaw.gradeOrder      || {});
@@ -316,18 +345,22 @@ async function fetchAndMergeCloudData(user) {
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
-  gravarLocal('roteiroApp', JSON.stringify(merged));
+  const _chaveApp = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  gravarLocal(_chaveApp, JSON.stringify(merged));
   const _ret = getGuard() && getGuard().aplicarRetencao();
   if (_ret && _ret.total) {
     // Reflete a poda em `merged` para o upsert inicial (abaixo) não reenviar o histórico descartado.
-    const podado = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+    const podado = JSON.parse(localStorage.getItem(_chaveApp) || '{}');
     merged.roteiros = podado.roteiros || {};
     merged.pecasDia = podado.pecasDia || {};
   }
 
   if (!userRow) {
+    const emissoraUpsertId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+      ? EmissoraContext.getEmissoraAtivaId() : '00000000-0000-0000-0000-000000000001';
     await supabaseClient.from('user_data').upsert({
       user_id: user.id,
+      emissora_id: emissoraUpsertId,
       roteiros: merged.roteiros,
       pecas_dia: merged.pecasDia,
       grade: merged.grade,
@@ -359,7 +392,7 @@ function patchLocalStorage() {
     // Antes: _origSetItem.call(localStorage, key, value) lançava QuotaExceededError
     // e derrubava a edição. Agora: retenção + poda por cota + fallback, sem exceção.
     gravarLocal(key, value);
-    if (key === 'roteiroApp' || key === 'roteiroRegras') {
+    if (key === getRoteiroStorageKey() || key === 'roteiroRegras') {
       // Marca "pendente" JÁ AQUI, antes do debounce — se a página for
       // trocada (Roteiro -> Peças e Programas) nos próximos 900ms, essa
       // marca persiste no localStorage e avisa a próxima carga da página
@@ -405,7 +438,9 @@ async function pushToCloud() {
   // cima do que está sendo enviado agora nem do que ainda não terminou de subir.
   _pushInFlight = true;
   const seqAtStart = _editSeq; // se uma edição nova chegar durante os awaits abaixo, isso muda
-  const app    = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const emissoraPushId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  const app    = JSON.parse(localStorage.getItem(getRoteiroStorageKey(emissoraPushId)) || '{}');
   const regras = JSON.parse(localStorage.getItem('roteiroRegras') || '{}');
 
   setSyncStatus('Sincronizando...');
@@ -424,9 +459,7 @@ async function pushToCloud() {
       })
       .eq('id', WORKSPACE_ID);
 
-    await supabaseClient
-      .from('user_data')
-      .update({
+    let uQuery = supabaseClient.from('user_data').update({
         roteiros: app.roteiros || {},
         pecas_dia: app.pecasDia || {},
         grade: app.grade || {},
@@ -434,8 +467,9 @@ async function pushToCloud() {
         grade_order: app.gradeOrder || {},
         grade_order_by_day: app.gradeOrderByDay || {},
         updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', currentUser.id);
+      }).eq('user_id', currentUser.id);
+    if (emissoraPushId) uQuery = uQuery.eq('emissora_id', emissoraPushId);
+    await uQuery;
 
     if (window.CadastroSync) await CadastroSync.flush().catch(() => {});
     if (window.CanalLog) CanalLog.registrar('roteiro_sincronizado', { grade: Object.keys(app.grade || {}).length });
@@ -467,7 +501,8 @@ function setupRealtime() {
       (payload) => {
         if (!payload.new || payload.new.updated_by === currentUser.id) return; // ignora a própria escrita
 
-        const app = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+        const appStorageKey = getRoteiroStorageKey();
+        const app = JSON.parse(localStorage.getItem(appStorageKey) || '{}');
         // Peças/programas passam SEMPRE pela ponte: ela une o que veio da
         // nuvem com o que este usuário ainda não sincronizou. Atribuir
         // payload.new.pecas direto apagava da tela peças locais (e as do
@@ -497,7 +532,7 @@ function setupRealtime() {
           // outro usuário só precisa ver após a tela recarregar. Evita
           // apagar uma edição de grade feita há poucos instantes e ainda
           // não enviada — a mesma causa raiz que fazia peças "sumirem".
-          gravarLocal('roteiroApp', JSON.stringify(app));
+          gravarLocal(appStorageKey, JSON.stringify(app));
           if (typeof state !== 'undefined') {
             state.pecas     = app.pecas;
             state.programas = app.programas;
@@ -512,7 +547,7 @@ function setupRealtime() {
 
         // Grade agora é por usuário (user_data), portanto alterações em
         // shared_data vindas de outro usuário NÃO alteram a grade deste usuário.
-        gravarLocal('roteiroApp', JSON.stringify(app));
+        gravarLocal(appStorageKey, JSON.stringify(app));
         gravarLocal('roteiroRegras', JSON.stringify(payload.new.regras || {}));
 
         if (typeof state !== 'undefined') {
@@ -545,11 +580,12 @@ function setupRealtime() {
           client: supabaseClient,
           workspaceId: WORKSPACE_ID,
         });
+        const appStorageKey = getRoteiroStorageKey();
         const app = RoteiroPecasBridge.mergeCadastro(
-          JSON.parse(localStorage.getItem('roteiroApp') || '{}'),
+          JSON.parse(localStorage.getItem(appStorageKey) || '{}'),
           cadastro
         );
-        gravarLocal('roteiroApp', JSON.stringify(app));
+        gravarLocal(appStorageKey, JSON.stringify(app));
         if (typeof state !== 'undefined' && RoteiroPecasBridge.aplicarNoEstado(state, cadastro)) {
           if (typeof renderAll === 'function') renderAll();
           setSyncStatus('Cadastro atualizado ✓');
@@ -564,6 +600,101 @@ function setupRealtime() {
 // =====================================================
 // FLUXO PRINCIPAL
 // =====================================================
+
+// =====================================================
+// CONTEXTO DE EMISSORA NO ROTEIRO
+// =====================================================
+function atualizarBrandingEmissora(emissora) {
+  const nome = emissora && emissora.nome ? emissora.nome : "Canal Educação";
+  const logoEl = document.getElementById("app-logo-title");
+  if (logoEl) {
+    logoEl.innerHTML = escapeHtml(nome.toUpperCase()) + " — <span>ROTEIRO</span>";
+  }
+  document.title = "Roteiro — " + nome;
+}
+
+function escapeHtml(str) {
+  return String(str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+async function inicializarEmissorasRoteiro() {
+  if (!window.EmissoraContext || !supabaseClient || !currentUser) return;
+  try {
+    const emissoras = await EmissoraContext.carregarEmissoras(supabaseClient, currentUser.id);
+    if (emissoras && emissoras.length > 0) {
+      const ativa = EmissoraContext.resolverEmissoraAtiva(emissoras);
+      const sel = document.getElementById("select-emissora");
+      const wrap = document.getElementById("emissora-wrap");
+      if (sel && wrap) {
+        sel.innerHTML = emissoras.map(e => `
+          <option value="${e.id}" ${ativa && ativa.id === e.id ? "selected" : ""}>
+            ${escapeHtml(e.nome)}
+          </option>
+        `).join("");
+        wrap.style.display = "flex";
+      }
+      if (ativa) {
+        atualizarBrandingEmissora(ativa);
+        if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
+          PecasRepo.setEmissoraId(ativa.id);
+        }
+      }
+            if (window.AdminPainel && supabaseClient && currentUser) {
+        window.AdminPainel.init(supabaseClient, currentUser);
+      }
+    }
+  } catch (err) {
+    console.warn("cloud-sync: erro ao carregar emissoras", err);
+  }
+}
+
+async function trocarEmissoraNoRoteiro(novaEmissoraId) {
+  if (!novaEmissoraId) return;
+  const emissoraAnteriorId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  if (emissoraAnteriorId === novaEmissoraId) return;
+  // Salva e envia tudo ainda sob o ID antigo. Assim, uma troca rápida não pode
+  // gravar a grade da emissora anterior na linha user_data da próxima emissora.
+  if (typeof saveState === 'function') saveState();
+  try { await flushPendingSync(); } catch (err) {
+    console.warn('Não foi possível sincronizar antes da troca de emissora:', err);
+  }
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+    const emissoras = EmissoraContext.getEmissorasCache();
+    const ativa = emissoras.find(e => e.id === novaEmissoraId);
+    if (ativa) atualizarBrandingEmissora(ativa);
+  }
+  if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
+    PecasRepo.setEmissoraId(novaEmissoraId);
+  }
+  if (typeof toast === "function") {
+    toast("Alternando para a emissora selecionada...", "info");
+  }
+  try {
+    // Reseta estado em memória para evitar vazamento visual entre emissoras
+    if (typeof state !== 'undefined' && state) {
+      state.pecas = [];
+      state.programas = [];
+      state.pecasDia = [];
+      state.roteiro = [];
+    }
+    await fetchAndMergeCloudData(currentUser);
+    if (typeof window.reloadStateFromStorageAndRender === "function") {
+      window.reloadStateFromStorageAndRender();
+    } else if (typeof renderAll === "function") {
+      renderAll();
+    }
+  } catch (err) {
+    console.error("Erro ao recarregar dados da nova emissora:", err);
+  }
+}
+  if (window.AdminPainel) {
+    window.AdminPainel.atualizarBotao();
+  }
+
+window.trocarEmissoraNoRoteiro = trocarEmissoraNoRoteiro;
+
 async function onAuthenticated(user) {
   currentUser = user;
   if (window.CanalLog) {
@@ -572,6 +703,10 @@ async function onAuthenticated(user) {
   }
   document.getElementById('login-overlay').style.display = 'none';
   addLogoutUI(user.email);
+    if (window.AdminPainel && supabaseClient) {
+    window.AdminPainel.init(supabaseClient, user);
+  }
+
   document.getElementById('hub-overlay').style.display = 'flex';
 }
 
@@ -582,11 +717,13 @@ async function cloudSyncOpenRoteiro() {
     // Já entramos no Roteiro antes nesta sessão — só reexibe, sem recarregar nada.
     document.querySelector('.app').style.display = '';
     document.getElementById('switch-app-link').style.display = 'inline-block';
+    await inicializarEmissorasRoteiro();
     return;
   }
 
   setSyncStatus('Carregando dados da equipe...');
   try {
+    await inicializarEmissorasRoteiro();
     await fetchAndMergeCloudData(currentUser);
     await loadScriptsSequentially();
     scriptsLoaded = true;
@@ -614,21 +751,28 @@ function cloudSyncBackToHub(e) {
 }
 
 async function cloudSyncOpenPecasProgramas() {
-  // Garante que qualquer edição feita nos últimos 900ms (ainda no debounce)
-  // chegue na nuvem ANTES de trocar de página — sem isso, um clique logo após
-  // editar o roteiro perde a corrida com o timer e a edição nunca é
-  // enviada (ver haSyncPendente()/patchLocalStorage acima).
   try {
     setSyncStatus('Salvando antes de trocar de tela...');
     await flushPendingSync();
   } catch (e) {
     console.warn('cloud-sync: falha ao salvar antes de abrir Peças e Programas', e);
-    // Mesmo falhando o envio, a marca de "pendente" continua salva no
-    // localStorage — o próximo carregamento do Roteiro vai preferir o
-    // local e tentar reenviar (ver fetchAndMergeCloudData).
   }
   location.href = PECAS_PROGRAMAS_PAGE;
 }
+
+async function cloudSyncOpenGradeEditor() {
+  try {
+    setSyncStatus('Salvando antes de trocar de tela...');
+    await flushPendingSync();
+  } catch (e) {
+    console.warn('cloud-sync: falha ao salvar antes de abrir Grade', e);
+  }
+  location.href = 'grade-editor.html';
+}
+
+window.cloudSyncOpenGradeEditor = cloudSyncOpenGradeEditor;
+window.cloudSyncOpenPecasProgramas = cloudSyncOpenPecasProgramas;
+window.cloudSyncOpenRoteiro = cloudSyncOpenRoteiro;
 
 // Rede de segurança para navegação/fechamento fora do controle do app
 // (botão voltar do navegador, fechar a aba, F5): dispara o envio em modo
