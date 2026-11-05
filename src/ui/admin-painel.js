@@ -98,7 +98,7 @@
     `;
 
     modal.innerHTML = `
-      <div style="background: #1e293b; color: #f8fafc; width: 94%; max-width: 680px;
+      <div style="background: #1e293b; color: #f8fafc; width: 94%; max-width: 700px;
                   border-radius: 12px; padding: 22px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
                   border: 1px solid #334155; max-height: 88vh; overflow-y: auto;">
         
@@ -164,7 +164,7 @@
         <div id="admin-painel-saude" style="display: none;">
           
           <!-- BLOCO 1: CONEXÃO SUPABASE -->
-          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <div style="font-size: 0.88rem; font-weight: 600; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
                 <span>🌐 Conexão com Nuvem (Supabase)</span>
@@ -176,8 +176,42 @@
             </div>
           </div>
 
-          <!-- BLOCO 2: ARMAZENAMENTO LOCAL -->
-          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <!-- BLOCO 2: VOLUME DO BANCO & CATÁLOGO -->
+          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div style="font-size: 0.88rem; font-weight: 600; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
+                <span>📊 Volume do Banco & Catálogo (Supabase)</span>
+              </div>
+              <button id="admin-btn-volume-banco" style="background: #334155; color: #f8fafc; border: 1px solid #475569; padding: 4px 10px; border-radius: 5px; font-size: 0.78rem; cursor: pointer;">🔄 Analisar Volume</button>
+            </div>
+
+            <!-- Grade de Métricas -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin-bottom: 10px;">
+              <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; text-align: center;">
+                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Peças da Emissora</div>
+                <div id="admin-metrica-pecas" style="font-size: 1.15rem; font-weight: 700; color: #38bdf8; margin-top: 2px;">--</div>
+              </div>
+              <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; text-align: center;">
+                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Programas</div>
+                <div id="admin-metrica-programas" style="font-size: 1.15rem; font-weight: 700; color: #38bdf8; margin-top: 2px;">--</div>
+              </div>
+              <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; text-align: center;">
+                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Payload user_data</div>
+                <div id="admin-metrica-payload" style="font-size: 1.15rem; font-weight: 700; color: #10b981; margin-top: 2px;">--</div>
+              </div>
+              <div style="background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 10px; text-align: center;">
+                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase;">Peças Sem Vínculo</div>
+                <div id="admin-metrica-orfaos" style="font-size: 1.15rem; font-weight: 700; color: #10b981; margin-top: 2px;">--</div>
+              </div>
+            </div>
+
+            <div id="admin-saude-banco-detalhes" style="font-size: 0.78rem; color: #94a3b8;">
+              Clique em "Analisar Volume" para consultar os dados remotos.
+            </div>
+          </div>
+
+          <!-- BLOCO 3: ARMAZENAMENTO LOCAL -->
+          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <div style="font-size: 0.88rem; font-weight: 600; color: #cbd5e1;">
                 💾 Armazenamento Local (Navegador)
@@ -198,7 +232,7 @@
 
             <!-- Tabela detalhada de chaves -->
             <div style="font-size: 0.8rem; font-weight: 600; color: #cbd5e1; margin-bottom: 6px;">Chaves e Caches Armazenados:</div>
-            <div id="admin-storage-lista-chaves" style="max-height: 160px; overflow-y: auto; border: 1px solid #334155; border-radius: 6px; background: #1e293b; font-size: 0.78rem;">
+            <div id="admin-storage-lista-chaves" style="max-height: 150px; overflow-y: auto; border: 1px solid #334155; border-radius: 6px; background: #1e293b; font-size: 0.78rem;">
               <p style="padding: 10px; color: #94a3b8; margin: 0;">Analisando chaves...</p>
             </div>
 
@@ -236,6 +270,7 @@
 
     // Listeners da aba Saúde
     document.getElementById('admin-btn-ping').onclick = executarPingSupabase;
+    document.getElementById('admin-btn-volume-banco').onclick = analisarVolumeBanco;
     document.getElementById('admin-btn-recalcular-storage').onclick = analisarArmazenamentoLocal;
     document.getElementById('admin-btn-limpar-orfaos').onclick = limparCachesOrfaos;
     document.getElementById('admin-btn-backup-storage').onclick = baixarBackupLocalStorage;
@@ -249,7 +284,6 @@
     const painelN = document.getElementById('admin-painel-nova');
     const painelS = document.getElementById('admin-painel-saude');
 
-    // Reset styles
     [tabM, tabN, tabS].forEach(t => {
       if (t) {
         t.style.borderBottom = 'none';
@@ -296,6 +330,7 @@
 
   function carregarDiagnosticoSaude() {
     executarPingSupabase();
+    analisarVolumeBanco();
     analisarArmazenamentoLocal();
   }
 
@@ -353,6 +388,114 @@
         <div style="color: #ef4444; font-weight: 600;">❌ Falha na conexão com Supabase:</div>
         <div style="color: #f87171; font-size: 0.75rem; margin-top: 2px;">${escapeHtml(err.message)}</div>
       `;
+    }
+  }
+
+  async function analisarVolumeBanco() {
+    const elPecas = document.getElementById('admin-metrica-pecas');
+    const elProgramas = document.getElementById('admin-metrica-programas');
+    const elPayload = document.getElementById('admin-metrica-payload');
+    const elOrfaos = document.getElementById('admin-metrica-orfaos');
+    const elDetalhes = document.getElementById('admin-saude-banco-detalhes');
+
+    if (!elPecas || !elProgramas || !elPayload || !elOrfaos || !elDetalhes) return;
+
+    const emissoraId = obterEmissoraAtivaId();
+    if (!_supabase || !emissoraId) {
+      elDetalhes.innerHTML = '<span style="color: #ef4444;">Selecione uma emissora ativa para analisar o banco.</span>';
+      return;
+    }
+
+    elPecas.textContent = '...';
+    elProgramas.textContent = '...';
+    elPayload.textContent = '...';
+    elOrfaos.textContent = '...';
+    elDetalhes.innerHTML = '<span style="color: #38bdf8;">⏳ Consultando volume de registros e payload em nuvem...</span>';
+
+    try {
+      // 1. Contagem de Peças da Emissora
+      const { count: countPecas, error: errPecas } = await _supabase
+        .from('pecas')
+        .select('id', { count: 'exact', head: true })
+        .eq('emissora_id', emissoraId);
+
+      // 2. Contagem de Programas da Emissora
+      const { count: countProgramas, error: errProg } = await _supabase
+        .from('programas')
+        .select('id', { count: 'exact', head: true })
+        .eq('emissora_id', emissoraId);
+
+      // 3. Verificação de Peças Sem Vínculo (emissora_id IS NULL)
+      const { count: countOrfaos, error: errOrfaos } = await _supabase
+        .from('pecas')
+        .select('id', { count: 'exact', head: true })
+        .is('emissora_id', null);
+
+      // 4. Estimativa do Payload em user_data
+      let tamanhoUserDataKB = '0.0';
+      let payloadStatus = 'Sem dados';
+      let payloadCor = '#94a3b8';
+      let atualizadoEmTxt = 'Nunca';
+
+      const { data: userDataRows, error: errUser } = await _supabase
+        .from('user_data')
+        .select('updated_at, data')
+        .eq('emissora_id', emissoraId)
+        .limit(1);
+
+      if (!errUser && userDataRows && userDataRows.length > 0) {
+        const row = userDataRows[0];
+        const jsonStr = JSON.stringify(row.data || {});
+        const bytes = new TextEncoder().encode(jsonStr).length;
+        const kb = (bytes / 1024).toFixed(1);
+        tamanhoUserDataKB = kb;
+
+        if (bytes > 500 * 1024) {
+          payloadStatus = 'Pesado';
+          payloadCor = '#ef4444';
+        } else if (bytes > 200 * 1024) {
+          payloadStatus = 'Moderado';
+          payloadCor = '#f59e0b';
+        } else {
+          payloadStatus = 'Saudável';
+          payloadCor = '#10b981';
+        }
+
+        if (row.updated_at) {
+          atualizadoEmTxt = new Date(row.updated_at).toLocaleString('pt-BR');
+        }
+      }
+
+      // Renderiza Métricas
+      elPecas.textContent = errPecas ? 'Erro' : (countPecas ?? 0);
+      elProgramas.textContent = errProg ? 'Erro' : (countProgramas ?? 0);
+
+      elPayload.textContent = `${tamanhoUserDataKB} KB`;
+      elPayload.style.color = payloadCor;
+
+      const qtdOrfaos = countOrfaos ?? 0;
+      elOrfaos.textContent = qtdOrfaos;
+      if (qtdOrfaos > 0) {
+        elOrfaos.style.color = '#ef4444';
+      } else {
+        elOrfaos.style.color = '#10b981';
+      }
+
+      // Mensagem explicativa
+      let alertaOrfaos = '';
+      if (qtdOrfaos > 0) {
+        alertaOrfaos = `<div style="color: #ef4444; margin-top: 4px;">⚠️ <strong>Atenção:</strong> Existem ${qtdOrfaos} peças sem emissora vinculada no banco!</div>`;
+      } else {
+        alertaOrfaos = `<div style="color: #10b981; margin-top: 4px;">✅ Todas as peças estão devidamente vinculadas a emissoras.</div>`;
+      }
+
+      elDetalhes.innerHTML = `
+        <div>• <strong>Estado do Roteiro em Nuvem:</strong> ${payloadStatus} (${tamanhoUserDataKB} KB) — Último sync: ${escapeHtml(atualizadoEmTxt)}</div>
+        ${alertaOrfaos}
+      `;
+
+    } catch (err) {
+      elDetalhes.innerHTML = `<span style="color: #ef4444;">Erro ao consultar volume do banco: ${escapeHtml(err.message)}</span>`;
     }
   }
 
@@ -445,7 +588,6 @@
       const key = localStorage.key(i);
       if (!key) continue;
 
-      // Chave global não particionada que causava contaminação cruzada
       if (key === 'roteiroApp' || key === 'gradeBase_legado') {
         chavesParaRemover.push(key);
       }
