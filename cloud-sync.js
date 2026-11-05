@@ -307,8 +307,8 @@ async function fetchAndMergeCloudData(user) {
   // Grade agora é por usuário (user_data), permitindo que operadores diferentes
   // importem semanas diferentes simultaneamente sem um sobrepor a do outro.
   // Fallback em cascata: user_data -> localStorage -> shared_data legado.
-  const gradeLegadaPermitida = !emissoraAtivaId || emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
-  const gradeLocalLegada = sharedEmpty && localHasData;
+  const gradeLegadaPermitida = emissoraAtivaId === '00000000-0000-0000-0000-000000000001';
+  const gradeLocalLegada = gradeLegadaPermitida && sharedEmpty && localHasData;
   const userGrade           = userRow?.grade || (gradeLocalLegada ? (localRaw.grade || {}) : (gradeLegadaPermitida ? (shared?.grade || {}) : {}));
   const userGradeByDay      = userRow?.grade_by_day || (gradeLocalLegada ? (localRaw.gradeByDay || {}) : (gradeLegadaPermitida ? (shared?.grade_by_day || {}) : {}));
   const userGradeOrder      = userRow?.grade_order || (gradeLocalLegada ? (localRaw.gradeOrder || {}) : (gradeLegadaPermitida ? (shared?.grade_order || {}) : {}));

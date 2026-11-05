@@ -589,7 +589,7 @@ const GRADE_BASE = {
 function _gradeBasePertenceAEmissoraAtiva() {
   const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
     ? EmissoraContext.getEmissoraAtivaId() : null;
-  return !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+  return emissoraId === '00000000-0000-0000-0000-000000000001';
 }
 function _gradeStorageKeyAtiva() {
   const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)

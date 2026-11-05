@@ -271,6 +271,91 @@
     return resultBlocks;
   }
 
+  /**
+   * Move ou troca um slot entre dias ou dentro do mesmo dia.
+   */
+  function moveOrSwapSlot(blocksByDay, fromDow, fromSlotIdx, toDow, toSlotIdx, options = {}) {
+    const copy = { ...blocksByDay };
+    const sourceBlocks = (copy[fromDow] || []).map(b => ({ ...b, program: b.program ? { ...b.program } : null }));
+    const targetBlocks = fromDow === toDow ? sourceBlocks : (copy[toDow] || []).map(b => ({ ...b, program: b.program ? { ...b.program } : null }));
+
+    const sourceSlot = sourceBlocks[fromSlotIdx];
+    const targetSlot = targetBlocks[toSlotIdx];
+    if (!sourceSlot || !targetSlot) return blocksByDay;
+
+    const sourceProg = sourceSlot.program;
+    const targetProg = targetSlot.program;
+
+    if (options.copyOnly) {
+      targetSlot.program = sourceProg ? { ...sourceProg } : null;
+    } else {
+      targetSlot.program = sourceProg ? { ...sourceProg } : null;
+      sourceSlot.program = targetProg ? { ...targetProg } : null;
+    }
+
+    copy[fromDow] = sourceBlocks;
+    copy[toDow] = targetBlocks;
+    return copy;
+  }
+
+  /**
+   * Constrói uma tabela consolidada da semana toda para renderização matricial e exportação em PDF.
+   */
+  function buildWeeklyTable(blocksByDay, options = {}) {
+    const days = [1, 2, 3, 4, 5, 6, 0];
+    const dayNames = { 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 0: 'Domingo' };
+    const intervalMinutes = options.intervalMinutes || 30;
+    const intervalSec = intervalMinutes * 60;
+    const startHour = options.startHour !== undefined ? options.startHour : 6;
+
+    // Coleta todos os horários únicos de início presentes em qualquer dia
+    const timeSet = new Set();
+    let curSec = startHour * 3600;
+    for (let i = 0; i < Math.floor(TOTAL_DAY_SEC / intervalSec); i++) {
+      timeSet.add(secToTime(curSec));
+      curSec = (curSec + intervalSec) % TOTAL_DAY_SEC;
+    }
+
+    days.forEach(d => {
+      (blocksByDay[d] || []).forEach(b => {
+        if (b.time) timeSet.add(b.time);
+      });
+    });
+
+    const sortedTimes = Array.from(timeSet).sort((a, b) => gradeSeconds(a) - gradeSeconds(b));
+
+    const headers = ['Horário', ...days.map(d => dayNames[d])];
+    const rows = [];
+
+    sortedTimes.forEach(tStr => {
+      const tSec = gradeSeconds(tStr);
+      const row = [tStr.substring(0, 5)];
+
+      days.forEach(d => {
+        const blocks = blocksByDay[d] || [];
+        const activeBlock = blocks.find(b => {
+          const bStart = gradeSeconds(b.time);
+          const bEnd = gradeSeconds(b.endTime);
+          return tSec >= bStart && tSec < bEnd;
+        });
+
+        if (activeBlock && activeBlock.program && activeBlock.program.title) {
+          const isStart = activeBlock.time === tStr;
+          const label = isStart
+            ? (activeBlock.program.title + ' (' + activeBlock.duration.substring(0, 5) + ')')
+            : ('↳ ' + activeBlock.program.title);
+          row.push(label);
+        } else {
+          row.push('');
+        }
+      });
+
+      rows.push(row);
+    });
+
+    return { headers, rows, days, sortedTimes };
+  }
+
   return {
     START_SECONDS,
     DEFAULT_INTERVAL_MIN,
@@ -285,6 +370,8 @@
     removeProgramFromSlot,
     detectGapsAndOverlaps,
     blocksToGrade,
+    moveOrSwapSlot,
+    buildWeeklyTable,
     gradeToBlocks,
   };
 });

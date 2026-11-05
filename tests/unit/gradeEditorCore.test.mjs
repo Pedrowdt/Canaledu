@@ -84,3 +84,29 @@ describe("GradeEditorCore", () => {
     expect(blocks[1].program.title).toBe("DOCUMENTÁRIO");
   });
 });
+
+  it("move ou troca blocos entre dias diferentes com moveOrSwapSlot", () => {
+    const day1 = GradeEditorCore.generateBaseSlots(6, 30);
+    const day2 = GradeEditorCore.generateBaseSlots(6, 30);
+    day1[0].program = { title: "PROGRAMA SEGUNDA" };
+    day2[0].program = { title: "PROGRAMA TERÇA" };
+
+    const blocksByDay = { 1: day1, 2: day2 };
+    const swapped = GradeEditorCore.moveOrSwapSlot(blocksByDay, 1, 0, 2, 0);
+
+    expect(swapped[1][0].program.title).toBe("PROGRAMA TERÇA");
+    expect(swapped[2][0].program.title).toBe("PROGRAMA SEGUNDA");
+  });
+
+  it("gera tabela semanal estruturada para matriz e PDF com buildWeeklyTable", () => {
+    const day1 = GradeEditorCore.generateBaseSlots(6, 30);
+    day1[0].program = { title: "ESTAÇÕES", duration: "00:30:00" };
+    const blocksByDay = { 0: [], 1: day1, 2: [], 3: [], 4: [], 5: [], 6: [] };
+
+    const table = GradeEditorCore.buildWeeklyTable(blocksByDay);
+    expect(table.headers).toContain("Horário");
+    expect(table.headers).toContain("Segunda");
+    expect(table.rows.length).toBeGreaterThan(0);
+    expect(table.rows[0][0]).toBe("06:00");
+    expect(table.rows[0][1]).toContain("ESTAÇÕES");
+  });

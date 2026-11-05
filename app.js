@@ -3863,7 +3863,7 @@ function _gradeBasePertenceAEmissoraAtiva() {
     : null;
   // grade_base.js contém exclusivamente a programação histórica do Canal Educação.
   // Em outra emissora, uma grade vazia deve permanecer vazia, nunca herdar essa base.
-  return !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+  return emissoraId === '00000000-0000-0000-0000-000000000001';
 }
 
 function loadGrade(dow) {

@@ -23,7 +23,7 @@
   let supabaseClient = null;
   let currentUser = null;
   let currentDow = 1; // 1 = Segunda
-  let viewMode = 'day'; // 'day' | 'week'
+  let viewMode = 'week'; // 'day' | 'week'
   let programas = [];
   let blocksByDay = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
   let isDirty = false;
@@ -241,8 +241,12 @@
       });
     }
 
-    // Se ainda vazio e Canal Educação, extrai programas de GRADE_BASE
-    if (programas.length === 0 && typeof GRADE_BASE !== 'undefined') {
+    // 2. Isolamento estrito de emissora: SÓ o Canal Educação pode usar dados de GRADE_BASE.
+    // Qualquer outra emissora (ex: TV Brasil) NUNCA herda dados do Canal Educação.
+    const emissoraId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
+    const isCanalEdu = emissoraId === '00000000-0000-0000-0000-000000000001';
+
+    if (isCanalEdu && programas.length === 0 && typeof GRADE_BASE !== 'undefined') {
       const found = new Set();
       Object.values(GRADE_BASE.gradeOrderByDay || {}).forEach(arr => {
         arr.forEach(title => {
@@ -259,9 +263,6 @@
         });
       });
     }
-
-    // 2. Carrega blocos para cada dia da semana (0 a 6)
-    const isCanalEdu = !window.EmissoraContext || window.EmissoraContext.getEmissoraAtivaId() === '00000000-0000-0000-0000-000000000001';
 
     for (let dow = 0; dow <= 6; dow++) {
       if (saved.gradeBlocksByDay && Array.isArray(saved.gradeBlocksByDay[dow]) && saved.gradeBlocksByDay[dow].length > 0) {
@@ -445,45 +446,355 @@
     }).join('');
   }
 
+  let subViewSemana = 'columns'; // 'columns' | 'table'
+
+  window.sincronizarCascadeToggle = function (val) {
+    const chkTimeline = document.getElementById('toggle-cascade');
+    if (chkTimeline) chkTimeline.checked = val;
+  };
+
+  window.toggleSubViewSemana = function () {
+    subViewSemana = subViewSemana === 'columns' ? 'table' : 'columns';
+    const btn = document.getElementById('btn-toggle-subview');
+    if (btn) btn.textContent = subViewSemana === 'columns' ? 'Modo Tabela' : 'Modo Colunas';
+    renderWeekMatrix();
+  };
+
   function renderWeekMatrix() {
-    const container = document.getElementById('matrix-grid-container');
-    if (!container) return;
+    const colsContainer = document.getElementById('week-columns-container');
+    const tableContainer = document.getElementById('matrix-grid-container');
+    if (!colsContainer) return;
+
+    if (subViewSemana === 'table') {
+      colsContainer.style.display = 'none';
+      if (tableContainer) {
+        tableContainer.style.display = 'grid';
+        renderWeekTableConsolidated(tableContainer);
+      }
+      return;
+    }
+
+    colsContainer.style.display = 'grid';
+    if (tableContainer) tableContainer.style.display = 'none';
 
     const days = [1, 2, 3, 4, 5, 6, 0];
-    const headers = [`<div class="matrix-header">Horário</div>`];
-    days.forEach(d => {
-      headers.push(`<div class="matrix-header">${DOW_NAMES[d]}</div>`);
-    });
+    const columnsHtml = days.map(d => {
+      const blocks = blocksByDay[d] || [];
+      const filledCount = blocks.filter(b => b.program && b.program.title).length;
 
-    const rowsHtml = [];
-    const baseSlots = window.GradeEditorCore.generateBaseSlots(6, 30);
+      const slotsHtml = blocks.map((b, idx) => {
+        const hasProg = b.program && b.program.title;
+        const color = hasProg ? getProgColor(b.program.title) : '#ccc';
+        const isEmptyClass = hasProg ? '' : 'is-empty';
 
-    baseSlots.forEach((slotRef, sIdx) => {
-      let row = `<div class="matrix-time-col">${slotRef.time.substring(0,5)}</div>`;
-      days.forEach(d => {
-        const blocks = blocksByDay[d] || [];
-        const match = blocks[sIdx] || blocks.find(b => b.time.startsWith(slotRef.time.substring(0,5)));
-        if (match && match.program && match.program.title) {
-          const color = getProgColor(match.program.title);
-          row += `
-            <div class="matrix-cell" style="border-left: 3px solid ${color}" onclick="goToDayAndSlot(${d}, ${sIdx})" title="${escapeHtml(match.program.title)} (${match.time} - ${match.endTime})">
-              <div class="cell-title">${escapeHtml(match.program.title)}</div>
-              <div class="cell-time">${match.time.substring(0,5)} - ${match.duration.substring(3)}</div>
+        return `
+          <div class="week-slot-card ${isEmptyClass}" id="wslot-${d}-${idx}"
+               draggable="${hasProg ? 'true' : 'false'}"
+               data-dow="${d}" data-idx="${idx}"
+               ondragstart="onWeekSlotDragStart(event, ${d}, ${idx})"
+               ondragover="onWeekSlotDragOver(event, ${d}, ${idx})"
+               ondragleave="onWeekSlotDragLeave(event, ${d}, ${idx})"
+               ondrop="onWeekSlotDrop(event, ${d}, ${idx})">
+            
+            <div class="week-slot-time-row">
+              <span class="week-slot-time">${b.time.substring(0,5)} ➔ ${b.endTime.substring(0,5)}</span>
+              <span class="week-slot-dur">${b.duration.substring(0,5)}</span>
             </div>
-          `;
-        } else {
-          row += `
-            <div class="matrix-cell" style="background:#fafafa;color:#bbb" onclick="goToDayAndSlot(${d}, ${sIdx})">
-              <span style="font-size:10px;font-style:italic">Livre</span>
+
+            ${hasProg ? `
+              <div style="display:flex;align-items:center;gap:6px">
+                <div style="width:4px;height:24px;border-radius:2px;background:${color};flex-shrink:0"></div>
+                <div style="flex:1;min-width:0">
+                  <div class="week-slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
+                  ${b.program.code ? `<div style="font-size:9px;color:#64748b;font-family:var(--mono)">${escapeHtml(b.program.code)}</div>` : ''}
+                </div>
+              </div>
+            ` : `
+              <div style="font-size:10px;color:#94a3b8;font-style:italic;padding:4px 0">
+                ➕ Livre (${b.duration.substring(0,5)})
+              </div>
+            `}
+
+            <div class="week-slot-actions">
+              <div class="week-time-stepper" title="Ajustar tempo deste bloco">
+                <button type="button" class="week-step-btn" onclick="ajustarTempoSlotSemana(${d}, ${idx}, -15)" title="Diminuir 15m">-15m</button>
+                <button type="button" class="week-step-btn" onclick="ajustarTempoSlotSemana(${d}, ${idx}, 15)" title="Aumentar 15m">+15m</button>
+              </div>
+
+              <div style="display:flex;align-items:center;gap:4px">
+                <button type="button" class="week-step-btn" onclick="window.goToDayAndSlot(${d}, ${idx})" title="Abrir em tela cheia do dia" style="font-size:9px">🔍</button>
+                ${hasProg ? `
+                  <button type="button" class="week-btn-clear" onclick="limparSlotSemana(${d}, ${idx})" title="Remover programa">×</button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="week-day-col" id="week-col-${d}">
+          <div class="week-day-header">
+            <div class="week-day-title">
+              <span>${DOW_NAMES[d]}</span>
+              <span class="week-day-badge">${filledCount}</span>
+            </div>
+            <button type="button" class="btn-outline" style="padding:1px 6px;font-size:10px" onclick="adicionarBlocoSemana(${d})" title="Adicionar novo bloco ao final">+ Bloco</button>
+          </div>
+          <div class="week-day-slots">
+            ${slotsHtml}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    colsContainer.innerHTML = columnsHtml;
+  }
+
+  function renderWeekTableConsolidated(container) {
+    const tableData = window.GradeEditorCore.buildWeeklyTable(blocksByDay, { intervalMinutes: 15 });
+    const headersHtml = tableData.headers.map(h => `<div class="matrix-header">${escapeHtml(h)}</div>`).join('');
+
+    const rowsHtml = tableData.rows.map(row => {
+      const timeCell = `<div class="matrix-time-col">${escapeHtml(row[0])}</div>`;
+      const dayCells = row.slice(1).map((val, dIdx) => {
+        const d = tableData.days[dIdx];
+        if (val) {
+          const isContinuation = val.startsWith('↳');
+          const cleanTitle = val.replace(/^↳\s*/, '').replace(/\s*\([\d:]+\)$/, '');
+          const color = getProgColor(cleanTitle);
+          return `
+            <div class="matrix-cell ${isContinuation ? 'continuation' : ''}" style="border-left: 3px solid ${color}"
+                 onclick="window.switchDay(${d})" title="${escapeHtml(val)}">
+              <div class="cell-title">${escapeHtml(val)}</div>
             </div>
           `;
         }
-      });
-      rowsHtml.push(row);
+        return `<div class="matrix-cell" style="background:#fafafa;color:#cbd5e1" onclick="window.switchDay(${d})"><span style="font-size:10px;font-style:italic">Livre</span></div>`;
+      }).join('');
+      return timeCell + dayCells;
+    }).join('');
+
+    container.innerHTML = headersHtml + rowsHtml;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     AÇÕES ESPECÍFICAS DA VISUALIZAÇÃO SEMANAL
+     ══════════════════════════════════════════════════════════ */
+  window.ajustarTempoSlotSemana = function (dow, slotIdx, deltaMin) {
+    const blocks = blocksByDay[dow] || [];
+    const cur = blocks[slotIdx];
+    if (!cur) return;
+    const curSec = cur.durationSec || window.GradeEditorCore.timeToSec(cur.duration);
+    const newSec = Math.max(60, curSec + deltaMin * 60);
+
+    blocksByDay[dow] = window.GradeEditorCore.adjustBlockDuration(
+      blocks, slotIdx, newSec, { cascade: isCascadeEnabled() }
+    );
+    isDirty = true;
+    renderWeekMatrix();
+    atualizarBadgesDias();
+    showToast(`${DOW_NAMES[dow]}: duração ajustada para ${window.GradeEditorCore.secToTime(newSec)}`);
+  };
+
+  window.limparSlotSemana = function (dow, slotIdx) {
+    const blocks = blocksByDay[dow] || [];
+    blocksByDay[dow] = window.GradeEditorCore.removeProgramFromSlot(blocks, slotIdx);
+    isDirty = true;
+    renderWeekMatrix();
+    atualizarBadgesDias();
+  };
+
+  window.adicionarBlocoSemana = function (dow) {
+    const blocks = blocksByDay[dow] || [];
+    const last = blocks[blocks.length - 1];
+    const startTime = last ? last.endTime : '06:00:00';
+    const durSec = 1800; // 30 min
+    const endTime = window.GradeEditorCore.secToTime(window.GradeEditorCore.timeToSec(startTime) + durSec);
+
+    blocks.push({
+      id: `slot_${blocks.length}_${startTime.replace(/:/g, '')}`,
+      index: blocks.length,
+      time: startTime,
+      duration: '00:30:00',
+      durationSec: durSec,
+      endTime: endTime,
+      program: null,
     });
 
-    container.innerHTML = headers.join('') + rowsHtml.join('');
-  }
+    blocksByDay[dow] = blocks;
+    isDirty = true;
+    renderWeekMatrix();
+    atualizarBadgesDias();
+    showToast(`Novo bloco adicionado em ${DOW_NAMES[dow]} às ${startTime}`);
+  };
+
+  /* ══════════════════════════════════════════════════════════
+     DRAG AND DROP NA VISUALIZAÇÃO SEMANAL
+     ══════════════════════════════════════════════════════════ */
+  window.onWeekSlotDragStart = function (e, dow, slotIdx) {
+    dragSource = { type: 'week-slot', dow, slotIndex: slotIdx };
+    e.dataTransfer.setData('application/json', JSON.stringify(dragSource));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  window.onWeekSlotDragOver = function (e, dow, slotIdx) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const el = document.getElementById(`wslot-${dow}-${slotIdx}`);
+    if (el) el.classList.add('drag-over');
+  };
+
+  window.onWeekSlotDragLeave = function (e, dow, slotIdx) {
+    const el = document.getElementById(`wslot-${dow}-${slotIdx}`);
+    if (el) el.classList.remove('drag-over');
+  };
+
+  window.onWeekSlotDrop = function (e, targetDow, targetSlotIdx) {
+    e.preventDefault();
+    const el = document.getElementById(`wslot-${targetDow}-${targetSlotIdx}`);
+    if (el) el.classList.remove('drag-over');
+
+    let payload = null;
+    try {
+      const raw = e.dataTransfer.getData('application/json');
+      if (raw) payload = JSON.parse(raw);
+    } catch (_) {}
+
+    if (!payload && dragSource) payload = dragSource;
+    if (!payload) return;
+
+    if (payload.type === 'acervo') {
+      // Soltou programa do acervo lateral na semana toda
+      const blocks = blocksByDay[targetDow] || [];
+      blocksByDay[targetDow] = window.GradeEditorCore.assignProgramToSlot(
+        blocks, targetSlotIdx, payload.data, { cascade: isCascadeEnabled(), adoptDuration: true }
+      );
+      isDirty = true;
+      renderWeekMatrix();
+      atualizarBadgesDias();
+      showToast(`"${payload.data.title || payload.data.nome}" colocado em ${DOW_NAMES[targetDow]} às ${blocksByDay[targetDow][targetSlotIdx].time}`, 'success');
+    } else if (payload.type === 'week-slot' || payload.type === 'slot') {
+      const fromDow = payload.dow !== undefined ? payload.dow : currentDow;
+      const fromSlotIdx = payload.slotIndex;
+
+      if (fromDow === targetDow && fromSlotIdx === targetSlotIdx) return;
+
+      blocksByDay = window.GradeEditorCore.moveOrSwapSlot(
+        blocksByDay, fromDow, fromSlotIdx, targetDow, targetSlotIdx
+      );
+      isDirty = true;
+      renderWeekMatrix();
+      atualizarBadgesDias();
+      showToast(`Programa movido com sucesso para ${DOW_NAMES[targetDow]}.`, 'success');
+    }
+
+    dragSource = null;
+  };
+
+  /* ══════════════════════════════════════════════════════════
+     EXPORTAÇÃO OFICIAL DA GRADE EM PDF
+     ══════════════════════════════════════════════════════════ */
+  window.exportarGradePDF = function () {
+    const emissoras = window.EmissoraContext ? window.EmissoraContext.getEmissorasCache() : [];
+    const ativaId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
+    const ativa = emissoras.find(e => e.id === ativaId);
+    const nomeEmissora = (ativa?.nome || 'Canal Educação').toUpperCase();
+    const slugEmissora = (ativa?.slug || 'emissora').toLowerCase();
+
+    // Se jsPDF estiver disponível via CDN
+    const hasJsPdf = typeof window.jspdf !== 'undefined' && typeof window.jspdf.jsPDF !== 'undefined';
+
+    if (!hasJsPdf) {
+      // Fallback para impressão nativa formatada em paisagem
+      showToast('Abrindo diálogo de impressão / Salvar como PDF...', 'info');
+      window.print();
+      return;
+    }
+
+    try {
+      const { jsPDF } = window.jspdf;
+      // Paisagem (landscape), formato A4
+      const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const dataHoje = new Date().toLocaleDateString('pt-BR');
+      const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      // Cabeçalho Oficial
+      doc.setFillColor(24, 95, 165); // Azul #185FA5
+      doc.rect(10, 8, 277, 14, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.text(`${nomeEmissora} — GRADE SEMANAL DE PROGRAMAÇÃO`, 14, 17);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(`Emitido em ${dataHoje} às ${horaHoje}`, 245, 17);
+
+      // Tabela de Programação com Autotable
+      const tableData = window.GradeEditorCore.buildWeeklyTable(blocksByDay, { intervalMinutes: 15 });
+
+      doc.autoTable({
+        head: [tableData.headers],
+        body: tableData.rows,
+        startY: 25,
+        margin: { left: 10, right: 10, bottom: 10 },
+        styles: {
+          fontSize: 6.5,
+          cellPadding: 1.5,
+          font: 'helvetica',
+          overflow: 'linebreak',
+          lineColor: [220, 220, 220],
+          lineWidth: 0.1,
+        },
+        headStyles: {
+          fillColor: [26, 29, 41],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          halign: 'center',
+          fontSize: 7.5,
+        },
+        columnStyles: {
+          0: { cellWidth: 16, halign: 'center', fontStyle: 'bold', fillColor: [248, 250, 252] },
+          1: { cellWidth: 37 },
+          2: { cellWidth: 37 },
+          3: { cellWidth: 37 },
+          4: { cellWidth: 37 },
+          5: { cellWidth: 37 },
+          6: { cellWidth: 37 },
+          7: { cellWidth: 37 },
+        },
+        alternateRowStyles: {
+          fillColor: [252, 252, 253],
+        },
+        didDrawPage: function (data) {
+          // Rodapé
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFontSize(7);
+          doc.setTextColor(130, 130, 130);
+          doc.text(
+            `Página ${data.pageNumber} de ${pageCount} · Sistema Roteiro White-Label · ${nomeEmissora}`,
+            14,
+            202
+          );
+        },
+      });
+
+      const filename = `GRADE_SEMANAL_${slugEmissora.toUpperCase()}_${dataHoje.replace(/\//g, '-')}.pdf`;
+      doc.save(filename);
+      showToast(`PDF da grade exportado com sucesso: ${filename}`, 'success');
+    } catch (err) {
+      console.error('Falha ao exportar PDF via jsPDF:', err);
+      // Fallback para impressão
+      window.print();
+    }
+  };
 
   function verificarAlertas(blocks) {
     const alertBox = document.getElementById('timeline-alert');
