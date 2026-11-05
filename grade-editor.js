@@ -353,7 +353,7 @@
   function renderActiveView() {
     if (viewMode === 'week') {
       document.getElementById('timeline-view').style.display = 'none';
-      document.getElementById('week-matrix-view').style.display = 'block';
+      document.getElementById('week-matrix-view').style.display = 'flex';
       renderWeekMatrix();
     } else {
       document.getElementById('timeline-view').style.display = 'flex';
