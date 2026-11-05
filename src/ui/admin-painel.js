@@ -69,26 +69,7 @@
   }
 
   function injetarBotao() {
-    const wrap = document.getElementById('emissora-wrap') || document.querySelector('.topbar');
-    if (!wrap || document.getElementById('btn-admin-painel')) return;
-
-    const btn = document.createElement('button');
-    btn.id = 'btn-admin-painel';
-    btn.type = 'button';
-    btn.innerHTML = '⚙️ Admin';
-    btn.title = 'Painel Administrativo da Emissora';
-    btn.style.cssText = `
-      display: none; align-items: center; gap: 4px;
-      padding: 4px 10px; font-size: 0.82rem; font-weight: 600;
-      background: #334155; color: #f8fafc; border: 1px solid #475569;
-      border-radius: 6px; cursor: pointer; margin-left: 6px;
-      transition: background 0.15s ease;
-    `;
-    btn.onmouseover = () => btn.style.background = '#475569';
-    btn.onmouseout = () => btn.style.background = '#334155';
-    btn.onclick = () => abrirModal();
-
-    wrap.appendChild(btn);
+    // Acesso ao painel administrativo centralizado exclusivamente no Hub
   }
 
   function renderModal() {
@@ -872,7 +853,7 @@
     init: function (supabaseClient, currentUser) {
       _supabase = supabaseClient;
       _user = currentUser;
-      injetarBotao();
+      // Botão agora vive apenas no Hub
       renderModal();
       atualizarVisibilidadeBotao();
     },
