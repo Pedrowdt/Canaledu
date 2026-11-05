@@ -196,6 +196,11 @@
     if (!wrap || !sel) return;
     sel.innerHTML = emissoras.map(e => `<option value="${e.id}" ${e.id === ativaId ? 'selected' : ''}>${escapeHtml(e.nome)}</option>`).join('');
     wrap.style.display = emissoras.length > 1 ? 'flex' : 'none';
+    sel.onchange = (e) => {
+      if (typeof window.trocarEmissoraGrade === 'function') {
+        window.trocarEmissoraGrade(e.target.value);
+      }
+    };
   }
 
   function atualizarBranding(emissora) {
@@ -244,7 +249,33 @@
     // 2. Isolamento estrito de emissora: SÓ o Canal Educação pode usar dados de GRADE_BASE.
     // Qualquer outra emissora (ex: TV Brasil) NUNCA herda dados do Canal Educação.
     const emissoraId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
-    const isCanalEdu = emissoraId === '00000000-0000-0000-0000-000000000001';
+    const isCanalEdu = !emissoraId || emissoraId === '00000000-0000-0000-0000-000000000001';
+
+    if (supabaseClient && currentUser && emissoraId) {
+      try {
+        const { data: userRow } = await supabaseClient
+          .from('user_data')
+          .select('grade_by_day, grade_order_by_day, updated_at')
+          .eq('user_id', currentUser.id)
+          .eq('emissora_id', emissoraId)
+          .maybeSingle();
+        if (userRow) {
+          if (userRow.grade_by_day && Object.keys(userRow.grade_by_day).length > 0) {
+            saved.gradeByDay = userRow.grade_by_day;
+            // gradeBlocksByDay é um cache local expandido da grade. Quando há
+            // uma grade remota para esta emissora, reconstrói os blocos dela.
+            saved.gradeBlocksByDay = null;
+          }
+          if (userRow.grade_order_by_day && Object.keys(userRow.grade_order_by_day).length > 0) {
+            saved.gradeOrderByDay = userRow.grade_order_by_day;
+          }
+        }
+      } catch (err) {
+        console.warn('Falha ao buscar grade remota no Supabase:', err);
+      }
+    }
+
+    blocksByDay = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
 
     if (isCanalEdu && programas.length === 0 && typeof GRADE_BASE !== 'undefined') {
       const found = new Set();
@@ -284,12 +315,13 @@
     setSyncStatus('Pronto');
   }
 
-  async function trocarEmissoraGrade(novaId) {
+  window.trocarEmissoraGrade = async function (novaId) {
     if (isDirty) {
       if (!confirm('Você tem alterações não salvas nesta grade. Deseja salvar antes de trocar de emissora?')) {
         // descarta
       } else {
-        await salvarGrade();
+        if (typeof window.salvarGrade === 'function') await window.salvarGrade();
+        else await salvarGrade();
       }
     }
 
@@ -300,9 +332,15 @@
       atualizarBranding(ativa);
     }
 
+    const sel = document.getElementById('select-emissora');
+    if (sel && sel.value !== novaId) {
+      sel.value = novaId;
+    }
+
+    isDirty = false;
     await carregarDadosEmissora();
     showToast('Emissora alterada com sucesso.', 'success');
-  }
+  };
 
   /* ══════════════════════════════════════════════════════════
      RENDERIZAÇÃO
