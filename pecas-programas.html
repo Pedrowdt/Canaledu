@@ -18,6 +18,7 @@
 <script src="cadastro-sync.js"></script>
 <script src="src/core/pecasDeduplicador.js"></script>
 <script src="src/core/emissoraContext.js"></script>
+<script src="src/core/csvImportador.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -466,6 +467,81 @@ tbody tr:hover{background:#f5f5f3}
     </div>
     <div class="log-body" id="log-body">
       <div class="log-empty">Carregando…</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL DE PRÉ-VISUALIZAÇÃO DE IMPORTAÇÃO CSV / XLSX -->
+<div class="overlay center" id="import-preview-overlay" style="display:none" onclick="if(event.target===this)closeImportPreview()">
+  <div class="modal" style="width:720px;max-width:92vw;max-height:88vh">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="import-preview-title">Pré-visualização da Importação</div>
+        <div style="font-size:11.5px;color:var(--muted,#666);margin-top:2px" id="import-preview-sub">
+          Destino: <strong id="import-dest-tipo">Peças</strong> (<span id="import-dest-emissora">Emissora Ativa</span>)
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeImportPreview()">×</button>
+    </div>
+    <div class="modal-body" style="gap:16px">
+      <!-- Cards de resumo -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px">
+        <div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Arquivo</div>
+          <div id="import-file-name" style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="">-</div>
+          <div id="import-delim-badge" style="font-size:10.5px;color:#2B6CB0;margin-top:2px">Delim: ;</div>
+        </div>
+        <div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Linhas do Arquivo</div>
+          <div id="import-total-linhas" style="font-size:18px;font-weight:700;color:#1a1a18">0</div>
+        </div>
+        <div style="background:#EBF8FF;border:1px solid #BEE3F8;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#2B6CB0;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Novos para Adicionar</div>
+          <div id="import-novos-count" style="font-size:18px;font-weight:700;color:#2B6CB0">0</div>
+        </div>
+        <div style="background:#FFF5F5;border:1px solid #FED7D7;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#C53030;text-transform:uppercase;letter-spacing:.05em">Ignorados (Já existem)</div>
+          <div id="import-duplicados-count" style="font-size:18px;font-weight:700;color:#C53030">0</div>
+        </div>
+      </div>
+
+      <!-- Aviso de colunas mapeadas -->
+      <div id="import-info-box" style="font-size:11.5px;color:#555;background:#fcfcfc;border:1px solid #eee;border-radius:6px;padding:8px 12px">
+        Colunas identificadas: <span id="import-colunas-detectadas" style="font-weight:500">-</span>
+      </div>
+
+      <!-- Tabela com amostra -->
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">
+          Amostra das Primeiras Linhas (com conversão de duração)
+        </div>
+        <div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:11.5px;text-align:left">
+            <thead style="background:#f4f5f7;position:sticky;top:0;font-size:10.5px;color:#666">
+              <tr>
+                <th style="padding:6px 10px">#</th>
+                <th style="padding:6px 10px">Código</th>
+                <th style="padding:6px 10px">Descrição</th>
+                <th style="padding:6px 10px">Duração Original</th>
+                <th style="padding:6px 10px">Convertido (HH:MM:SS)</th>
+                <th style="padding:6px 10px">Tipo</th>
+                <th style="padding:6px 10px">Status</th>
+              </tr>
+            </thead>
+            <tbody id="import-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;color:#777" id="import-footer-hint">Nenhum dado será alterado se você cancelar.</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn-cancel" onclick="closeImportPreview()">Cancelar</button>
+        <button class="btn-primary" id="btn-confirmar-import" onclick="confirmarImportacao()" style="padding:7px 16px;font-weight:600">
+          Confirmar Importação
+        </button>
+      </div>
     </div>
   </div>
 </div>

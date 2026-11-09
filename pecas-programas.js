@@ -1068,6 +1068,9 @@ function showToast(msg, isError) {
 // =====================================================
 function excelTimeToHMS(v, fallback){
   fallback = fallback || '00:01:00';
+  if (window.CsvImportador && typeof CsvImportador.normalizarDuracao === 'function') {
+    return CsvImportador.normalizarDuracao(v, fallback);
+  }
   if (v == null || v === '') return fallback;
   if (typeof v === 'number') {
     const secs = Math.round(v * 86400);
@@ -1115,34 +1118,219 @@ function detectCols(headers, rows){
   };
 }
 
-function importFile(e){
+let pendenteImportacao = null;
+
+function closeImportPreview() {
+  const el = document.getElementById("import-preview-overlay");
+  if (el) el.style.display = "none";
+  pendenteImportacao = null;
+  const input = document.getElementById("import-file");
+  if (input) input.value = "";
+}
+
+function getNomeEmissoraAtiva() {
+  try {
+    if (window.EmissoraContext) {
+      const id = EmissoraContext.getEmissoraAtivaId();
+      const lista = typeof EmissoraContext.getEmissorasCache === "function" ? EmissoraContext.getEmissorasCache() : [];
+      const found = lista.find(e => e.id === id);
+      if (found && found.nome) return found.nome;
+      if (id === "00000000-0000-0000-0000-000000000001") return "Canal Educação";
+      if (id) return "Emissora selecionada";
+    }
+  } catch (_) {}
+  return "Emissora Ativa";
+}
+
+function abrirImportPreview({ fileName, delimiterInfo, rows }) {
+  const isPecas = activeTab === "pecas";
+  const importador = window.CsvImportador;
+
+  if (!rows || rows.length < 2) {
+    showToast("Planilha vazia ou sem linhas de dados", true);
+    return;
+  }
+
+  let analise;
+  if (importador && typeof importador.analisarImportacao === "function") {
+    analise = importador.analisarImportacao({
+      rows,
+      itensExistentes: items(),
+      isPecas,
+      uidGenerator: uid,
+    });
+  } else {
+    const headers = rows[0].map(h => String(h || "").trim().toUpperCase());
+    const ci = detectCols(headers, rows);
+    if (ci.code < 0 || ci.desc < 0) {
+      showToast("Não encontrei as colunas CODE e DESCRIÇÃO na primeira linha", true);
+      return;
+    }
+    processImportedRows(rows);
+    return;
+  }
+
+  if (!analise.valido) {
+    showToast(analise.erro || "Não foi possível ler as colunas do arquivo", true);
+    return;
+  }
+
+  pendenteImportacao = {
+    fileName,
+    delimiterInfo,
+    isPecas,
+    novosItens: analise.novosItens,
+    totalNovos: analise.totalNovos,
+    totalDuplicados: analise.totalDuplicados,
+    totalLinhas: analise.totalLinhas,
+  };
+
+  const setT = (id, txt) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  };
+
+  setT("import-file-name", fileName || "arquivo.csv");
+  const fileEl = document.getElementById("import-file-name");
+  if (fileEl) fileEl.title = fileName || "";
+
+  setT("import-delim-badge", "Separador: " + (delimiterInfo?.nome || "Ponto e vírgula (;)"));
+  setT("import-total-linhas", String(analise.totalLinhas || 0));
+  setT("import-novos-count", String(analise.totalNovos || 0));
+  setT("import-duplicados-count", String(analise.totalDuplicados || 0));
+  setT("import-dest-tipo", isPecas ? "Peças" : "Programas");
+  setT("import-dest-emissora", getNomeEmissoraAtiva());
+
+  const colunasStr = Object.entries(analise.colunasMapeadas || {})
+    .filter(([_, v]) => Boolean(v))
+    .map(([k, v]) => k.toUpperCase() + ": \"" + v + "\"")
+    .join(" · ");
+  setT("import-colunas-detectadas", colunasStr || "CODE, DESCRIÇÃO");
+
+  const tbody = document.getElementById("import-preview-tbody");
+  if (tbody) {
+    tbody.innerHTML = (analise.amostra || []).map((item) => {
+      const isNovo = item.status === "novo";
+      const badgeStyle = isNovo
+        ? "background:#C6F6D5;color:#22543D;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600"
+        : "background:#FEEBC8;color:#C05621;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600";
+      const badgeLabel = isNovo ? "Novo" : "Já existe";
+
+      return (
+        "<tr style=\"border-bottom:1px solid #edf2f7\">" +
+        "<td style=\"padding:6px 10px;color:#888\">" + item.linha + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600\">" + escapeHtml(item.code) + "</td>" +
+        "<td style=\"padding:6px 10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\" title=\"" + escapeHtml(item.descricao) + "\">" + escapeHtml(item.descricao) + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;color:#666\">" + escapeHtml(item.tempoOriginal) + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600;color:#2B6CB0\">" + escapeHtml(item.tempoFormatado) + "</td>" +
+        "<td style=\"padding:6px 10px;color:#555\">" + escapeHtml(item.type || "-") + "</td>" +
+        "<td style=\"padding:6px 10px\"><span style=\"" + badgeStyle + "\">" + badgeLabel + "</span></td>" +
+        "</tr>"
+      );
+    }).join("");
+  }
+
+  const btnConfirmar = document.getElementById("btn-confirmar-import");
+  if (btnConfirmar) {
+    if (analise.totalNovos > 0) {
+      btnConfirmar.disabled = false;
+      btnConfirmar.style.opacity = "1";
+      btnConfirmar.style.cursor = "pointer";
+      btnConfirmar.textContent = "Confirmar e Importar (" + analise.totalNovos + " " + (isPecas ? "peças" : "programas") + ")";
+    } else {
+      btnConfirmar.disabled = true;
+      btnConfirmar.style.opacity = "0.5";
+      btnConfirmar.style.cursor = "not-allowed";
+      btnConfirmar.textContent = "Nenhum novo item para importar";
+    }
+  }
+
+  const modal = document.getElementById("import-preview-overlay");
+  if (modal) modal.style.display = "flex";
+}
+
+function confirmarImportacao() {
+  if (!pendenteImportacao || !pendenteImportacao.novosItens || !pendenteImportacao.novosItens.length) {
+    showToast("Nenhum item novo para importar", true);
+    closeImportPreview();
+    return;
+  }
+
+  const isPecas = pendenteImportacao.isPecas;
+  const list = items();
+  const novos = pendenteImportacao.novosItens;
+  const count = novos.length;
+
+  novos.forEach(item => list.push(item));
+  setItems(list);
+  render();
+  scheduleSync();
+
+  const msg = "✓ " + count + " " + (isPecas ? "peças" : "programas") + " importados com sucesso!";
+  showToast(msg);
+  closeImportPreview();
+}
+
+function importFile(e) {
   const file = e.target.files[0];
   if (!file) return;
-  e.target.value = '';
 
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') {
-    Papa.parse(file, {
-      complete: (res) => processImportedRows(res.data),
-      error: (err) => showToast('Erro ao ler o CSV: ' + err.message, true),
-      skipEmptyLines: true,
-    });
-  } else if (ext === 'xlsx' || ext === 'xls') {
-    if (!window.XLSX) { showToast('Biblioteca XLSX não carregada', true); return; }
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  if (ext === "csv") {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      try {
+        const text = evt.target.result || "";
+        const importador = window.CsvImportador;
+        const delimInfo = (importador && typeof importador.detectarDelimitador === "function")
+          ? importador.detectarDelimitador(text)
+          : { delimitador: ";", nome: "Ponto e vírgula (;)" };
+
+        if (!window.Papa) {
+          showToast("Biblioteca PapaParse não carregada", true);
+          return;
+        }
+
+        Papa.parse(text, {
+          delimiter: delimInfo.delimitador,
+          skipEmptyLines: true,
+          complete: (res) => {
+            abrirImportPreview({
+              fileName: file.name,
+              delimiterInfo: delimInfo,
+              rows: res.data,
+            });
+          },
+          error: (err) => showToast("Erro ao processar CSV: " + err.message, true),
+        });
+      } catch (err) {
+        showToast("Erro ao ler arquivo CSV: " + err.message, true);
+      }
+    };
+    reader.onerror = () => showToast("Erro ao carregar o arquivo selecionado", true);
+    reader.readAsText(file, "UTF-8");
+  } else if (ext === "xlsx" || ext === "xls") {
+    if (!window.XLSX) { showToast("Biblioteca XLSX não carregada", true); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const wb = window.XLSX.read(ev.target.result, { type: 'array' });
+        const wb = window.XLSX.read(ev.target.result, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-        processImportedRows(rows);
+        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+        abrirImportPreview({
+          fileName: file.name,
+          delimiterInfo: { delimitador: "XLSX", nome: "Planilha Excel" },
+          rows,
+        });
       } catch (err) {
-        showToast('Erro ao ler o XLSX: ' + err.message, true);
+        showToast("Erro ao ler o XLSX: " + err.message, true);
       }
     };
     reader.readAsArrayBuffer(file);
   } else {
-    showToast('Formato não suportado — use .xlsx, .xls ou .csv', true);
+    showToast("Formato não suportado — use .xlsx, .xls ou .csv", true);
+    e.target.value = "";
   }
 }
 
