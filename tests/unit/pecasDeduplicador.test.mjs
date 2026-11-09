@@ -30,7 +30,46 @@ describe('PecasDeduplicador', () => {
     expect(PecasDeduplicador.encontrarDuplicados(lista)).toHaveLength(0);
   });
 
-  it('seleciona itens para descarte mantendo a peça mais recente', () => {
+  it('compara códigos numericamente e alfanumericamente', () => {
+    expect(PecasDeduplicador.compararCodes('10', '2')).toBeGreaterThan(0);
+    expect(PecasDeduplicador.compararCodes('89020', '89050')).toBeLessThan(0);
+    expect(PecasDeduplicador.compararCodes('CE65565', 'CE66331')).toBeLessThan(0);
+    expect(PecasDeduplicador.compararCodes('', '100')).toBeLessThan(0);
+  });
+
+  it('seleciona itens para descarte mantendo a peça com o MAIOR code (padrão)', () => {
+    const grupos = [
+      {
+        chave: 'vinheta educacao',
+        itens: [
+          { code: '89020' },
+          { code: '89050' },
+          { code: '89010' },
+        ],
+      },
+    ];
+
+    // Por padrão (ou com 'manter_maior_code'), 89050 é preservada, e 89010 e 89020 são sugeridas para ação
+    const paraAcao = PecasDeduplicador.selecionarParaAcao(grupos);
+    expect(paraAcao.sort()).toEqual(['89010', '89020']);
+  });
+
+  it('seleciona itens mantendo o maior code alfanumérico', () => {
+    const grupos = [
+      {
+        chave: 'vinheta ce',
+        itens: [
+          { code: 'CE65565' },
+          { code: 'CE66331' },
+        ],
+      },
+    ];
+
+    const paraAcao = PecasDeduplicador.selecionarParaAcao(grupos, 'manter_maior_code');
+    expect(paraAcao).toEqual(['CE65565']);
+  });
+
+  it('mantém suporte a manter_recente por rowVersion se solicitado', () => {
     const grupos = [
       {
         chave: 'vinheta canal',
@@ -43,7 +82,6 @@ describe('PecasDeduplicador', () => {
     ];
 
     const paraAcao = PecasDeduplicador.selecionarParaAcao(grupos, 'manter_recente');
-    // V2 tem rowVersion 3 (mais recente), logo V1 e V3 devem ser marcadas
     expect(paraAcao.sort()).toEqual(['V1', 'V3']);
   });
 });

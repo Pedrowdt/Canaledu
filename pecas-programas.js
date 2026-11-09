@@ -694,11 +694,162 @@ function selecionarSugeridosLimpeza() {
   }
   const lista = items();
   const grupos = window.PecasDeduplicador.encontrarDuplicados(lista);
-  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, 'manter_recente');
+  // Mantém a peça com o MAIOR número de code e seleciona as demais para descarte
+  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, 'manter_maior_code');
   
   selectedCodes = new Set(descartar);
   render();
   atualizarBarraLote();
+  if (window.toast) {
+    if (descartar.length === 0) {
+      window.toast('Nenhum item duplicado encontrado.');
+    } else {
+      window.toast(`${descartar.length} ite${descartar.length === 1 ? 'm duplicado marcado' : 'ns duplicados marcados'} (preservando o maior código de cada grupo).`);
+    }
+  }
+}
+
+// =====================================================
+// MODIFICAÇÕES EM LOTE (Bulk Edit)
+// =====================================================
+function openBatchModal() {
+  if (!selectedCodes || selectedCodes.size === 0) {
+    alert('Nenhum item selecionado. Marque as caixas de seleção dos itens desejados na tabela.');
+    return;
+  }
+  const isPecas = activeTab === 'pecas';
+  const qtd = selectedCodes.size;
+
+  const subtitulo = document.getElementById('batch-edit-subtitle');
+  if (subtitulo) {
+    subtitulo.textContent = `${qtd} ite${qtd === 1 ? 'm selecionado' : 'ns selecionados'} na aba ${isPecas ? 'Peças' : 'Programas'}`;
+  }
+
+  const fType = document.getElementById('batch-f-type');
+  if (fType) fType.value = '';
+
+  const pecasFields = document.getElementById('batch-pecas-fields');
+  if (pecasFields) {
+    pecasFields.style.display = isPecas ? 'flex' : 'none';
+  }
+
+  const fCat = document.getElementById('batch-f-cat');
+  if (fCat) fCat.value = '';
+
+  const fPesoAcao = document.getElementById('batch-f-peso-acao');
+  if (fPesoAcao) fPesoAcao.value = '';
+
+  const fPesoVal = document.getElementById('batch-f-peso-valor');
+  if (fPesoVal) fPesoVal.value = '';
+
+  const wrapPeso = document.getElementById('batch-peso-valor-wrap');
+  if (wrapPeso) wrapPeso.style.display = 'none';
+
+  const fFinalidade = document.getElementById('batch-f-finalidade');
+  if (fFinalidade) fFinalidade.value = '';
+
+  const overlay = document.getElementById('batch-edit-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function closeBatchModal() {
+  const overlay = document.getElementById('batch-edit-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function toggleBatchPesoInput(acao) {
+  const wrapPeso = document.getElementById('batch-peso-valor-wrap');
+  if (wrapPeso) {
+    wrapPeso.style.display = acao === 'definir' ? 'block' : 'none';
+    if (acao === 'definir') {
+      const fPesoVal = document.getElementById('batch-f-peso-valor');
+      if (fPesoVal) fPesoVal.focus();
+    }
+  }
+}
+
+function confirmarEdicaoLote() {
+  if (!selectedCodes || selectedCodes.size === 0) {
+    alert('Nenhum item selecionado.');
+    return;
+  }
+
+  const isPecas = activeTab === 'pecas';
+  const typeVal = document.getElementById('batch-f-type')?.value || '';
+  const catVal = isPecas ? (document.getElementById('batch-f-cat')?.value || '') : '';
+  const pesoAcao = isPecas ? (document.getElementById('batch-f-peso-acao')?.value || '') : '';
+  const pesoValRaw = isPecas ? (document.getElementById('batch-f-peso-valor')?.value?.trim() || '') : '';
+  const finalidadeVal = isPecas ? (document.getElementById('batch-f-finalidade')?.value || '') : '';
+
+  if (!typeVal && !catVal && !pesoAcao && !finalidadeVal) {
+    alert('Selecione pelo menos um campo para alterar.');
+    return;
+  }
+
+  let pesoNumerico;
+  if (pesoAcao === 'definir') {
+    if (!pesoValRaw || isNaN(Number(pesoValRaw))) {
+      alert('Informe um número válido para o peso (entre 1 e 10).');
+      return;
+    }
+    pesoNumerico = Number(pesoValRaw);
+    if (pesoNumerico < 1 || pesoNumerico > 10) {
+      alert('O peso deve estar entre 1 e 10.');
+      return;
+    }
+  }
+
+  const codes = selectedCodes;
+  let qtdAlterados = 0;
+
+  const listaAtualizada = items().map(item => {
+    if (!codes.has(item.code)) return item;
+    qtdAlterados++;
+    const atualizado = { ...item };
+
+    if (typeVal) {
+      atualizado.type = typeVal;
+      if (atualizado.type !== 'EVNH') {
+        atualizado.funcao = '';
+        atualizado.programaRelacionado = '';
+      }
+    }
+
+    if (catVal) {
+      atualizado.categoria = catVal;
+    }
+
+    if (pesoAcao === 'definir') {
+      atualizado.peso = pesoNumerico;
+    } else if (pesoAcao === 'limpar') {
+      delete atualizado.peso;
+    }
+
+    if (finalidadeVal === '__limpar__') {
+      atualizado.tipoFinalidade = '';
+    } else if (finalidadeVal) {
+      atualizado.tipoFinalidade = finalidadeVal;
+    }
+
+    return atualizado;
+  });
+
+  setItems(listaAtualizada);
+  closeBatchModal();
+  limparSelecao();
+  render();
+  scheduleSync();
+
+  if (window.toast) {
+    window.toast(`${qtdAlterados} ite${qtdAlterados === 1 ? 'm atualizado' : 'ns atualizados'} em lote com sucesso.`);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.openBatchModal = openBatchModal;
+  window.closeBatchModal = closeBatchModal;
+  window.toggleBatchPesoInput = toggleBatchPesoInput;
+  window.confirmarEdicaoLote = confirmarEdicaoLote;
 }
 
 function executarAcaoLote(acao) {

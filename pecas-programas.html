@@ -255,14 +255,15 @@ tbody tr:hover{background:#f5f5f3}
     </div>
 
     <!-- Barra de ações em lote (aparece quando há itens selecionados ou duplicados) -->
-    <div id="batch-bar" style="display:none;background:#FFF9E6;border:1px solid #FFE58F;padding:8px 14px;border-radius:6px;margin:8px 16px;align-items:center;justify-content:space-between;gap:10px">
-      <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+    <div id="batch-bar" style="display:none;background:#FFF9E6;border:1px solid #FFE58F;padding:8px 14px;border-radius:6px;margin:8px 16px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
         <strong id="batch-count">0 itens selecionados</strong>
         <span style="color:#8c8c8c">|</span>
-        <button class="btn-outline" style="width:auto;padding:2px 8px;font-size:11px" onclick="selecionarSugeridosLimpeza()">💡 Sugerir limpeza (manter mais recente)</button>
-        <button class="btn-outline" style="width:auto;padding:2px 8px;font-size:11px" onclick="limparSelecao()">Limpar seleção</button>
+        <button class="btn-outline" style="width:auto;padding:3px 10px;font-size:11px" onclick="selecionarSugeridosLimpeza()">💡 Sugerir limpeza (manter maior código)</button>
+        <button class="btn-outline" style="width:auto;padding:3px 8px;font-size:11px" onclick="limparSelecao()">Limpar seleção</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn-primary" id="btn-batch-edit" style="width:auto;padding:5px 12px;font-size:12px;background:#2563eb;color:#fff;border:none" onclick="openBatchModal()">✏️ Alterar em lote</button>
         <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px" onclick="executarAcaoLote('desativar')">Desativar selecionados</button>
         <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#A32D2D;border-color:#E9B9B9" onclick="executarAcaoLote('excluir')">🗑 Excluir selecionados</button>
       </div>
@@ -421,6 +422,89 @@ tbody tr:hover{background:#f5f5f3}
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
       <button class="btn-primary" onclick="saveItem()" id="save-btn">Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<!-- BATCH EDIT MODAL -->
+<div class="overlay center" id="batch-edit-overlay" style="display:none" onclick="if(event.target===this)closeBatchModal()">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" style="font-weight:600;font-size:15px">Modificar em Lote</div>
+        <div id="batch-edit-subtitle" style="font-size:11.5px;color:#666;margin-top:2px">0 itens selecionados</div>
+      </div>
+      <button class="modal-close" onclick="closeBatchModal()">×</button>
+    </div>
+    <div class="modal-body" style="gap:14px">
+      <div style="font-size:12px;color:#555;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;line-height:1.4">
+        Selecione apenas os campos que deseja alterar nos itens marcados. Campos mantidos em <strong>"— Não alterar —"</strong> não serão modificados.
+      </div>
+
+      <!-- Type -->
+      <div class="field">
+        <label>Alterar Type</label>
+        <select id="batch-f-type">
+          <option value="">— Não alterar —</option>
+          <option value="ECHE">ECHE (Chamada de Estreia)</option>
+          <option value="ECHM">ECHM (Chamada Comum / Manutenção)</option>
+          <option value="RCOM">RCOM (Comercial)</option>
+          <option value="RPOL">RPOL (Político)</option>
+          <option value="EINT">EINT (Interprograma)</option>
+          <option value="EVNH">EVNH (Vinheta)</option>
+          <option value="RPRO">RPRO (Programa)</option>
+        </select>
+      </div>
+
+      <!-- Campos de peças -->
+      <div id="batch-pecas-fields" style="display:flex;flex-direction:column;gap:14px">
+        <!-- Categoria -->
+        <div class="field">
+          <label>Alterar Categoria</label>
+          <select id="batch-f-cat">
+            <option value="">— Não alterar —</option>
+            <option value="CHAMADA_QUENTE">Chamada quente</option>
+            <option value="RCOM">Comercial</option>
+            <option value="RPOL">Político</option>
+            <option value="INTGOV">Interprograma gov</option>
+            <option value="MANUT">Manutenção</option>
+            <option value="BUSSOLA">Bússola</option>
+          </select>
+        </div>
+
+        <!-- Definição de Peso -->
+        <div class="field">
+          <label>Definição de Peso</label>
+          <select id="batch-f-peso-acao" onchange="toggleBatchPesoInput(this.value)">
+            <option value="">— Não alterar —</option>
+            <option value="definir">Definir peso numérico (1 a 10)</option>
+            <option value="limpar">Remover peso (deixar vazio / padrão)</option>
+          </select>
+          <div id="batch-peso-valor-wrap" style="display:none;margin-top:8px">
+            <input type="number" id="batch-f-peso-valor" min="1" max="10" placeholder="Digite o peso de 1 a 10 (ex: 5)">
+          </div>
+        </div>
+
+        <!-- Finalidade -->
+        <div class="field">
+          <label>Finalidade / Urgência</label>
+          <select id="batch-f-finalidade">
+            <option value="">— Não alterar —</option>
+            <option value="__limpar__">— Remover finalidade (padrão peso 5) —</option>
+            <option value="estreia">Estreia (peso 10)</option>
+            <option value="promocional">Promocional (peso 7)</option>
+            <option value="comercial">Comercial (peso 6)</option>
+            <option value="vinhetas">Vinhetas (peso 5)</option>
+            <option value="calhau">Calhau (peso 5)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center">
+      <button class="btn-cancel" onclick="closeBatchModal()">Cancelar</button>
+      <button class="btn-primary" id="btn-batch-confirm" onclick="confirmarEdicaoLote()" style="padding:7px 18px;font-weight:600">
+        Aplicar Alterações
+      </button>
     </div>
   </div>
 </div>
