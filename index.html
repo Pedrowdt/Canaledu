@@ -839,7 +839,10 @@
             </thead>
             <tbody id="roteiro-tbody"></tbody>
           </table>
-          <div id="roteiro-empty" class="empty" style="display:none">
+          <div id="roteiro-empty" class="empty" style="display:none"
+            ondragover="dragOver(event, 0)"
+            ondrop="dragDrop(event, 0)"
+            ondragleave="dragLeave(event)">
             <div class="icon">📋</div>
             <p>Roteiro vazio. Arraste peças da lateral ou clique em "+ Adicionar peça".</p>
           </div>

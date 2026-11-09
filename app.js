@@ -686,8 +686,14 @@ function renderRoteiro() {
         tabindex="${isSelected ? '0' : '-1'}"
         aria-selected="${isSelected ? 'true' : 'false'}"
         role="row"
-        onclick="selectRow(${i}, event)">
-        <td class="col-seq" style="opacity:.3">${i+1}</td>
+        draggable="true"
+        onclick="selectRow(${i}, event)"
+        ondragstart="dragStart(event,${i})"
+        ondragover="dragOver(event,${i})"
+        ondrop="dragDrop(event,${i})"
+        ondragleave="dragLeave(event)"
+        ondragend="dragEnd(event)">
+        <td class="col-seq" style="opacity:.3"><span class="drag-handle" style="opacity:.5">⠿</span>${i+1}</td>
         <td colspan="5" style="font-size:11px;color:var(--border2);font-style:italic;padding:4px 12px">${escHtml(item.descricao)}</td>
         <td class="col-act"><div class="row-actions"><button class="act-btn" onclick="removeItem(${i})" title="Remover">✕</button></div></td>
       </tr>`;
@@ -705,7 +711,8 @@ function renderRoteiro() {
       ondragstart="dragStart(event,${i})"
       ondragover="dragOver(event,${i})"
       ondrop="dragDrop(event,${i})"
-      ondragleave="dragLeave(event)">
+      ondragleave="dragLeave(event)"
+      ondragend="dragEnd(event)">
       <td class="col-seq"><span class="drag-handle">⠿</span>${i+1}</td>
       <td class="col-code">${escHtml(item.code)}</td>
       <td class="col-desc">${escHtml(item.descricao)}${gradeInfo ? ' ' + gradeInfo : ''}</td>
@@ -1007,30 +1014,49 @@ function renderProgramas() {
 // =====================================================
 let dragIdx = null;
 
-/** Inicia o arrasto de uma linha já existente no roteiro. Registra o índice de origem em dragIdx e define source="roteiro" no dataTransfer. */
+/** Inicia o arrasto de uma linha já existente no roteiro. Registra o índice de origem em dragIdx e define source="roteiro" e text/plain no dataTransfer. */
 function dragStart(e, i) {
   dragIdx = i;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('source', 'roteiro');
-  e.currentTarget.classList.add('dragging');
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('source', 'roteiro');
+    e.dataTransfer.setData('text/plain', String(i));
+  }
+  if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('dragging');
+}
+
+/** Finaliza ou cancela o arrasto, limpando o índice global e classes CSS residuais. */
+function dragEnd(e) {
+  dragIdx = null;
+  document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+  document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
 }
 
 /** Evento ao arrastar sobre uma linha alvo do roteiro. Previne o comportamento padrão e adiciona classe .drag-over para feedback visual. */
 function dragOver(e, i) {
   e.preventDefault();
-  e.currentTarget.classList.add('drag-over');
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = (dragIdx !== null) ? 'move' : 'copy';
+  }
+  if (e.currentTarget && e.currentTarget.classList) {
+    e.currentTarget.classList.add('drag-over');
+  }
 }
 
 /** Remove a classe .drag-over da linha alvo quando o cursor sai dela durante o arrasto. */
 function dragLeave(e) {
-  e.currentTarget.classList.remove('drag-over');
+  if (e.currentTarget && e.currentTarget.classList) {
+    e.currentTarget.classList.remove('drag-over');
+  }
 }
 
-/** Finaliza o arrasto. Se source="roteiro": reordena o array (remove da origem, insere no destino). Se source="sidebar": busca a peça pelo code e insere na posição i. */
+/** Finaliza o arrasto. Se source="roteiro": reordena o array (remove da origem, insere no destino). Se source="sidebar": busca a peça pelo code e insere na posição i (substituindo se for slot de break). */
 function dragDrop(e, i) {
   e.preventDefault();
-  e.currentTarget.classList.remove('drag-over');
-  const source = e.dataTransfer.getData('source');
+  if (e.currentTarget && e.currentTarget.classList) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+  const source = e.dataTransfer ? e.dataTransfer.getData('source') : null;
 
   if (source === 'roteiro' && dragIdx !== null && dragIdx !== i) {
     const item = state.roteiro.splice(dragIdx, 1)[0];
@@ -1040,7 +1066,7 @@ function dragDrop(e, i) {
     saveState();
     renderRoteiro();
   } else if (source === 'sidebar') {
-    const code = e.dataTransfer.getData('peca-code');
+    const code = (e.dataTransfer ? (e.dataTransfer.getData('peca-code') || e.dataTransfer.getData('text/plain')) : '') || '';
     const peca = findPeca(code);
     if (peca) {
       if (Array.isArray(peca.dias) && peca.dias.length > 0 && state.currentDate) {
@@ -1050,22 +1076,51 @@ function dragDrop(e, i) {
           toast(`Atenção: "${peca.descricao.substring(0,35)}" não é permitida para ${diaNome}!`, 'warning');
         }
       }
-      state.roteiro.splice(i, 0, {...peca});
+
+      const cleanItem = {...peca, usado: undefined, qtd: undefined, restricao: undefined};
+      const targetItem = state.roteiro[i];
+      const isSlot = targetItem && (targetItem.type === '__SLOT__' || targetItem._break || targetItem.code === '__BREAK__');
+
+      if (isSlot) {
+        // Substitui o slot de break pela peça/chamada arrastada
+        state.roteiro.splice(i, 1, cleanItem);
+      } else {
+        // Insere na posição i (antes do item)
+        state.roteiro.splice(i, 0, cleanItem);
+      }
+
+      // Se a peça faz parte das Peças do Dia, incrementa o contador de uso
+      if (state.pecasDia) {
+        const cleanCode = String(code || '').trim();
+        const pIdx = state.pecasDia.findIndex(x => String(x.code || '').trim() === cleanCode);
+        if (pIdx >= 0) {
+          state.pecasDia[pIdx].usado = (state.pecasDia[pIdx].usado || 0) + 1;
+          if (typeof renderPecasDiaPanel === 'function') renderPecasDiaPanel();
+        }
+      }
+
       recalcTimes();
       saveState();
       renderRoteiro();
+      toast(`"${cleanItem.descricao.substring(0,35)}" adicionada`, 'success');
+    } else if (code) {
+      toast(`Peça "${code}" não encontrada no cadastro nem nas peças do dia.`, 'error');
     }
   }
+  dragIdx = null;
 }
 
 // =====================================================
 // DRAG FROM SIDEBAR
 // =====================================================
-/** Inicia o arrasto de uma peça a partir da barra lateral ou aba Peças do Dia. Define source="sidebar" e peca-code no dataTransfer para ser consumido por dragDrop(). */
+/** Inicia o arrasto de uma peça a partir da barra lateral ou aba Peças do Dia. Define source="sidebar", peca-code e text/plain no dataTransfer para compatibilidade entre navegadores. */
 function dragFromSidebar(e, code) {
-  e.dataTransfer.effectAllowed = 'copy';
-  e.dataTransfer.setData('source', 'sidebar');
-  e.dataTransfer.setData('peca-code', code);
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('source', 'sidebar');
+    e.dataTransfer.setData('peca-code', String(code));
+    e.dataTransfer.setData('text/plain', String(code));
+  }
 }
 
 // =====================================================
@@ -1372,6 +1427,9 @@ function injectBreakSummaries() {
     if (!targetRow || durSec === 0) continue;
     const sumRow = document.createElement('tr');
     sumRow.className = 'break-summary-row';
+    sumRow.ondragover = (e) => dragOver(e, insertBeforeIndex);
+    sumRow.ondrop = (e) => dragDrop(e, insertBeforeIndex);
+    sumRow.ondragleave = (e) => dragLeave(e);
     sumRow.innerHTML = `
       <td colspan="7">
         <div class="break-summary">
@@ -1471,10 +1529,13 @@ function executarCopiarRoteiro(origemKeyOverride, incluirPecasDiaOverride) {
   return { success:true, count:novoRoteiro.length, origem:origemKey, destino:destKey, copiouPecasDia };
 }
 
-/** Busca uma peça pelo code nos dois bancos: state.pecas e state.programas. Retorna o primeiro resultado encontrado ou null. */
+/** Busca uma peça pelo code nos bancos: state.pecasDia, state.pecas e state.programas. Retorna o primeiro resultado encontrado ou null. */
 function findPeca(code) {
-  return state.pecas.find(p => p.code === code)
-      || state.programas.find(p => p.code === code)
+  const clean = String(code == null ? '' : code).trim();
+  if (!clean) return null;
+  return (state.pecasDia || []).find(p => String(p.code == null ? '' : p.code).trim() === clean)
+      || (state.pecas || []).find(p => String(p.code == null ? '' : p.code).trim() === clean)
+      || (state.programas || []).find(p => String(p.code == null ? '' : p.code).trim() === clean)
       || null;
 }
 
