@@ -679,6 +679,14 @@ function atualizarBarraLote() {
   const countSpan = document.getElementById('batch-count');
   if (!bar || !countSpan) return;
 
+  const isPecas = activeTab === 'pecas';
+  const btnLimpeza = document.getElementById('btn-sugerir-limpeza');
+  if (btnLimpeza) {
+    btnLimpeza.textContent = isPecas
+      ? "💡 Sugerir limpeza (manter maior código)"
+      : "💡 Sugerir limpeza (código idêntico)";
+  }
+
   if (selectedCodes.size > 0 || filtroDuplicadosApenas) {
     bar.style.display = 'flex';
     countSpan.textContent = `${selectedCodes.size} ite${selectedCodes.size === 1 ? 'm' : 'ns'} selecionado${selectedCodes.size === 1 ? '' : 's'}`;
@@ -692,19 +700,23 @@ function selecionarSugeridosLimpeza() {
     alert('Módulo de deduplicação não carregado.');
     return;
   }
+  const isPecas = activeTab === 'pecas';
   const lista = items();
-  const grupos = window.PecasDeduplicador.encontrarDuplicados(lista);
-  // Mantém a peça com o MAIOR número de code e seleciona as demais para descarte
-  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, 'manter_maior_code');
+  const criterio = isPecas ? 'descricao' : 'code';
+  const grupos = window.PecasDeduplicador.encontrarDuplicados(lista, criterio);
+  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, isPecas ? 'manter_maior_code' : 'manter_recente');
   
   selectedCodes = new Set(descartar);
   render();
   atualizarBarraLote();
   if (window.toast) {
     if (descartar.length === 0) {
-      window.toast('Nenhum item duplicado encontrado.');
+      window.toast(isPecas ? 'Nenhuma peça duplicada encontrada.' : 'Nenhum programa com código duplicado encontrado.');
     } else {
-      window.toast(`${descartar.length} ite${descartar.length === 1 ? 'm duplicado marcado' : 'ns duplicados marcados'} (preservando o maior código de cada grupo).`);
+      const msg = isPecas
+        ? `${descartar.length} peca${descartar.length === 1 ? ' duplicada marcada' : 's duplicadas marcadas'} (preservando o maior código de cada grupo).`
+        : `${descartar.length} programa${descartar.length === 1 ? ' com código duplicado marcado' : 's com códigos duplicados marcados'}.`;
+      window.toast(msg);
     }
   }
 }
@@ -896,7 +908,8 @@ function render(){
   // Contagem e identificação de duplicados
   let duplicateCodes = new Set();
   if (window.PecasDeduplicador) {
-    const grupos = window.PecasDeduplicador.encontrarDuplicados(list);
+    const criterio = isPecas ? 'descricao' : 'code';
+    const grupos = window.PecasDeduplicador.encontrarDuplicados(list, criterio);
     if (Array.isArray(grupos)) {
       grupos.forEach(g => (g.itens || []).forEach(p => duplicateCodes.add(p.code)));
     } else if (grupos && typeof grupos === "object") {

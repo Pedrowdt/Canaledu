@@ -1,5 +1,5 @@
 // src/core/pecasDeduplicador.js
-// Identificação de peças duplicadas por descrição dentro da mesma emissora.
+// Identificação de peças e programas duplicados dentro da mesma emissora.
 
 (function (root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -51,19 +51,41 @@
   }
 
   /**
-   * Agrupa peças que compartilham a mesma descrição normalizada.
-   * Retorna apenas os grupos com 2 ou mais ocorrências.
-   *
-   * @param {Array} pecas - Lista de peças carregadas
-   * @returns {Array<{ chave: string, itens: Array }>} Lista de grupos duplicados
+   * Normaliza um código para comparação estrita (ignora espaços extras e maiúsculas/minúsculas).
    */
-  function encontrarDuplicados(pecas = []) {
+  function normalizarCode(code) {
+    if (code == null) return '';
+    return String(code).trim().toUpperCase();
+  }
+
+  /**
+   * Agrupa itens duplicados dentro da mesma emissora.
+   * - Se criterio === 'code' (recomendado para Programas): agrupa exclusivamente por código idêntico.
+   *   Evita falso-positivo com blocos de programa (ex: BL01 e BL02 de uma mesma atração).
+   * - Se criterio === 'descricao' (padrão para Peças): agrupa por descrição normalizada.
+   *
+   * @param {Array} itens - Lista de peças ou programas
+   * @param {'descricao' | 'code' | { criterio?: 'descricao' | 'code' }} [opcoes='descricao']
+   * @returns {Array<{ chave: string, itens: Array }>} Lista de grupos duplicados (apenas com >= 2 itens)
+   */
+  function encontrarDuplicados(itens = [], opcoes = 'descricao') {
+    const criterio = (typeof opcoes === 'object' && opcoes !== null)
+      ? (opcoes.criterio || 'descricao')
+      : (typeof opcoes === 'string' ? opcoes : 'descricao');
+
     const grupos = new Map();
 
-    for (const p of pecas) {
+    for (const p of itens) {
       if (!p || !p.code) continue;
-      const chave = normalizarTexto(p.descricao || p.titulo);
-      if (!chave) continue; // ignora peças sem descrição preenchida
+
+      let chave = '';
+      if (criterio === 'code') {
+        chave = normalizarCode(p.code);
+      } else {
+        chave = normalizarTexto(p.descricao || p.titulo);
+      }
+
+      if (!chave) continue; // ignora entradas vazias
 
       if (!grupos.has(chave)) {
         grupos.set(chave, []);
@@ -72,9 +94,9 @@
     }
 
     const resultado = [];
-    for (const [chave, itens] of grupos.entries()) {
-      if (itens.length > 1) {
-        resultado.push({ chave, itens });
+    for (const [chave, itensGrupo] of grupos.entries()) {
+      if (itensGrupo.length > 1) {
+        resultado.push({ chave, itens: itensGrupo });
       }
     }
 
@@ -82,8 +104,9 @@
   }
 
   /**
-   * Sugere quais peças marcar para desativar/excluir em cada grupo.
-   * Por padrão, mantém a peça com o MAIOR número de code e sugere descarte das demais.
+   * Sugere quais itens marcar para desativar/excluir em cada grupo de duplicados.
+   * - Para peças (manter_maior_code): preserva a de maior code numérico/alfanumérico e descarta as demais.
+   * - Para empate de codes ou programas (manter_recente): preserva a de maior versão/atualização.
    * 
    * @param {Array} grupos - Resultado de encontrarDuplicados()
    * @param {'manter_maior_code' | 'manter_menor_code' | 'manter_recente' | 'manter_antiga'} estrategia
@@ -97,18 +120,27 @@
       if (itens.length <= 1) continue;
 
       if (estrategia === 'manter_maior_code') {
-        // Ordena por code crescente: o último item terá o maior code (será preservado).
-        // Todos os anteriores são marcados para descarte.
-        itens.sort((a, b) => compararCodes(a.code, b.code));
+        // Ordena por code crescente; se empatar, desempata por recência (rowVersion)
+        itens.sort((a, b) => {
+          const c = compararCodes(a.code, b.code);
+          if (c !== 0) return c;
+          const vA = a.rowVersion || a.row_version || 0;
+          const vB = b.rowVersion || b.row_version || 0;
+          return vA - vB;
+        });
         const descartar = itens.slice(0, itens.length - 1);
         descartar.forEach((p) => codesParaAcao.push(p.code));
       } else if (estrategia === 'manter_menor_code') {
-        // Mantém o primeiro (menor code)
-        itens.sort((a, b) => compararCodes(a.code, b.code));
+        itens.sort((a, b) => {
+          const c = compararCodes(a.code, b.code);
+          if (c !== 0) return c;
+          const vA = a.rowVersion || a.row_version || 0;
+          const vB = b.rowVersion || b.row_version || 0;
+          return vA - vB;
+        });
         const descartar = itens.slice(1);
         descartar.forEach((p) => codesParaAcao.push(p.code));
       } else if (estrategia === 'manter_recente') {
-        // A mais recente é a última por rowVersion
         itens.sort((a, b) => {
           const vA = a.rowVersion || a.row_version || 0;
           const vB = b.rowVersion || b.row_version || 0;
@@ -117,7 +149,6 @@
         const descartar = itens.slice(0, itens.length - 1);
         descartar.forEach((p) => codesParaAcao.push(p.code));
       } else if (estrategia === 'manter_antiga') {
-        // A mais antiga é a primeira
         itens.sort((a, b) => {
           const vA = a.rowVersion || a.row_version || 0;
           const vB = b.rowVersion || b.row_version || 0;
@@ -134,6 +165,7 @@
   return {
     compararCodes,
     normalizarTexto,
+    normalizarCode,
     encontrarDuplicados,
     selecionarParaAcao,
   };
