@@ -51,6 +51,15 @@
     return exp.getTime() < Date.now();
   }
 
+  function calcGcd(a, b) {
+    while (b) {
+      const t = b;
+      b = a % b;
+      a = t;
+    }
+    return a;
+  }
+
   function findCombinationForDuration(pecas, targetSec, maxItems = 4) {
     if (!pecas || !pecas.length || targetSec <= 0) return null;
 
@@ -70,14 +79,33 @@
 
     if (byDur.size === 0) return null;
 
-    // Ordena peças dentro de cada duração pelo score decrescente
+    // Ordena durações únicas em ordem decrescente para favorecer peças maiores e permitir poda forte
+    const uniqueDurs = Array.from(byDur.keys()).sort((a, b) => b - a);
+
+    // Verificação matemática de MDC: se targetSec não é divisível pelo MDC de todas as durações,
+    // nenhuma soma de peças pode atingir targetSec (retorno instantâneo)
+    let g = uniqueDurs[0];
+    for (let i = 1; i < uniqueDurs.length; i++) {
+      g = calcGcd(g, uniqueDurs[i]);
+      if (g === 1) break;
+    }
+    if (targetSec % g !== 0) return null;
+
+    // Ordena peças dentro de cada duração pelo score decrescente e limita a maxItems (poda de acervo)
     for (const [dur, list] of byDur.entries()) {
-      list.sort((a, b) => {
-        const scA = a._score != null ? a._score : (a.peso != null ? Number(a.peso) : 5);
-        const scB = b._score != null ? b._score : (b.peso != null ? Number(b.peso) : 5);
-        if (scA !== scB) return scB - scA;
-        return String(b.code || '').localeCompare(String(a.code || ''), undefined, { numeric: true });
-      });
+      if (list.length > 1) {
+        list.sort((a, b) => {
+          const scA = a._score != null ? a._score : (a.peso != null ? Number(a.peso) : 5);
+          const scB = b._score != null ? b._score : (b.peso != null ? Number(b.peso) : 5);
+          if (scA !== scB) return scB - scA;
+          const codeA = String(a.code || '');
+          const codeB = String(b.code || '');
+          return codeA < codeB ? 1 : (codeA > codeB ? -1 : 0);
+        });
+      }
+      if (list.length > maxItems) {
+        list.length = maxItems;
+      }
     }
 
     // Se existe uma peça única com a duração exata, retorna imediatamente a de maior score
@@ -85,9 +113,6 @@
       return [byDur.get(targetSec)[0]];
     }
     if (maxItems <= 1) return null;
-
-    // Ordena durações únicas em ordem decrescente para favorecer peças maiores e permitir poda forte
-    const uniqueDurs = Array.from(byDur.keys()).sort((a, b) => b - a);
 
     let bestDurs = null;
     let bestComboScore = -Infinity;

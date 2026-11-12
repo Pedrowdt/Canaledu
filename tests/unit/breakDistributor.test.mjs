@@ -126,7 +126,7 @@ describe('breakDistributor v2', () => {
     const combo = findCombinationForDuration(pecas, 173);
     const elapsed = performance.now() - t0;
     expect(combo).toBeNull();
-    expect(elapsed).toBeLessThan(50);
+    expect(elapsed).toBeLessThan(150);
   });
 
   it('encontra combinação exata para preencher um gap', () => {

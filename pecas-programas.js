@@ -760,6 +760,16 @@ function openBatchModal() {
   const fFinalidade = document.getElementById('batch-f-finalidade');
   if (fFinalidade) fFinalidade.value = '';
 
+  const fFuncao = document.getElementById('batch-f-funcao');
+  if (fFuncao) fFuncao.value = '';
+  const fProgramaRelacionado = document.getElementById('batch-f-programa-relacionado');
+  if (fProgramaRelacionado) fProgramaRelacionado.value = '';
+  toggleBatchProgramaRelacionadoField('');
+
+  const titulos = [...new Set(programas.map(p => baseProgramTitle(p.descricao)).filter(Boolean))].sort();
+  const datalist = document.getElementById('batch-programa-relacionado-list');
+  if (datalist) datalist.innerHTML = titulos.map(t => `<option value="${escapeHtml(t)}">`).join('');
+
   const overlay = document.getElementById('batch-edit-overlay');
   if (overlay) overlay.style.display = 'flex';
 }
@@ -780,6 +790,11 @@ function toggleBatchPesoInput(acao) {
   }
 }
 
+function toggleBatchProgramaRelacionadoField(funcao) {
+  const wrap = document.getElementById('batch-programa-relacionado-field');
+  if (wrap) wrap.style.display = FUNCOES_COM_PROGRAMA.has(funcao) ? 'block' : 'none';
+}
+
 function confirmarEdicaoLote() {
   if (!selectedCodes || selectedCodes.size === 0) {
     alert('Nenhum item selecionado.');
@@ -792,8 +807,10 @@ function confirmarEdicaoLote() {
   const pesoAcao = isPecas ? (document.getElementById('batch-f-peso-acao')?.value || '') : '';
   const pesoValRaw = isPecas ? (document.getElementById('batch-f-peso-valor')?.value?.trim() || '') : '';
   const finalidadeVal = isPecas ? (document.getElementById('batch-f-finalidade')?.value || '') : '';
+  const funcaoVal = isPecas ? (document.getElementById('batch-f-funcao')?.value || '') : '';
+  const programaRelacionadoVal = isPecas ? (document.getElementById('batch-f-programa-relacionado')?.value?.trim() || '') : '';
 
-  if (!typeVal && !catVal && !pesoAcao && !finalidadeVal) {
+  if (!typeVal && !catVal && !pesoAcao && !finalidadeVal && !funcaoVal && !programaRelacionadoVal) {
     alert('Selecione pelo menos um campo para alterar.');
     return;
   }
@@ -843,6 +860,19 @@ function confirmarEdicaoLote() {
       atualizado.tipoFinalidade = finalidadeVal;
     }
 
+    if (atualizado.type !== 'EVNH') {
+      atualizado.funcao = '';
+      atualizado.programaRelacionado = '';
+    } else if (funcaoVal === '__limpar__') {
+      atualizado.funcao = '';
+      atualizado.programaRelacionado = '';
+    } else if (funcaoVal) {
+      atualizado.funcao = funcaoVal;
+      atualizado.programaRelacionado = FUNCOES_COM_PROGRAMA.has(funcaoVal) ? programaRelacionadoVal : '';
+    } else if (programaRelacionadoVal) {
+      atualizado.programaRelacionado = programaRelacionadoVal;
+    }
+
     return atualizado;
   });
 
@@ -861,6 +891,7 @@ if (typeof window !== 'undefined') {
   window.openBatchModal = openBatchModal;
   window.closeBatchModal = closeBatchModal;
   window.toggleBatchPesoInput = toggleBatchPesoInput;
+  window.toggleBatchProgramaRelacionadoField = toggleBatchProgramaRelacionadoField;
   window.confirmarEdicaoLote = confirmarEdicaoLote;
 }
 

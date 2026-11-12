@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import PecasDeduplicador from '../../src/core/pecasDeduplicador.js';
+
+const appSrc = readFileSync(new URL('../../pecas-programas.js', import.meta.url), 'utf8');
 
 describe('Edição e Deduplicação em Lote de Peças', () => {
   it('deduplicação prioriza o maior número de code', () => {
@@ -88,5 +91,57 @@ describe('Edição e Deduplicação em Lote de Peças', () => {
 
     expect(resultado[0].peso).toBeUndefined();
     expect(resultado[1].peso).toBeUndefined();
+  });
+
+  it('altera função e programa relacionado nos itens selecionados usando a lógica real da tela', () => {
+    const elements = new Map();
+    const makeEl = (id) => ({ id, value: '', textContent: '', innerHTML: '', style: {}, checked: false, classList: { add(){}, remove(){}, toggle(){} }, focus(){}, addEventListener(){} });
+    const document = {
+      getElementById(id) { if (!elements.has(id)) elements.set(id, makeEl(id)); return elements.get(id); },
+      querySelectorAll() { return []; },
+    };
+    const g = { addEventListener(){}, removeEventListener(){}, toast(){} }; g.window = g;
+    const factory = new Function('window','globalThis','document','localStorage','console','setTimeout','clearTimeout','alert', `${appSrc}\nreturn {
+      confirmarEdicaoLote,
+      __setPecas: (v) => { pecas = v; },
+      __getPecas: () => pecas,
+      __setSelectedCodes: (v) => { selectedCodes = new Set(v); },
+      __setRender: (f) => { render = f; },
+      __setScheduleSync: (f) => { scheduleSync = f; },
+    };`);
+    const app = factory(g, g, document, {getItem:()=>null,setItem(){},removeItem(){}}, console, setTimeout, clearTimeout, () => {});
+    app.__setPecas([
+      { code: 'VH01', type: 'EVNH', funcao: 'outro' },
+      { code: 'VH02', type: 'EVNH', funcao: 'outro' },
+      { code: 'VH03', type: 'EVNH', funcao: 'classificacao_indicativa' },
+    ]);
+    app.__setSelectedCodes(['VH01', 'VH02']); app.__setRender(() => {}); app.__setScheduleSync(() => {});
+    elements.set('batch-f-funcao', Object.assign(makeEl('batch-f-funcao'), { value: 'vh_daqui_a_pouco' }));
+    elements.set('batch-f-programa-relacionado', Object.assign(makeEl('batch-f-programa-relacionado'), { value: 'PALALOOS' }));
+    app.confirmarEdicaoLote();
+    expect(app.__getPecas()[0]).toMatchObject({ funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS' });
+    expect(app.__getPecas()[1]).toMatchObject({ funcao: 'vh_daqui_a_pouco', programaRelacionado: 'PALALOOS' });
+    expect(app.__getPecas()[2]).toMatchObject({ funcao: 'classificacao_indicativa' });
+  });
+
+  it('permite limpar função e programa relacionado em lote', () => {
+    const elements = new Map();
+    const makeEl = (id) => ({ id, value: '', textContent: '', innerHTML: '', style: {}, checked: false, classList: { add(){}, remove(){}, toggle(){} }, focus(){}, addEventListener(){} });
+    const document = { getElementById(id) { if (!elements.has(id)) elements.set(id, makeEl(id)); return elements.get(id); }, querySelectorAll() { return []; } };
+    const g = { addEventListener(){}, removeEventListener(){}, toast(){} }; g.window = g;
+    const factory = new Function('window','globalThis','document','localStorage','console','setTimeout','clearTimeout','alert', `${appSrc}\nreturn {
+      confirmarEdicaoLote,
+      __setPecas: (v) => { pecas = v; },
+      __getPecas: () => pecas,
+      __setSelectedCodes: (v) => { selectedCodes = new Set(v); },
+      __setRender: (f) => { render = f; },
+      __setScheduleSync: (f) => { scheduleSync = f; },
+    };`);
+    const app = factory(g, g, document, {getItem:()=>null,setItem(){},removeItem(){}}, console, setTimeout, clearTimeout, () => {});
+    app.__setPecas([{ code: 'VH01', type: 'EVNH', funcao: 'vh_a_seguir', programaRelacionado: 'PALALOOS' }]);
+    app.__setSelectedCodes(['VH01']); app.__setRender(() => {}); app.__setScheduleSync(() => {});
+    elements.set('batch-f-funcao', Object.assign(makeEl('batch-f-funcao'), { value: '__limpar__' }));
+    app.confirmarEdicaoLote();
+    expect(app.__getPecas()[0]).toMatchObject({ funcao: '', programaRelacionado: '' });
   });
 });
