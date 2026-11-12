@@ -572,11 +572,16 @@
   font-family: var(--sans, sans-serif);
 }
 #hub-overlay .hub-box { text-align: center; }
-#hub-overlay .hub-title {
-  font-family: var(--mono, monospace); font-weight: 600; letter-spacing: .04em;
-  margin-bottom: 26px; color: var(--text, #1a1d29); font-size: 15px;
+#hub-overlay .hub-header {
+  margin-bottom: 26px; text-align: center;
 }
-#hub-overlay .hub-title span { color: var(--accent, #2f6fe0); }
+#hub-overlay .hub-logo-img {
+  max-width: 230px; width: 100%; height: auto; display: block; margin: 0 auto 8px auto;
+}
+#hub-overlay .hub-subtitle {
+  font-size: 11px; font-weight: 600; color: var(--muted, #64748b);
+  letter-spacing: 1.2px; text-transform: uppercase; font-family: var(--sans, sans-serif);
+}
 #hub-overlay .hub-cards { display: flex; gap: 16px; }
 #hub-overlay .hub-card {
   width: 210px; padding: 26px 20px; cursor: pointer;
@@ -650,7 +655,10 @@
      ═══════════════════════════════════════════════════════ -->
 <div id="hub-overlay">
   <div class="hub-box">
-    <div class="hub-title">ROTEIRO<span>HUB</span> — o que você quer abrir?</div>
+    <div class="hub-header">
+      <img src="assets/logo-roteirohub-claro.png" alt="RoteiroHub" class="hub-logo-img">
+      <div class="hub-subtitle">Programação &amp; Exibição · Escolha o módulo</div>
+    </div>
     <div class="hub-cards">
       <div class="hub-card" onclick="cloudSyncOpenRoteiro()">
         <div class="hub-card-icon">📋</div>
@@ -681,8 +689,11 @@
        TOPBAR: Logo, abas de navegação e botões de exportação
        ═══════════════════════════════════════════════════════ -->
   <header class="topbar">
-    <div class="logo" id="app-logo-title">ROTEIRO<span>HUB</span></div>
-    <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)">⇆ Peças e Programas</a>
+    <div class="topbar-brand" onclick="cloudSyncBackToHub(event)" title="Voltar ao Hub" style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0">
+      <img src="assets/icone-roteirohub.png" alt="RoteiroHub" class="topbar-logo-icon" style="height:24px;width:24px;object-fit:contain;border-radius:4px">
+      <div class="logo" id="app-logo-title">ROTEIRO<span>HUB</span></div>
+    </div>
+    <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)" title="Voltar ao Hub">← Hub</a>
     <!-- Seletor de Emissora Ativa -->
     <div id="emissora-wrap" style="display:none;align-items:center;gap:4px;margin-left:10px">
       <label for="select-emissora" style="font-size:11px;color:var(--muted,#888)">Emissora:</label>

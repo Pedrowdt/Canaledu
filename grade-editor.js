@@ -206,8 +206,13 @@
   function atualizarBranding(emissora) {
     const titleEl = document.getElementById('page-brand-title');
     if (!titleEl) return;
-    const nome = (emissora?.nome || 'CANAL EDUCAÇÃO').toUpperCase();
-    titleEl.innerHTML = `${escapeHtml(nome)} · <span>CONFECÇÃO DE GRADE</span>`;
+    if (emissora && emissora.nome) {
+      titleEl.innerHTML = `${escapeHtml(emissora.nome.toUpperCase())} · <span>CONFECÇÃO DE GRADE</span>`;
+      document.title = `Confecção de Grade — ${emissora.nome}`;
+    } else {
+      titleEl.innerHTML = '<span>CONFECÇÃO DE GRADE</span>';
+      document.title = 'Confecção de Grade · RoteiroHub';
+    }
   }
 
   /* ══════════════════════════════════════════════════════════

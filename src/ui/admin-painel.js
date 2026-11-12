@@ -89,9 +89,12 @@
                   border: 1px solid #334155; max-height: 88vh; overflow-y: auto;">
         
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <div>
-            <h3 style="margin: 0; font-size: 1.2rem;">Painel de Administração</h3>
-            <span id="admin-subtitulo-emissora" style="font-size: 0.82rem; color: #94a3b8;"></span>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <img src="assets/icone-roteirohub.png" alt="RoteiroHub" style="width: 26px; height: 26px; border-radius: 5px; object-fit: contain;">
+            <div>
+              <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; letter-spacing: 0.02em;">Painel de Administração · RoteiroHub</h3>
+              <span id="admin-subtitulo-emissora" style="font-size: 0.82rem; color: #94a3b8;"></span>
+            </div>
           </div>
           <button id="admin-btn-fechar" style="background: none; border: none; font-size: 1.4rem; color: #94a3b8; cursor: pointer;">&times;</button>
         </div>

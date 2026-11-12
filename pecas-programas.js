@@ -274,7 +274,26 @@ function wireGateLogin() {
 // =====================================================
 // CONTEXTO DE EMISSORA NA TELA
 // =====================================================
+function atualizarBrandingPecas(emissora) {
+  const modTitle = document.getElementById('page-module-title');
+  if (modTitle) {
+    if (emissora && emissora.nome) {
+      modTitle.innerHTML = `${escapeHtml(emissora.nome.toUpperCase())} · <span style="color:#94a3b8;font-weight:400">PEÇAS E PROGRAMAS</span>`;
+      document.title = `Peças e Programas — ${emissora.nome}`;
+    } else {
+      modTitle.innerHTML = `<span>PEÇAS E PROGRAMAS</span>`;
+      document.title = 'Peças e Programas · RoteiroHub';
+    }
+  }
+}
+
 async function trocarEmissoraAtiva(novaEmissoraId) {
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+    const lista = EmissoraContext.getEmissorasCache();
+    const ativa = lista.find(e => e.id === novaEmissoraId);
+    atualizarBrandingPecas(ativa);
+  }
   if (!novaEmissoraId) return;
   if (window.EmissoraContext) {
     EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
@@ -329,6 +348,7 @@ async function startApp(user) {
         if (ativa && window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
           PecasRepo.setEmissoraId(ativa.id);
         }
+        atualizarBrandingPecas(ativa);
                 if (window.AdminPainel && supabaseClient && currentUser) {
           window.AdminPainel.init(supabaseClient, currentUser);
         }
