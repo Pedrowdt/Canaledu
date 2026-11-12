@@ -32,7 +32,7 @@
   let recurrenceState = { slots: {}, episodeQueues: {}, dateExceptions: {} };
   let slotConfigContext = null;
   let exceptionContext = null;
-  const RECURRENCE_STORAGE_KEY = gradeRecorrencia;
+  const RECURRENCE_STORAGE_KEY = 'gradeRecorrencia';
 
   const colorCache = {};
   let colorIdx = 0;
