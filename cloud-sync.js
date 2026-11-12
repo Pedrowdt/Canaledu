@@ -605,12 +605,16 @@ function setupRealtime() {
 // CONTEXTO DE EMISSORA NO ROTEIRO
 // =====================================================
 function atualizarBrandingEmissora(emissora) {
-  const nome = emissora && emissora.nome ? emissora.nome : "Canal Educação";
+  const nome = emissora && emissora.nome ? emissora.nome : null;
   const logoEl = document.getElementById("app-logo-title");
   if (logoEl) {
-    logoEl.innerHTML = escapeHtml(nome.toUpperCase()) + " — <span>ROTEIRO</span>";
+    if (nome) {
+      logoEl.innerHTML = escapeHtml(nome.toUpperCase()) + " — <span>ROTEIRO</span>";
+    } else {
+      logoEl.innerHTML = "ROTEIRO<span>HUB</span>";
+    }
   }
-  document.title = "Roteiro — " + nome;
+  document.title = nome ? ("Roteiro — " + nome) : "RoteiroHub";
 }
 
 function escapeHtml(str) {
