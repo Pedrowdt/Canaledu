@@ -1613,6 +1613,204 @@
     showToast('Grade semanal salva com sucesso! Disponível no Roteiro.', 'success');
   };
 
+
+  // =========================================================================
+  // IMPORTAÇÃO DE GRADE COM PRÉ-VISUALIZAÇÃO
+  // =========================================================================
+
+  let previaImportacao = null;
+  let previaDiaSelecionado = 1;
+
+  window.abrirModalImportarGrade = function () {
+    previaImportacao = null;
+    const modal = document.getElementById('modal-importar-grade');
+    if (!modal) return;
+    const stepSelecao = document.getElementById('step-selecao-importacao');
+    const stepPrevia = document.getElementById('step-previa-importacao');
+    if (stepSelecao) stepSelecao.style.display = 'flex';
+    if (stepPrevia) stepPrevia.style.display = 'none';
+    modal.style.display = 'flex';
+  };
+
+  window.fecharModalImportarGrade = function () {
+    const modal = document.getElementById('modal-importar-grade');
+    if (modal) modal.style.display = 'none';
+    previaImportacao = null;
+  };
+
+  window.carregarPreviaTvBrasil = function () {
+    try {
+      if (!window.GradeImportador || !window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44) {
+        throw new Error('Módulo GradeImportador ou dados da TV Brasil não carregados.');
+      }
+      previaImportacao = window.GradeImportador.prepararPreviaImportacao(
+        window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44,
+        programas
+      );
+      exibirPreviaImportacao();
+    } catch (err) {
+      console.error('Falha ao preparar prévia da TV Brasil:', err);
+      showToast('Erro ao carregar prévia: ' + err.message, 'error');
+    }
+  };
+
+  window.processarUploadArquivoCsv = function () {
+    const input = document.getElementById('input-arquivo-grade-csv');
+    if (!input || !input.files || input.files.length === 0) {
+      showToast('Por favor, selecione um arquivo CSV para importar.', 'error');
+      return;
+    }
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        const text = e.target.result;
+        if (!window.GradeImportador) {
+          throw new Error('Módulo GradeImportador não disponível.');
+        }
+        const parsed = window.GradeImportador.parseCsvGrade(text);
+        previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas);
+        exibirPreviaImportacao();
+      } catch (err) {
+        console.error('Erro ao processar CSV:', err);
+        showToast('Erro ao ler CSV: ' + err.message, 'error');
+      }
+    };
+    reader.onerror = function () {
+      showToast('Erro ao abrir o arquivo local.', 'error');
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  function exibirPreviaImportacao() {
+    if (!previaImportacao) return;
+
+    const stepSelecao = document.getElementById('step-selecao-importacao');
+    const stepPrevia = document.getElementById('step-previa-importacao');
+    if (stepSelecao) stepSelecao.style.display = 'none';
+    if (stepPrevia) stepPrevia.style.display = 'flex';
+
+    const emissoraNome = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaNome() : 'Emissora Ativa';
+    const elEmissora = document.getElementById('previa-emissora-destino');
+    if (elEmissora) elEmissora.textContent = emissoraNome;
+
+    const elTotalSlots = document.getElementById('previa-total-slots');
+    if (elTotalSlots) elTotalSlots.textContent = `${previaImportacao.totalSlots} blocos`;
+
+    const elNovos = document.getElementById('previa-novos-programas');
+    if (elNovos) elNovos.textContent = `+${previaImportacao.totalNovosProgramas} programas`;
+
+    previaDiaSelecionado = 1;
+    renderTabelaPreviaDia(previaDiaSelecionado);
+  }
+
+  window.selecionarDiaPrevia = function (dow) {
+    previaDiaSelecionado = dow;
+    const tabs = document.querySelectorAll('#previa-tabs-dias .day-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    const tabClicked = Array.from(tabs).find(t => t.getAttribute('onclick')?.includes(`(${dow})`));
+    if (tabClicked) tabClicked.classList.add('active');
+
+    renderTabelaPreviaDia(dow);
+  };
+
+  function renderTabelaPreviaDia(dow) {
+    if (!previaImportacao || !previaImportacao.slotsPorDia) return;
+    const tbody = document.getElementById('previa-tabela-corpo');
+    if (!tbody) return;
+
+    const slots = previaImportacao.slotsPorDia[dow] || [];
+    if (slots.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:16px;color:#94a3b8">Nenhum bloco cadastrado para este dia.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = slots.map(s => {
+      const prog = s.program;
+      const title = prog ? escapeHtml(prog.title) : '<span style="color:#94a3b8;font-style:italic">Livre</span>';
+      const code = prog && prog.code ? `<div style="font-size:10px;color:#64748b;font-family:var(--mono)">${escapeHtml(prog.code)}</div>` : '';
+
+      let tipoBadge = '<span style="font-size:10.5px;color:#64748b">● Fixo</span>';
+      const slotKey = `${dow}:${s.time}`;
+      const rec = previaImportacao.recorrenciaSugerida?.slots?.[slotKey];
+      if (rec?.tipoExibicao === 'reprise') {
+        tipoBadge = '<span style="font-size:10.5px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;font-weight:600">↺ Reprise</span>';
+      } else if (rec?.tipoExibicao === 'inedito') {
+        tipoBadge = '<span style="font-size:10.5px;color:#185fa5;background:#e0f2fe;padding:2px 6px;border-radius:4px;font-weight:600">★ Inédito</span>';
+      }
+
+      return `
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text)">${s.time.substring(0, 5)}</td>
+          <td style="padding:6px 10px;color:#64748b;font-size:11px">${s.duration.substring(0, 5)}</td>
+          <td style="padding:6px 10px">
+            <div style="font-weight:600;color:var(--text)">${title}</div>
+            ${code}
+          </td>
+          <td style="padding:6px 10px">${tipoBadge}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  window.voltarParaSelecaoImportacao = function () {
+    const stepSelecao = document.getElementById('step-selecao-importacao');
+    const stepPrevia = document.getElementById('step-previa-importacao');
+    if (stepSelecao) stepSelecao.style.display = 'flex';
+    if (stepPrevia) stepPrevia.style.display = 'none';
+  };
+
+  window.confirmarImportacaoGrade = function () {
+    if (!previaImportacao || !previaImportacao.slotsPorDia) {
+      showToast('Nenhuma prévia carregada para importar.', 'error');
+      return;
+    }
+
+    // 1. Cadastra novos programas no Acervo da emissora
+    if (Array.isArray(previaImportacao.novosProgramas) && previaImportacao.novosProgramas.length > 0) {
+      const existingTitles = new Set(programas.map(p => (p.title || p.nome || '').trim().toUpperCase()));
+      previaImportacao.novosProgramas.forEach(np => {
+        if (!existingTitles.has(np.title.trim().toUpperCase())) {
+          programas.push(np);
+          existingTitles.add(np.title.trim().toUpperCase());
+        }
+      });
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      saved.programas = programas;
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+    }
+
+    // 2. Preenche os 7 dias na grade ativa
+    [0, 1, 2, 3, 4, 5, 6].forEach(d => {
+      const importedBlocks = previaImportacao.slotsPorDia[d] || [];
+      if (importedBlocks.length > 0) {
+        blocksByDay[d] = importedBlocks.map(b => ({
+          ...b,
+          program: b.program ? { ...b.program } : null,
+        }));
+      }
+    });
+
+    // 3. Atualiza regras de recorrência (inéditos e reprises sugeridas)
+    if (previaImportacao.recorrenciaSugerida && previaImportacao.recorrenciaSugerida.slots) {
+      recurrenceState = recurrenceState || { slots: {}, episodeQueues: {}, dateExceptions: {} };
+      recurrenceState.slots = {
+        ...recurrenceState.slots,
+        ...previaImportacao.recorrenciaSugerida.slots,
+      };
+      localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
+    }
+
+    // 4. Atualiza interface e marca como não salva
+    fecharModalImportarGrade();
+    renderAcervo();
+    atualizarBadgesDias();
+    renderActiveView();
+    marcarDirty();
+
+    showToast('Grade semanal importada com sucesso! Revise os blocos e clique em "Salvar Grade".', 'success');
+  };
+
   function escapeHtml(str) {
     if (!str) return '';
     return String(str)

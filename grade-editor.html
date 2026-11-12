@@ -19,6 +19,7 @@
 <script src="src/core/emissoraContext.js"></script>
 <script src="src/core/gradeEditorCore.js"></script>
 <script src="src/core/gradeRecorrenciaCore.js"></script>
+<script src="src/core/gradeImportador.js"></script>
 <script src="src/ui/admin-painel.js"></script>
 
 <style>
@@ -965,6 +966,7 @@ input, select { font-family: inherit; font-size: 12px; }
   </div>
 
   <div class="day-actions">
+    <button class="btn-outline" onclick="abrirModalImportarGrade()" title="Importar grade padrão da TV Brasil ou arquivo CSV" id="btn-importar-grade" style="font-weight:600;border-color:#0284c7;color:#0369a1">📥 Importar Grade</button>
     <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções por Data <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:4px">0</span></button>
     <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 Exportar PDF</button>
     <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar Dia...</button>
@@ -1274,6 +1276,134 @@ input, select { font-family: inherit; font-size: 12px; }
     </div>
   </div>
 </div>
+
+
+<!-- MODAL: IMPORTAR GRADE COM PRÉ-VISUALIZAÇÃO -->
+<div class="overlay" id="modal-importar-grade" style="display:none" onclick="if(event.target===this)fecharModalImportarGrade()">
+  <div class="modal-box" style="max-width:760px;max-height:85vh;display:flex;flex-direction:column;gap:16px;padding:22px">
+
+    <!-- Cabeçalho -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:12px">
+      <div>
+        <h2 style="font-size:17px;font-weight:700;color:var(--text);margin:0 0 4px">📥 Importar Grade de Programação</h2>
+        <p style="font-size:12px;color:#64748b;margin:0">
+          Selecione uma grade oficial de referência ou envie um arquivo para pré-visualizar antes de aplicar.
+        </p>
+      </div>
+      <button type="button" class="btn-slot-clear" onclick="fecharModalImportarGrade()" title="Fechar" style="font-size:18px">×</button>
+    </div>
+
+    <!-- Etapa 1: Seleção de Fonte -->
+    <div id="step-selecao-importacao" style="display:flex;flex-direction:column;gap:14px">
+
+      <!-- Card Destaque: TV Brasil Semana 44 -->
+      <div style="border:2px solid #38bdf8;background:#f0f9ff;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:11px;font-weight:700;background:#0284c7;color:#fff;padding:2px 8px;border-radius:12px;text-transform:uppercase">Recomendado</span>
+          <span style="font-size:12px;color:#0369a1;font-weight:600">Semana 44 (02 a 08/11/2026)</span>
+        </div>
+        <div style="font-size:14px;font-weight:700;color:#0c4a6e">
+          📺 Grade Oficial TV Brasil — Semana Completa (24h)
+        </div>
+        <div style="font-size:12px;color:#334155;line-height:1.4">
+          Contém os 7 dias completos: faixa infantil matutina (TV Brasil Animada), jornalismo ao vivo (Repórter Brasil Tarde e Noite), novelas, documentários, faixas culturais e as reprises vinculadas da madrugada.
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:4px">
+          <button type="button" class="btn-primary" style="background:#0284c7;border-color:#0284c7" onclick="carregarPreviaTvBrasil()">
+            Visualizar Prévia da TV Brasil ➔
+          </button>
+        </div>
+      </div>
+
+      <!-- Card Opção: Upload de Arquivo CSV -->
+      <div style="border:1px solid var(--border);background:#fafafa;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">
+          📄 Ou enviar planilha / arquivo CSV
+        </div>
+        <div style="font-size:11.5px;color:#64748b">
+          Formatos suportados: CSV com colunas <code>dia;horario;duracao;programa;codigo;categoria;tipo</code>.
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+          <input type="file" id="input-arquivo-grade-csv" accept=".csv,.txt" style="font-size:12px;flex:1">
+          <button type="button" class="btn-outline" onclick="processarUploadArquivoCsv()">
+            Carregar Prévia
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Etapa 2: Pré-visualização antes de salvar -->
+    <div id="step-previa-importacao" style="display:none;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+
+      <!-- Barra de Resumo e Métricas -->
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:10px">
+        <div>
+          <div style="font-size:11px;color:#64748b">Total de Blocos</div>
+          <div style="font-size:16px;font-weight:700;color:var(--text)" id="previa-total-slots">0</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b">Novos Programas</div>
+          <div style="font-size:16px;font-weight:700;color:#0284c7" id="previa-novos-programas">0</div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:#64748b">Emissora de Destino</div>
+          <div style="font-size:13px;font-weight:600;color:#16a34a" id="previa-emissora-destino">TV Brasil</div>
+        </div>
+      </div>
+
+      <!-- Abas de Dias para Inspecionar -->
+      <div style="display:flex;gap:4px;border-bottom:1px solid var(--border);padding-bottom:6px" id="previa-tabs-dias">
+        <button type="button" class="day-tab active" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(1)">Seg</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(2)">Ter</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(3)">Qua</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(4)">Qui</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(5)">Sex</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(6)">Sáb</button>
+        <button type="button" class="day-tab" style="padding:4px 8px;font-size:11px" onclick="selecionarDiaPrevia(0)">Dom</button>
+      </div>
+
+      <!-- Tabela com os slots do dia selecionado -->
+      <div style="flex:1;overflow-y:auto;max-height:260px;border:1px solid var(--border);border-radius:6px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left">
+          <thead style="background:#f1f5f9;position:sticky;top:0;font-size:11px;color:#475569">
+            <tr>
+              <th style="padding:6px 10px;width:70px">Horário</th>
+              <th style="padding:6px 10px;width:60px">Duração</th>
+              <th style="padding:6px 10px">Programa</th>
+              <th style="padding:6px 10px;width:110px">Tipo</th>
+            </tr>
+          </thead>
+          <tbody id="previa-tabela-corpo">
+            <!-- Linhas geradas dinamicamente -->
+          </tbody>
+        </table>
+      </div>
+
+      <div style="font-size:11.5px;color:#64748b;background:#fefce8;border:1px solid #fef08a;padding:8px;border-radius:4px">
+        ⚠️ <strong>Atenção:</strong> Ao confirmar, a grade atual no editor será preenchida com esses blocos e os novos programas serão adicionados ao Acervo. Você ainda poderá revisar e fazer ajustes antes de clicar em <em>Salvar Grade</em>.
+      </div>
+
+      <!-- Ações do Rodapé da Prévia -->
+      <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border);padding-top:10px">
+        <button type="button" class="btn-outline" onclick="voltarParaSelecaoImportacao()">
+          ⬅ Voltar
+        </button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn-outline" onclick="fecharModalImportarGrade()">
+            Cancelar
+          </button>
+          <button type="button" class="btn-primary" style="background:#16a34a;border-color:#16a34a" onclick="confirmarImportacaoGrade()">
+            ✓ Confirmar e Aplicar na Grade
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
 
 <script src="grade-editor.js"></script>
 </body>
