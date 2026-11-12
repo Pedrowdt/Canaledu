@@ -70,7 +70,17 @@
 
     if (byDur.size === 0) return null;
 
-    // Se existe uma peça única com a duração exata, retorna imediatamente
+    // Ordena peças dentro de cada duração pelo score decrescente
+    for (const [dur, list] of byDur.entries()) {
+      list.sort((a, b) => {
+        const scA = a._score != null ? a._score : (a.peso != null ? Number(a.peso) : 5);
+        const scB = b._score != null ? b._score : (b.peso != null ? Number(b.peso) : 5);
+        if (scA !== scB) return scB - scA;
+        return String(b.code || '').localeCompare(String(a.code || ''), undefined, { numeric: true });
+      });
+    }
+
+    // Se existe uma peça única com a duração exata, retorna imediatamente a de maior score
     if (byDur.has(targetSec)) {
       return [byDur.get(targetSec)[0]];
     }
@@ -80,14 +90,34 @@
     const uniqueDurs = Array.from(byDur.keys()).sort((a, b) => b - a);
 
     let bestDurs = null;
+    let bestComboScore = -Infinity;
     let steps = 0;
     const MAX_STEPS = 5000;
+
+    function getComboScore(durs) {
+      let sum = 0;
+      const counts = new Map();
+      for (const d of durs) {
+        const used = counts.get(d) || 0;
+        const item = byDur.get(d)[used];
+        if (item) {
+          const sc = item._score != null ? item._score : (item.peso != null ? Number(item.peso) : 5);
+          sum += sc;
+        }
+        counts.set(d, used + 1);
+      }
+      return sum;
+    }
 
     function search(startIndex, currentCombo, currentSum) {
       if (++steps > MAX_STEPS) return;
 
       if (currentSum === targetSec) {
-        bestDurs = [...currentCombo];
+        const sc = getComboScore(currentCombo);
+        if (sc > bestComboScore) {
+          bestComboScore = sc;
+          bestDurs = [...currentCombo];
+        }
         return;
       }
 
@@ -116,7 +146,6 @@
             currentCombo.push(dur);
             search(i, currentCombo, currentSum + dur);
             currentCombo.pop();
-            if (bestDurs) return;
           }
         }
       }
@@ -139,7 +168,7 @@
     return result;
   }
 
-    function normalizeDia(d) {
+  function normalizeDia(d) {
     return String(d || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   }
 
@@ -151,6 +180,7 @@
     if (!dias.length) return true;
     return dias.map(normalizeDia).includes(DIAS_SEMANA_ABREV[dow]);
   }
+
   const PESOS_FINALIDADE = {
     estreia: 10,
     promocional: 7,
@@ -218,7 +248,7 @@
   }
 
   function distribuirPecasNosBreaks(roteiro, pecas, options = {}) {
-     const dateStr = options.date ? String(options.date).trim() : null;
+    const dateStr = options.date ? String(options.date).trim() : null;
     const startSec = Number(options.startSec) || 21600;
     const regras = options.regras || {};
     const dow = options.dow != null ? Number(options.dow) : (options.date ? new Date(options.date).getDay() : null);
@@ -239,6 +269,8 @@
     const exibições = {};
     const lastSeenSec = {};
     const outRoteiro = [];
+    const alocacoes = [];
+    const slotsNaoPreenchidos = [];
     let cumSec = startSec;
 
     let chamadasPreenchidas = 0;
@@ -294,7 +326,7 @@
       return true;
     }
 
-        function pickBestPeca(candidates, currentSec, neighborProgTheme) {
+    function pickBestPeca(candidates, currentSec, neighborProgTheme) {
       const eligible = candidates.filter(p => isEligible(p, currentSec, neighborProgTheme));
       if (eligible.length === 0) return null;
       eligible.sort((a, b) => {
@@ -307,7 +339,10 @@
         }
         const durA = timeToSec(a.tempo);
         const durB = timeToSec(b.tempo);
-        return durB - durA;
+        if (durA !== durB) {
+          return durB - durA;
+        }
+        return String(b.code || '').localeCompare(String(a.code || ''), undefined, { numeric: true });
       });
       return eligible[0];
     }
@@ -331,16 +366,36 @@
         }
 
         const neighborTheme = findSurroundingProgramTheme(i);
-        const comboCandidates = pecasAtivas.filter(p => isEligible(p, cumSec, neighborTheme));
+        const comboCandidates = pecasAtivas
+          .filter(p => isEligible(p, cumSec, neighborTheme))
+          .map(p => ({
+            ...p,
+            _score: calcularScorePeca(p, dateStr, exibições[p.code] || 0)
+          }));
         const combo = findCombinationForDuration(comboCandidates, gapSec);
 
         if (combo && combo.length > 0) {
           combo.forEach(peca => {
             const pSec = timeToSec(peca.tempo);
             const pTheme = extractTheme(peca);
+            const pScore = peca._score != null ? peca._score : calcularScorePeca(peca, dateStr, exibições[peca.code] || 0);
+
+            const itemLimpo = { ...peca };
+            delete itemLimpo._score;
+
             outRoteiro.push({
-              ...peca,
+              ...itemLimpo,
               horario: secToTime(cumSec)
+            });
+            alocacoes.push({
+              horario: secToTime(cumSec),
+              code: peca.code,
+              descricao: peca.descricao,
+              tempo: peca.tempo,
+              type: peca.type,
+              score: pScore,
+              origem: peca._origem || 'pecas',
+              tipoAlocacao: 'gap'
             });
             exibições[peca.code] = (exibições[peca.code] || 0) + 1;
             lastSeenSec[peca.code] = cumSec;
@@ -350,6 +405,17 @@
           });
           gapsResolvidos++;
         } else {
+          slotsNaoPreenchidos.push({
+            tipo: 'gap',
+            descricao: it.descricao || '[ AJUSTE DE GRADE ]',
+            horario: secToTime(cumSec),
+            tempo: it.tempo,
+            targetType: 'COMBINACAO',
+            candidatosTotais: comboCandidates.length,
+            motivoRecusa: comboCandidates.length === 0
+              ? 'Nenhuma peça ativa elegível respeitando anti-adjacência e intervalos'
+              : 'Nenhuma combinação de peças com duração exata para o tempo do gap'
+          });
           outRoteiro.push(it);
           cumSec += gapSec;
         }
@@ -357,6 +423,7 @@
         const descUpper = String(it.descricao || '').toUpperCase();
         let targetType = 'ECHM';
         if (descUpper.includes('INTERPROGRAMA')) targetType = 'EINT';
+        else if (descUpper.includes('COMERCIAL')) targetType = 'ECOM';
 
         const candidates = pecasAtivas.filter(p => {
           if (targetType === 'ECHM') return p.type === 'ECHM' || p.type === 'ECHE';
@@ -370,9 +437,24 @@
         if (alocada) {
           const durSec = timeToSec(alocada.tempo);
           const pTheme = extractTheme(alocada);
+          const pScore = calcularScorePeca(alocada, dateStr, exibições[alocada.code] || 0);
+
+          const itemLimpo = { ...alocada };
+          delete itemLimpo._score;
+
           outRoteiro.push({
-            ...alocada,
+            ...itemLimpo,
             horario: secToTime(cumSec)
+          });
+          alocacoes.push({
+            horario: secToTime(cumSec),
+            code: alocada.code,
+            descricao: alocada.descricao,
+            tempo: alocada.tempo,
+            type: alocada.type,
+            score: pScore,
+            origem: alocada._origem || 'pecas',
+            tipoAlocacao: targetType === 'ECHM' ? 'chamada' : (targetType === 'EINT' ? 'interprograma' : 'break')
           });
           exibições[alocada.code] = (exibições[alocada.code] || 0) + 1;
           lastSeenSec[alocada.code] = cumSec;
@@ -385,6 +467,17 @@
           cumSec += durSec;
         } else {
           slotsVaziosRestantes++;
+          slotsNaoPreenchidos.push({
+            tipo: 'slot',
+            descricao: it.descricao || '[ BREAK ]',
+            horario: secToTime(cumSec),
+            tempo: it.tempo,
+            targetType,
+            candidatosTotais: candidates.length,
+            motivoRecusa: candidates.length === 0
+              ? 'Nenhuma peça ativa deste tipo cadastrada'
+              : 'Peças disponíveis bloqueadas por intervalo mínimo ou anti-adjacência'
+          });
           outRoteiro.push(it);
           cumSec += timeToSec(it.tempo);
         }
@@ -406,7 +499,9 @@
         interprogramasPreenchidos,
         gapsResolvidos,
         slotsVaziosRestantes,
-        totalAlocado: chamadasPreenchidas + interprogramasPreenchidos + gapsResolvidos
+        totalAlocado: chamadasPreenchidas + interprogramasPreenchidos + gapsResolvidos,
+        alocacoes,
+        slotsNaoPreenchidos
       }
     };
   }
@@ -418,7 +513,6 @@
     extractTheme,
     calcularScorePeca
   };
-
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;

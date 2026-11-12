@@ -177,3 +177,94 @@ describe('breakDistributor v2', () => {
   });
 
 });
+
+  it('findCombinationForDuration prioriza peças de maior peso/score na combinação do gap', () => {
+    // Duas peças de 30s: P_PESO_ALTO (peso 10) e P_PESO_BAIXO (peso 2)
+    // Uma de 15s (peso 5)
+    const pecas = [
+      { code: 'P_PESO_BAIXO', tempo: '00:00:30', type: 'ECHM', peso: 2, ativo: true },
+      { code: 'P_PESO_ALTO', tempo: '00:00:30', type: 'ECHM', peso: 10, ativo: true },
+      { code: 'P_15S', tempo: '00:00:15', type: 'ECHM', peso: 5, ativo: true },
+    ];
+
+    // Gap de 45s requer uma de 30s e uma de 15s.
+    // Deve escolher P_PESO_ALTO + P_15S, e NÃO P_PESO_BAIXO + P_15S.
+    const combo = findCombinationForDuration(pecas, 45);
+    expect(combo).toHaveLength(2);
+    const codes = combo.map(p => p.code);
+    expect(codes).toContain('P_PESO_ALTO');
+    expect(codes).toContain('P_15S');
+    expect(codes).not.toContain('P_PESO_BAIXO');
+  });
+
+  it('distribuirPecasNosBreaks retorna alocacoes e slotsNaoPreenchidos com detalhes de diagnostico', () => {
+    const roteiro = [
+      { type: 'PGM', descricao: 'PGM CIENCIA', tempo: '00:15:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — chamada ]', tempo: '00:00:30' },
+      { type: '__SLOT__', descricao: '[ BREAK — interprograma ]', tempo: '00:01:00' }
+    ];
+
+    // Apenas chamada disponível, nenhum interprograma cadastrado
+    const pecas = [
+      {
+        code: 'CHM_DIA_01',
+        type: 'ECHM',
+        descricao: 'CHAMADA ESPECIAL',
+        peso: 8,
+        tempo: '00:00:30',
+        _origem: 'pecasDia',
+        ativo: true
+      }
+    ];
+
+    const res = distribuirPecasNosBreaks(roteiro, pecas, {
+      regras: { breakIntervaloMinChamada: 0 }
+    });
+
+    expect(res.resultado.totalAlocado).toBe(1);
+    expect(res.resultado.chamadasPreenchidas).toBe(1);
+    expect(res.resultado.interprogramasPreenchidos).toBe(0);
+    expect(res.resultado.slotsVaziosRestantes).toBe(1);
+
+    // Detalhe da alocação
+    expect(res.resultado.alocacoes).toHaveLength(1);
+    expect(res.resultado.alocacoes[0]).toMatchObject({
+      code: 'CHM_DIA_01',
+      tipoAlocacao: 'chamada',
+      origem: 'pecasDia',
+      score: 8
+    });
+
+    // Detalhe do slot não preenchido
+    expect(res.resultado.slotsNaoPreenchidos).toHaveLength(1);
+    expect(res.resultado.slotsNaoPreenchidos[0]).toMatchObject({
+      tipo: 'slot',
+      targetType: 'EINT',
+      motivoRecusa: 'Nenhuma peça ativa deste tipo cadastrada'
+    });
+  });
+
+  it('diagnostica recusa de slot por bloqueio de regras (intervalo mínimo)', () => {
+    const roteiro = [
+      { type: 'PGM', descricao: 'PGM CIENCIA', tempo: '00:15:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — chamada ]', tempo: '00:00:30' },
+      { type: 'PGM', descricao: 'PGM HISTORIA', tempo: '00:10:00' },
+      { type: '__SLOT__', descricao: '[ BREAK — chamada ]', tempo: '00:00:30' }
+    ];
+
+    // Só temos UMA única chamada ativa
+    const pecas = [
+      { code: 'CHM_UNICA', type: 'ECHM', descricao: 'CHAMADA UNICA', tempo: '00:00:30', ativo: true }
+    ];
+
+    // Com intervalo de 90 min (5400s), o segundo slot ocorre apenas 10 minutos após o primeiro
+    const res = distribuirPecasNosBreaks(roteiro, pecas, {
+      regras: { breakIntervaloMinChamada: 90 }
+    });
+
+    expect(res.resultado.chamadasPreenchidas).toBe(1);
+    expect(res.resultado.slotsVaziosRestantes).toBe(1);
+
+    expect(res.resultado.slotsNaoPreenchidos).toHaveLength(1);
+    expect(res.resultado.slotsNaoPreenchidos[0].motivoRecusa).toContain('bloqueadas por intervalo');
+  });

@@ -5272,7 +5272,26 @@ function executarDistribuicaoBreaks() {
 
   const curDow = state.currentDate ? state.currentDate.getDay() : (new Date()).getDay();
   const curDateStr = state.currentDate ? dateKey(state.currentDate) : null;
-  const res = fnDist(state.roteiro, state.pecas || [], {
+
+  // Unifica Peças do Dia (prioritárias) e Catálogo Mestre de Peças
+  const pool = [];
+  const seenCodes = new Set();
+
+  (state.pecasDia || []).forEach(p => {
+    const c = String(p.code || '').trim();
+    if (c) seenCodes.add(c);
+    pool.push({ ...p, _origem: 'pecasDia' });
+  });
+
+  (state.pecas || []).forEach(p => {
+    const c = String(p.code || '').trim();
+    if (!c || !seenCodes.has(c)) {
+      if (c) seenCodes.add(c);
+      pool.push({ ...p, _origem: 'pecas' });
+    }
+  });
+
+  const res = fnDist(state.roteiro, pool, {
     startSec: (typeof START_SECONDS !== 'undefined' ? START_SECONDS : 21600),
     regras: (typeof REGRAS !== 'undefined' ? REGRAS : {}),
     dow: curDow,
@@ -5281,7 +5300,26 @@ function executarDistribuicaoBreaks() {
 
   if (res.resultado.totalAlocado === 0) {
     toast("Nenhum slot de chamada ou gap pôde ser preenchido com as peças ativas atuais.", "warning");
+    if (res.resultado.slotsNaoPreenchidos && res.resultado.slotsNaoPreenchidos.length > 0) {
+      exibirRelatorioDistribuicaoBreaks(res.resultado);
+    }
     return;
+  }
+
+  // Incrementa contador de uso nas Peças do Dia para as alocadas
+  if (state.pecasDia && res.resultado?.alocacoes) {
+    let mudouPecasDia = false;
+    res.resultado.alocacoes.forEach(aloc => {
+      const clean = String(aloc.code || '').trim();
+      const pIdx = state.pecasDia.findIndex(x => String(x.code || '').trim() === clean);
+      if (pIdx >= 0) {
+        state.pecasDia[pIdx].usado = (state.pecasDia[pIdx].usado || 0) + 1;
+        mudouPecasDia = true;
+      }
+    });
+    if (mudouPecasDia && typeof renderPecasDiaPanel === 'function') {
+      renderPecasDiaPanel();
+    }
   }
 
   state.roteiro = res.roteiro;
@@ -5290,17 +5328,113 @@ function executarDistribuicaoBreaks() {
   renderRoteiro();
   renderWeekSelector();
 
-  const msg = [
-    `Breaks preenchidos com sucesso!`,
-    `• Chamadas alocadas: ${res.resultado.chamadasPreenchidas}`,
-    `• Interprogramas alocados: ${res.resultado.interprogramasPreenchidos}`,
-    `• Gaps resolvidos: ${res.resultado.gapsResolvidos}`,
-    res.resultado.slotsVaziosRestantes > 0 ? `• Slots sem peças compatíveis: ${res.resultado.slotsVaziosRestantes}` : ""
-  ].filter(Boolean).join("\n");
+  if (window.CanalLog) {
+    CanalLog.registrar("roteiro_breaks_distribuidos", {
+      data: curDateStr,
+      alocadas: res.resultado.totalAlocado,
+      chamadas: res.resultado.chamadasPreenchidas,
+      interprogramas: res.resultado.interprogramasPreenchidos,
+      gaps: res.resultado.gapsResolvidos,
+      vazios: res.resultado.slotsVaziosRestantes
+    });
+  }
 
-  toast(`${res.resultado.totalAlocado} peças distribuídas automaticamente nos breaks!`, "success");
-  console.log(msg);
+  toast(`✓ ${res.resultado.totalAlocado} peça${res.resultado.totalAlocado === 1 ? '' : 's'} distribuída${res.resultado.totalAlocado === 1 ? '' : 's'} nos breaks!`, "success");
+  exibirRelatorioDistribuicaoBreaks(res.resultado);
 }
+
+function exibirRelatorioDistribuicaoBreaks(resultado) {
+  if (!resultado) return;
+
+  const modal = document.getElementById('modal-distribuicao-breaks');
+  if (!modal) return;
+
+  const cardsEl = document.getElementById('dist-breaks-resumo-cards');
+  if (cardsEl) {
+    cardsEl.innerHTML = `
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Total Distribuído</div>
+        <div style="font-size:20px;font-weight:700;color:var(--accent);font-family:var(--mono)">${resultado.totalAlocado || 0}</div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Chamadas</div>
+        <div style="font-size:20px;font-weight:700;color:var(--green);font-family:var(--mono)">${resultado.chamadasPreenchidas || 0}</div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Interprogramas</div>
+        <div style="font-size:20px;font-weight:700;color:var(--cyan);font-family:var(--mono)">${resultado.interprogramasPreenchidos || 0}</div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Gaps Ajustados</div>
+        <div style="font-size:20px;font-weight:700;color:var(--accent2);font-family:var(--mono)">${resultado.gapsResolvidos || 0}</div>
+      </div>
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px;text-align:center">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600">Slots Vazios</div>
+        <div style="font-size:20px;font-weight:700;color:${(resultado.slotsVaziosRestantes || 0) > 0 ? 'var(--amber)' : 'var(--muted)'};font-family:var(--mono)">${resultado.slotsVaziosRestantes || 0}</div>
+      </div>
+    `;
+  }
+
+  const listaAloc = document.getElementById('dist-breaks-lista-alocadas');
+  if (listaAloc) {
+    if (!resultado.alocacoes || resultado.alocacoes.length === 0) {
+      listaAloc.innerHTML = `<div style="padding:16px;color:var(--muted);text-align:center;font-size:12px">Nenhuma peça foi alocada nesta execução.</div>`;
+    } else {
+      listaAloc.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border2);background:var(--bg3);color:var(--muted);text-align:left">
+              <th style="padding:6px 10px;font-family:var(--mono)">Horário</th>
+              <th style="padding:6px 8px;font-family:var(--mono)">Code</th>
+              <th style="padding:6px 8px">Descrição</th>
+              <th style="padding:6px 8px">Tipo</th>
+              <th style="padding:6px 8px">Origem</th>
+              <th style="padding:6px 8px;font-family:var(--mono)">Duração</th>
+              <th style="padding:6px 10px;text-align:right">Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${resultado.alocacoes.map(a => `
+              <tr style="border-bottom:1px solid var(--border);background:transparent">
+                <td style="padding:6px 10px;font-family:var(--mono);font-weight:600;color:var(--accent)">${escHtml(a.horario)}</td>
+                <td style="padding:6px 8px;font-family:var(--mono);font-weight:600">${escHtml(a.code)}</td>
+                <td style="padding:6px 8px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(a.descricao)}">${escHtml(a.descricao)}</td>
+                <td style="padding:6px 8px"><span style="font-size:10px;padding:2px 5px;border-radius:3px;background:var(--bg2);border:1px solid var(--border)">${escHtml(a.type)}</span></td>
+                <td style="padding:6px 8px"><span style="font-size:10px;color:var(--muted)">${a.origem === 'pecasDia' ? 'Peças do Dia' : 'Acervo'}</span></td>
+                <td style="padding:6px 8px;font-family:var(--mono);color:var(--muted)">${escHtml(a.tempo)}</td>
+                <td style="padding:6px 10px;text-align:right;font-family:var(--mono);font-weight:600;color:var(--green)">${a.score != null ? a.score : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  }
+
+  const wrapVazios = document.getElementById('dist-breaks-nao-alocados-wrap');
+  const listaVazios = document.getElementById('dist-breaks-lista-vazios');
+  if (wrapVazios && listaVazios) {
+    if (resultado.slotsNaoPreenchidos && resultado.slotsNaoPreenchidos.length > 0) {
+      wrapVazios.style.display = 'block';
+      listaVazios.innerHTML = resultado.slotsNaoPreenchidos.map(s => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border2);gap:10px">
+          <div>
+            <span style="font-family:var(--mono);font-weight:600;color:var(--accent);margin-right:6px">${escHtml(s.horario)}</span>
+            <span style="font-weight:500">${escHtml(s.descricao)}</span>
+            <span style="font-size:10px;color:var(--muted);margin-left:6px">(${escHtml(s.tempo || '00:00:00')})</span>
+          </div>
+          <div style="color:var(--amber);font-size:11px;text-align:right">${escHtml(s.motivoRecusa)}</div>
+        </div>
+      `).join('');
+    } else {
+      wrapVazios.style.display = 'none';
+      listaVazios.innerHTML = '';
+    }
+  }
+
+  modal.style.display = 'flex';
+}
+window.exibirRelatorioDistribuicaoBreaks = exibirRelatorioDistribuicaoBreaks;
 
 
 /**

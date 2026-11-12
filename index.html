@@ -1580,7 +1580,35 @@
   </div>
 </div>
 
-<input type="file" id="file-import" accept=".json,.csv" style="display:none" onchange="handleImport(event)">
+<!-- MODAL DE RELATÓRIO DE DISTRIBUIÇÃO DE BREAKS -->
+<div id="modal-distribuicao-breaks" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:680px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border2);padding-bottom:12px;margin-bottom:16px">
+      <h3 style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px">
+        <span>🪄</span> Resultado do Auto-preenchimento de Breaks
+      </h3>
+      <button class="btn btn-sm" onclick="closeModal('modal-distribuicao-breaks')" style="padding:2px 8px;font-size:12px" title="Fechar">✕</button>
+    </div>
+
+    <div id="dist-breaks-resumo-cards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));gap:8px;margin-bottom:16px"></div>
+
+    <div style="flex:1;overflow-y:auto;margin-bottom:16px;padding-right:4px">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Peças Distribuídas</div>
+      <div id="dist-breaks-lista-alocadas" style="border:1px solid var(--border2);border-radius:6px;background:var(--bg2);max-height:260px;overflow-y:auto"></div>
+
+      <div id="dist-breaks-nao-alocados-wrap" style="margin-top:14px;display:none">
+        <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:6px">⚠️ Slots que permaneceram vazios</div>
+        <div id="dist-breaks-lista-vazios" style="border:1px solid var(--border2);border-radius:6px;background:var(--bg2);padding:8px 12px;font-size:12px"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:0;padding-top:12px;border-top:1px solid var(--border2)">
+      <button class="btn btn-primary" onclick="closeModal('modal-distribuicao-breaks')">Concluir e fechar</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-import"  accept=".json,.csv" style="display:none" onchange="handleImport(event)">
 <input type="file" id="file-pecas-dia" accept=".xlsx" style="display:none" onchange="handlePecasDiaImport(event)">
 
 <!-- cloud-sync.js cuida do login e, após autenticar e baixar os dados da nuvem,
