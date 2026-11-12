@@ -1,6 +1,6 @@
 /**
  * src/ui/admin-painel.js
- * Painel Administrativo para gestão de emissoras, operadores e diagnóstico de saúde do sistema.
+ * Painel Administrativo para gestão de emissoras, operadores, personalização visual e diagnóstico de saúde do sistema.
  */
 
 (function (root, factory) {
@@ -68,10 +68,6 @@
     }
   }
 
-  function injetarBotao() {
-    // Acesso ao painel administrativo centralizado exclusivamente no Hub
-  }
-
   function renderModal() {
     if (document.getElementById('modal-admin-painel')) return;
 
@@ -84,7 +80,7 @@
     `;
 
     modal.innerHTML = `
-      <div style="background: #1e293b; color: #f8fafc; width: 94%; max-width: 700px;
+      <div style="background: #1e293b; color: #f8fafc; width: 94%; max-width: 720px;
                   border-radius: 12px; padding: 22px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
                   border: 1px solid #334155; max-height: 88vh; overflow-y: auto;">
         
@@ -101,6 +97,7 @@
 
         <div style="display: flex; gap: 8px; border-bottom: 1px solid #334155; margin-bottom: 18px; flex-wrap: wrap;">
           <button id="admin-tab-emissoras" style="padding: 8px 14px; background: none; border: none; border-bottom: 2px solid #38bdf8; color: #38bdf8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Emissoras Cadastradas</button>
+          <button id="admin-tab-editar" style="display: none; padding: 8px 14px; background: none; border: none; color: #38bdf8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">🎨 Personalizar</button>
           <button id="admin-tab-membros" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Equipe da Emissora</button>
           <button id="admin-tab-nova" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">+ Nova Emissora</button>
           <button id="admin-tab-saude" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">🩺 Saúde do Sistema</button>
@@ -115,6 +112,54 @@
           <div id="admin-lista-emissoras" style="border:1px solid #334155;border-radius:8px;overflow:hidden;background:#0f172a;">
             <p style="padding:14px;color:#94a3b8;margin:0;font-size:.85rem;">Carregando emissoras...</p>
           </div>
+        </div>
+
+        <!-- ABA: EDITAR / PERSONALIZAR IDENTIDADE VISUAL -->
+        <div id="admin-painel-editar" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="font-size: 0.88rem; font-weight: 600; color: #cbd5e1;">Personalizar Identidade da Emissora</div>
+            <button id="admin-btn-cancelar-edicao" type="button" style="background: none; border: 1px solid #475569; color: #94a3b8; padding: 3px 9px; border-radius: 5px; font-size: 0.78rem; cursor: pointer;">← Voltar à lista</button>
+          </div>
+          <form id="admin-form-editar" style="display: flex; flex-direction: column; gap: 12px;">
+            <input type="hidden" id="admin-editar-id">
+            <div>
+              <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">Nome da Emissora *</label>
+              <input type="text" id="admin-editar-nome" required placeholder="Ex: TV Brasil Central" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.85rem;">
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <div style="flex: 2;">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">Slug (identificador URL)</label>
+                <input type="text" id="admin-editar-slug" placeholder="Ex: tbc" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.85rem;">
+              </div>
+              <div style="flex: 1.2;">
+                <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">Cor de Destaque</label>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="color" id="admin-editar-cor" value="#0066cc" style="width: 38px; height: 35px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; cursor: pointer; padding: 1px;">
+                  <input type="text" id="admin-editar-cor-hex" value="#0066cc" maxlength="7" style="flex: 1; min-width: 65px; padding: 7px 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.82rem; font-family: monospace;">
+                </div>
+              </div>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">URL do Logo da Emissora (PNG/SVG transparente recomendado)</label>
+              <input type="text" id="admin-editar-logo" placeholder="Ex: https://exemplo.com/logo-tbc.png ou assets/logo.png" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.85rem;">
+            </div>
+
+            <!-- Preview Card em Tempo Real -->
+            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-top: 4px;">
+              <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; font-weight: 600;">Pré-visualização nos Cabeçalhos e Topbars</div>
+              <div id="admin-editar-preview-box" style="display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; flex-wrap: wrap;">
+                <img id="admin-editar-preview-img" src="" alt="Logo" style="display: none; height: 22px; max-width: 48px; object-fit: contain; border-radius: 3px; background: rgba(255,255,255,0.08); padding: 1px 3px;">
+                <span id="admin-editar-preview-badge" style="background: #0066cc; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;">NOME DA EMISSORA</span>
+                <span style="font-size: 11px; color: #94a3b8;">· ROTEIRO</span>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-top: 6px;">
+              <button type="submit" id="admin-btn-salvar-edicao" style="flex: 2; background: #2563eb; color: #fff; border: none; padding: 9px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem;">Salvar Alterações</button>
+              <button type="button" id="admin-btn-voltar-edicao" style="flex: 1; background: #334155; color: #cbd5e1; border: 1px solid #475569; padding: 9px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem;">Cancelar</button>
+            </div>
+            <p id="admin-msg-editar" style="margin: 4px 0 0 0; font-size: 0.8rem;"></p>
+          </form>
         </div>
 
         <!-- ABA 1: MEMBROS -->
@@ -155,11 +200,29 @@
                 <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">Slug (identificador URL)</label>
                 <input type="text" id="admin-nova-slug" placeholder="Ex: tbc" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.85rem;">
               </div>
-              <div style="flex: 1;">
+              <div style="flex: 1.2;">
                 <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">Cor de Destaque</label>
-                <input type="color" id="admin-nova-cor" value="#0066cc" style="width: 100%; height: 35px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; cursor: pointer;">
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <input type="color" id="admin-nova-cor" value="#0066cc" style="width: 38px; height: 35px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; cursor: pointer; padding: 1px;">
+                  <input type="text" id="admin-nova-cor-hex" value="#0066cc" maxlength="7" style="flex: 1; min-width: 65px; padding: 7px 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.82rem; font-family: monospace;">
+                </div>
               </div>
             </div>
+            <div>
+              <label style="display: block; font-size: 0.8rem; margin-bottom: 4px; color: #94a3b8;">URL do Logo da Emissora (opcional)</label>
+              <input type="text" id="admin-nova-logo" placeholder="Ex: https://exemplo.com/logo-tbc.png ou assets/logo.png" style="width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #fff; font-size: 0.85rem;">
+            </div>
+
+            <!-- Preview da Nova Emissora -->
+            <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px;">
+              <div style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; margin-bottom: 8px; font-weight: 600;">Pré-visualização</div>
+              <div id="admin-nova-preview-box" style="display: flex; align-items: center; gap: 8px; background: #1e293b; padding: 10px 14px; border-radius: 6px; border: 1px solid #334155; flex-wrap: wrap;">
+                <img id="admin-nova-preview-img" src="" alt="Logo" style="display: none; height: 22px; max-width: 48px; object-fit: contain; border-radius: 3px; background: rgba(255,255,255,0.08); padding: 1px 3px;">
+                <span id="admin-nova-preview-badge" style="background: #0066cc; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;">NOVA EMISSORA</span>
+                <span style="font-size: 11px; color: #94a3b8;">· ROTEIRO</span>
+              </div>
+            </div>
+
             <button type="submit" style="background: #10b981; color: #fff; border: none; padding: 9px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.9rem; margin-top: 4px;">Cadastrar Emissora</button>
             <p id="admin-msg-nova" style="margin: 4px 0 0 0; font-size: 0.8rem;"></p>
           </form>
@@ -264,6 +327,7 @@
     modal.onclick = (e) => { if (e.target === modal) fecharModal(); };
 
     document.getElementById('admin-tab-emissoras').onclick = () => alternarAba('emissoras');
+    document.getElementById('admin-tab-editar').onclick = () => alternarAba('editar');
     document.getElementById('admin-tab-membros').onclick = () => alternarAba('membros');
     document.getElementById('admin-btn-recarregar-emissoras').onclick = carregarListaEmissoras;
     document.getElementById('admin-select-emissora-equipe').onchange = (e) => {
@@ -279,6 +343,56 @@
       criarEmissora();
     };
 
+    // Listeners de Edição
+    document.getElementById('admin-form-editar').onsubmit = (e) => {
+      e.preventDefault();
+      salvarEdicaoEmissora();
+    };
+    document.getElementById('admin-btn-cancelar-edicao').onclick = cancelarEdicaoEmissora;
+    document.getElementById('admin-btn-voltar-edicao').onclick = cancelarEdicaoEmissora;
+
+    // Sincronização de cores e preview em tempo real (Edição)
+    const edCor = document.getElementById('admin-editar-cor');
+    const edCorHex = document.getElementById('admin-editar-cor-hex');
+    const edNome = document.getElementById('admin-editar-nome');
+    const edLogo = document.getElementById('admin-editar-logo');
+
+    if (edCor && edCorHex) {
+      edCor.oninput = () => {
+        edCorHex.value = edCor.value;
+        atualizarPreviewEdicao();
+      };
+      edCorHex.oninput = () => {
+        if (/^#[0-9a-fA-F]{6}$/.test(edCorHex.value)) {
+          edCor.value = edCorHex.value;
+        }
+        atualizarPreviewEdicao();
+      };
+    }
+    if (edNome) edNome.oninput = atualizarPreviewEdicao;
+    if (edLogo) edLogo.oninput = atualizarPreviewEdicao;
+
+    // Sincronização de cores e preview em tempo real (Nova)
+    const nvCor = document.getElementById('admin-nova-cor');
+    const nvCorHex = document.getElementById('admin-nova-cor-hex');
+    const nvNome = document.getElementById('admin-nova-nome');
+    const nvLogo = document.getElementById('admin-nova-logo');
+
+    if (nvCor && nvCorHex) {
+      nvCor.oninput = () => {
+        nvCorHex.value = nvCor.value;
+        atualizarPreviewNova();
+      };
+      nvCorHex.oninput = () => {
+        if (/^#[0-9a-fA-F]{6}$/.test(nvCorHex.value)) {
+          nvCor.value = nvCorHex.value;
+        }
+        atualizarPreviewNova();
+      };
+    }
+    if (nvNome) nvNome.oninput = atualizarPreviewNova;
+    if (nvLogo) nvLogo.oninput = atualizarPreviewNova;
+
     // Listeners da aba Saúde
     document.getElementById('admin-btn-ping').onclick = executarPingSupabase;
     document.getElementById('admin-btn-volume-banco').onclick = analisarVolumeBanco;
@@ -289,21 +403,23 @@
 
   function alternarAba(aba) {
     const tabE = document.getElementById('admin-tab-emissoras');
+    const tabEd = document.getElementById('admin-tab-editar');
     const tabM = document.getElementById('admin-tab-membros');
     const tabN = document.getElementById('admin-tab-nova');
     const tabS = document.getElementById('admin-tab-saude');
     const painelE = document.getElementById('admin-painel-emissoras');
+    const painelEd = document.getElementById('admin-painel-editar');
     const painelM = document.getElementById('admin-painel-membros');
     const painelN = document.getElementById('admin-painel-nova');
     const painelS = document.getElementById('admin-painel-saude');
 
-    [tabE, tabM, tabN, tabS].forEach(t => {
+    [tabE, tabEd, tabM, tabN, tabS].forEach(t => {
       if (t) {
         t.style.borderBottom = 'none';
         t.style.color = '#94a3b8';
       }
     });
-    [painelE, painelM, painelN, painelS].forEach(p => {
+    [painelE, painelEd, painelM, painelN, painelS].forEach(p => {
       if (p) p.style.display = 'none';
     });
 
@@ -311,7 +427,15 @@
       tabE.style.borderBottom = '2px solid #38bdf8';
       tabE.style.color = '#38bdf8';
       painelE.style.display = 'block';
+      if (tabEd) tabEd.style.display = 'none';
       carregarListaEmissoras();
+    } else if (aba === 'editar') {
+      if (tabEd) {
+        tabEd.style.display = 'inline-block';
+        tabEd.style.borderBottom = '2px solid #38bdf8';
+        tabEd.style.color = '#38bdf8';
+      }
+      painelEd.style.display = 'block';
     } else if (aba === 'membros') {
       tabM.style.borderBottom = '2px solid #38bdf8';
       tabM.style.color = '#38bdf8';
@@ -321,6 +445,7 @@
       tabN.style.borderBottom = '2px solid #10b981';
       tabN.style.color = '#10b981';
       painelN.style.display = 'block';
+      atualizarPreviewNova();
     } else if (aba === 'saude') {
       tabS.style.borderBottom = '2px solid #a855f7';
       tabS.style.color = '#a855f7';
@@ -341,6 +466,168 @@
   function fecharModal() {
     const modal = document.getElementById('modal-admin-painel');
     if (modal) modal.style.display = 'none';
+  }
+
+  // ==========================================
+  // PREVIEWS EM TEMPO REAL
+  // ==========================================
+
+  function atualizarPreviewEdicao() {
+    const nome = document.getElementById('admin-editar-nome')?.value.trim() || 'NOME DA EMISSORA';
+    const cor = document.getElementById('admin-editar-cor-hex')?.value.trim() || '#0066cc';
+    const logoUrl = document.getElementById('admin-editar-logo')?.value.trim() || '';
+
+    const badge = document.getElementById('admin-editar-preview-badge');
+    const img = document.getElementById('admin-editar-preview-img');
+
+    if (badge) {
+      badge.textContent = nome.toUpperCase();
+      badge.style.background = cor;
+    }
+
+    if (img) {
+      if (logoUrl) {
+        img.src = logoUrl;
+        img.style.display = 'inline-block';
+        img.onerror = () => { img.style.display = 'none'; };
+      } else {
+        img.style.display = 'none';
+      }
+    }
+  }
+
+  function atualizarPreviewNova() {
+    const nome = document.getElementById('admin-nova-nome')?.value.trim() || 'NOVA EMISSORA';
+    const cor = document.getElementById('admin-nova-cor-hex')?.value.trim() || '#0066cc';
+    const logoUrl = document.getElementById('admin-nova-logo')?.value.trim() || '';
+
+    const badge = document.getElementById('admin-nova-preview-badge');
+    const img = document.getElementById('admin-nova-preview-img');
+
+    if (badge) {
+      badge.textContent = nome.toUpperCase();
+      badge.style.background = cor;
+    }
+
+    if (img) {
+      if (logoUrl) {
+        img.src = logoUrl;
+        img.style.display = 'inline-block';
+        img.onerror = () => { img.style.display = 'none'; };
+      } else {
+        img.style.display = 'none';
+      }
+    }
+  }
+
+  // ==========================================
+  // EDIÇÃO DE EMISSORA
+  // ==========================================
+
+  function abrirEdicaoEmissora(emissoraId) {
+    const e = _emissorasLista.find(item => item.id === emissoraId);
+    if (!e) return;
+
+    _emissoraSelecionadaId = emissoraId;
+
+    const idInput = document.getElementById('admin-editar-id');
+    const nomeInput = document.getElementById('admin-editar-nome');
+    const slugInput = document.getElementById('admin-editar-slug');
+    const corInput = document.getElementById('admin-editar-cor');
+    const corHexInput = document.getElementById('admin-editar-cor-hex');
+    const logoInput = document.getElementById('admin-editar-logo');
+    const msg = document.getElementById('admin-msg-editar');
+
+    if (idInput) idInput.value = e.id;
+    if (nomeInput) nomeInput.value = e.nome || '';
+    if (slugInput) slugInput.value = e.slug || '';
+    const cor = e.cor_primaria || '#0066cc';
+    if (corInput) corInput.value = cor;
+    if (corHexInput) corHexInput.value = cor;
+    if (logoInput) logoInput.value = e.logo_url || '';
+    if (msg) msg.textContent = '';
+
+    atualizarPreviewEdicao();
+    alternarAba('editar');
+  }
+
+  function cancelarEdicaoEmissora() {
+    alternarAba('emissoras');
+  }
+
+  async function salvarEdicaoEmissora() {
+    const id = document.getElementById('admin-editar-id')?.value;
+    const nome = document.getElementById('admin-editar-nome')?.value.trim();
+    const slug = document.getElementById('admin-editar-slug')?.value.trim();
+    const cor = document.getElementById('admin-editar-cor-hex')?.value.trim() || '#0066cc';
+    const logoUrl = document.getElementById('admin-editar-logo')?.value.trim() || null;
+    const msg = document.getElementById('admin-msg-editar');
+
+    if (!id || !nome) {
+      if (msg) {
+        msg.style.color = '#ef4444';
+        msg.textContent = 'O nome da emissora é obrigatório.';
+      }
+      return;
+    }
+
+    if (msg) {
+      msg.style.color = '#94a3b8';
+      msg.textContent = 'Salvando alterações...';
+    }
+
+    try {
+      const { data, error } = await _supabase.rpc('fn_admin_atualizar_emissora', {
+        p_emissora_id: id,
+        p_nome: nome,
+        p_slug: slug || null,
+        p_cor: cor,
+        p_logo_url: logoUrl
+      });
+
+      if (error) throw error;
+
+      if (msg) {
+        msg.style.color = '#10b981';
+        msg.textContent = 'Identidade da emissora atualizada com sucesso!';
+      }
+
+      // Atualiza o objeto no cache local de emissoras
+      const emissoraAtualizada = {
+        id: id,
+        nome: nome,
+        slug: slug,
+        cor_primaria: cor,
+        logo_url: logoUrl
+      };
+
+      if (window.EmissoraContext) {
+        if (typeof window.EmissoraContext.atualizarEmissoraNoCache === 'function') {
+          window.EmissoraContext.atualizarEmissoraNoCache(emissoraAtualizada);
+        }
+        const ativaId = window.EmissoraContext.getEmissoraAtivaId();
+        if (ativaId === id) {
+          if (typeof window.atualizarBrandingEmissora === 'function') {
+            window.atualizarBrandingEmissora(emissoraAtualizada);
+          }
+          if (typeof window.atualizarBrandingPecas === 'function') {
+            window.atualizarBrandingPecas(emissoraAtualizada);
+          }
+          if (typeof window.atualizarBrandingGrade === 'function') {
+            window.atualizarBrandingGrade(emissoraAtualizada);
+          }
+        }
+      }
+
+      await carregarListaEmissoras();
+      setTimeout(() => alternarAba('emissoras'), 700);
+
+    } catch (err) {
+      if (msg) {
+        msg.style.color = '#ef4444';
+        msg.textContent = 'Erro ao salvar: ' + err.message;
+      }
+    }
   }
 
   // ==========================================
@@ -533,7 +820,6 @@
         const key = localStorage.key(i);
         if (!key) continue;
         const val = localStorage.getItem(key) || '';
-        // Em UTF-16, cada caractere ocupa 2 bytes
         const bytes = (key.length + val.length) * 2;
         totalBytes += bytes;
 
@@ -668,9 +954,8 @@
   }
 
   // ==========================================
-  // ABA 1 & 2: MEMBROS E NOVA EMISSORA
+  // ABA: LISTA DE EMISSORAS E MEMBROS
   // ==========================================
-
 
   async function carregarListaEmissoras() {
     const lista = document.getElementById('admin-lista-emissoras');
@@ -694,16 +979,42 @@
         lista.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Nenhuma emissora administrada foi encontrada para este usuário.</p>';
         return;
       }
-      lista.innerHTML = _emissorasLista.map(e => `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border-bottom:1px solid #334155;gap:10px;">
-          <div><div style="font-weight:600;color:#f8fafc;">${escapeHtml(e.nome)}</div>
-          <div style="font-size:.75rem;color:#94a3b8;">Slug: ${escapeHtml(e.slug || '—')} · ${Number(e.total_membros || 0)} membro(s)</div></div>
-          <button class="admin-ver-equipe" data-id="${escapeHtml(e.id)}" style="background:#1e293b;border:1px solid #38bdf8;color:#38bdf8;padding:5px 9px;border-radius:6px;cursor:pointer;">Ver equipe</button>
-        </div>`).join('');
-      lista.querySelectorAll('.admin-ver-equipe').forEach(btn => btn.onclick = () => {
-        _emissoraSelecionadaId = btn.dataset.id;
-        if (selectEquipe) selectEquipe.value = _emissoraSelecionadaId;
-        alternarAba('membros');
+      lista.innerHTML = _emissorasLista.map(e => {
+        const cor = e.cor_primaria || '#0066cc';
+        const logo = e.logo_url;
+        const logoThumb = logo
+          ? `<img src="${escapeHtml(logo)}" alt="Logo" style="height:22px;max-width:36px;object-fit:contain;border-radius:3px;background:rgba(255,255,255,0.08);padding:1px 3px;">`
+          : '';
+
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:11px 14px;border-bottom:1px solid #334155;gap:10px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span title="Cor: ${escapeHtml(cor)}" style="display:inline-block;width:14px;height:14px;border-radius:3px;background:${escapeHtml(cor)};border:1px solid rgba(255,255,255,0.2);flex-shrink:0;"></span>
+            ${logoThumb}
+            <div>
+              <div style="font-weight:600;color:#f8fafc;display:flex;align-items:center;gap:6px;">
+                ${escapeHtml(e.nome)}
+              </div>
+              <div style="font-size:.75rem;color:#94a3b8;">Slug: ${escapeHtml(e.slug || '—')} · Cor: <span style="font-family:monospace;color:${escapeHtml(cor)}">${escapeHtml(cor)}</span> · ${Number(e.total_membros || 0)} membro(s)</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="admin-editar-emissora-btn" data-id="${escapeHtml(e.id)}" style="background:#1e293b;border:1px solid #38bdf8;color:#38bdf8;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.78rem;font-weight:600;">🎨 Personalizar</button>
+            <button class="admin-ver-equipe" data-id="${escapeHtml(e.id)}" style="background:#1e293b;border:1px solid #64748b;color:#cbd5e1;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.78rem;">👥 Equipe</button>
+          </div>
+        </div>`;
+      }).join('');
+
+      lista.querySelectorAll('.admin-editar-emissora-btn').forEach(btn => {
+        btn.onclick = () => abrirEdicaoEmissora(btn.dataset.id);
+      });
+
+      lista.querySelectorAll('.admin-ver-equipe').forEach(btn => {
+        btn.onclick = () => {
+          _emissoraSelecionadaId = btn.dataset.id;
+          if (selectEquipe) selectEquipe.value = _emissoraSelecionadaId;
+          alternarAba('membros');
+        };
       });
     } catch (err) {
       lista.innerHTML = `<p style="padding:14px;color:#ef4444;margin:0;">Não foi possível listar emissoras: ${escapeHtml(err.message)}. Confirme a migration 016.</p>`;
@@ -821,26 +1132,53 @@
   async function criarEmissora() {
     const nome = document.getElementById('admin-nova-nome').value.trim();
     const slug = document.getElementById('admin-nova-slug').value.trim();
-    const cor = document.getElementById('admin-nova-cor').value;
+    const cor = document.getElementById('admin-nova-cor-hex')?.value.trim() || document.getElementById('admin-nova-cor').value;
+    const logoUrl = document.getElementById('admin-nova-logo')?.value.trim() || null;
     const msg = document.getElementById('admin-msg-nova');
 
     msg.style.color = '#94a3b8';
     msg.textContent = 'Criando emissora...';
 
     try {
-      const { data, error } = await _supabase.rpc('fn_admin_criar_emissora', {
-        p_nome: nome,
-        p_slug: slug || null,
-        p_cor: cor
-      });
+      let emissoraCriadaId = null;
 
-      if (error) throw error;
+      // Tenta criar passando o p_logo_url (migration 017)
+      try {
+        const { data, error } = await _supabase.rpc('fn_admin_criar_emissora', {
+          p_nome: nome,
+          p_slug: slug || null,
+          p_cor: cor,
+          p_logo_url: logoUrl
+        });
+        if (error) throw error;
+        emissoraCriadaId = data?.emissora_id;
+      } catch (errRPC17) {
+        // Fallback: se o banco ainda não aplicou a 017 com 4 params, chama a versão com 3 params
+        const { data: data3, error: err3 } = await _supabase.rpc('fn_admin_criar_emissora', {
+          p_nome: nome,
+          p_slug: slug || null,
+          p_cor: cor
+        });
+        if (err3) throw err3;
+        emissoraCriadaId = data3?.emissora_id;
+
+        // Se logo_url foi informado, atualiza em seguida via fn_admin_atualizar_emissora
+        if (logoUrl && emissoraCriadaId) {
+          await _supabase.rpc('fn_admin_atualizar_emissora', {
+            p_emissora_id: emissoraCriadaId,
+            p_nome: nome,
+            p_slug: slug || null,
+            p_cor: cor,
+            p_logo_url: logoUrl
+          });
+        }
+      }
 
       msg.style.color = '#10b981';
-      msg.textContent = `Emissora "${nome}" criada! Atualizando lista...`;
-      if (data?.emissora_id) _emissoraSelecionadaId = data.emissora_id;
+      msg.textContent = `Emissora "${nome}" criada com sucesso! Atualizando lista...`;
+      if (emissoraCriadaId) _emissoraSelecionadaId = emissoraCriadaId;
       await carregarListaEmissoras();
-      setTimeout(() => alternarAba('emissoras'), 500);
+      setTimeout(() => alternarAba('emissoras'), 600);
 
     } catch (err) {
       msg.style.color = '#ef4444';
@@ -856,7 +1194,6 @@
     init: function (supabaseClient, currentUser) {
       _supabase = supabaseClient;
       _user = currentUser;
-      // Botão agora vive apenas no Hub
       renderModal();
       atualizarVisibilidadeBotao();
     },

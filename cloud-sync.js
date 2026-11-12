@@ -606,15 +606,34 @@ function setupRealtime() {
 // =====================================================
 function atualizarBrandingEmissora(emissora) {
   const nome = emissora && emissora.nome ? emissora.nome : null;
+  const cor = (emissora && emissora.cor_primaria) ? emissora.cor_primaria : "#0066cc";
+  const logoUrl = (emissora && emissora.logo_url) ? emissora.logo_url : null;
   const logoEl = document.getElementById("app-logo-title");
   if (logoEl) {
     if (nome) {
-      logoEl.innerHTML = escapeHtml(nome.toUpperCase()) + " — <span>ROTEIRO</span>";
+      let logoBadge = "";
+      if (logoUrl) {
+        logoBadge = `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(nome)}" style="height:22px;max-width:48px;object-fit:contain;vertical-align:middle;margin-right:6px;border-radius:3px">`;
+      }
+      logoEl.innerHTML = `${logoBadge}<span style="background:${escapeHtml(cor)};color:#fff;padding:2px 8px;border-radius:4px;font-size:11.5px;font-weight:700;letter-spacing:0.02em">${escapeHtml(nome.toUpperCase())}</span> <span style="font-size:11px;color:var(--muted,#888);margin-left:4px">ROTEIRO</span>`;
     } else {
       logoEl.innerHTML = "ROTEIRO<span>HUB</span>";
     }
   }
+  const sel = document.getElementById("select-emissora");
+  if (sel && nome) {
+    sel.style.borderColor = cor;
+  }
+  try {
+    if (typeof document !== "undefined" && document.documentElement) {
+      document.documentElement.style.setProperty("--emissora-cor-primaria", cor);
+    }
+  } catch (_) {}
   document.title = nome ? ("Roteiro — " + nome) : "RoteiroHub";
+}
+
+if (typeof window !== "undefined") {
+  window.atualizarBrandingEmissora = atualizarBrandingEmissora;
 }
 
 function escapeHtml(str) {

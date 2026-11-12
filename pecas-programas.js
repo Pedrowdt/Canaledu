@@ -278,13 +278,27 @@ function atualizarBrandingPecas(emissora) {
   const modTitle = document.getElementById('page-module-title');
   if (modTitle) {
     if (emissora && emissora.nome) {
-      modTitle.innerHTML = `${escapeHtml(emissora.nome.toUpperCase())} · <span style="color:#94a3b8;font-weight:400">PEÇAS E PROGRAMAS</span>`;
+      const cor = emissora.cor_primaria || "#0066cc";
+      const logoUrl = emissora.logo_url || null;
+      let logoHtml = "";
+      if (logoUrl) {
+        logoHtml = `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(emissora.nome)}" style="height:20px;max-width:40px;object-fit:contain;vertical-align:middle;margin-right:6px;border-radius:3px">`;
+      }
+      modTitle.innerHTML = `${logoHtml}<span style="background:${escapeHtml(cor)};color:#fff;padding:2px 7px;border-radius:4px;font-size:10.5px;font-weight:700;letter-spacing:0.03em">${escapeHtml(emissora.nome.toUpperCase())}</span> <span style="color:#94a3b8;font-weight:400;margin-left:4px">· PEÇAS E PROGRAMAS</span>`;
       document.title = `Peças e Programas — ${emissora.nome}`;
     } else {
       modTitle.innerHTML = `<span>PEÇAS E PROGRAMAS</span>`;
       document.title = 'Peças e Programas · RoteiroHub';
     }
   }
+  const sel = document.getElementById("select-emissora");
+  if (sel && emissora && emissora.cor_primaria) {
+    sel.style.borderColor = emissora.cor_primaria;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.atualizarBrandingPecas = atualizarBrandingPecas;
 }
 
 async function trocarEmissoraAtiva(novaEmissoraId) {

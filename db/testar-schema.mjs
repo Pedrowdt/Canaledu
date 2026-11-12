@@ -333,3 +333,31 @@ console.log('016 validado com sucesso ✓\n');
 
 
 
+
+// --- 017_personalizacao_visual_emissora.sql ---
+const s017 = readFileSync(new URL('./017_personalizacao_visual_emissora.sql', import.meta.url), 'utf8');
+await q(s017);
+console.log('017_personalizacao_visual_emissora aplicado ✓');
+
+// Testa criação de emissora com logo_url e cor_primaria na 017
+const rCriar017 = await db.query(`
+  select public.fn_admin_criar_emissora(
+    'TV Brasil',
+    'tv-brasil',
+    '#10b981',
+    'https://exemplo.com/logo-tvbrasil.png'
+  ) as resultado;
+`);
+console.log('017 emissora criada com logo e cor:', rCriar017.rows[0].resultado);
+const idTvBrasil = rCriar017.rows[0].resultado.emissora_id;
+
+const rConfirma017 = await db.query(`
+  select nome, slug, cor_primaria, logo_url
+  from public.emissoras
+  where id = '${idTvBrasil}'::uuid;
+`);
+console.log('017 conferência no banco:', JSON.stringify(rConfirma017.rows[0]));
+if (rConfirma017.rows[0].cor_primaria !== '#10b981' || rConfirma017.rows[0].logo_url !== 'https://exemplo.com/logo-tvbrasil.png') {
+  throw new Error('017 falhou ao persistir cor_primaria ou logo_url!');
+}
+console.log('017 validado com sucesso ✓\n');
