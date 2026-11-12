@@ -339,6 +339,10 @@ const s017 = readFileSync(new URL('./017_personalizacao_visual_emissora.sql', im
 await q(s017);
 console.log('017_personalizacao_visual_emissora aplicado ✓');
 
+// 018: Persistência de regras de recorrência por emissora
+await q(readFileSync(new URL('./018_grade_recorrencia.sql', import.meta.url), 'utf8'));
+console.log('018_grade_recorrencia aplicado ✓');
+
 // Testa criação de emissora com logo_url e cor_primaria na 017
 const rCriar017 = await db.query(`
   select public.fn_admin_criar_emissora(

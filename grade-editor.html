@@ -18,6 +18,7 @@
 <script src="grade_base.js"></script>
 <script src="src/core/emissoraContext.js"></script>
 <script src="src/core/gradeEditorCore.js"></script>
+<script src="src/core/gradeRecorrenciaCore.js"></script>
 <script src="src/ui/admin-painel.js"></script>
 
 <style>
@@ -844,6 +845,55 @@ input, select { font-family: inherit; font-size: 12px; }
 }
 #toast.error { background: var(--danger); }
 #toast.success { background: var(--success); }
+
+/* Badges de Recorrência e Exceção */
+.badge-recurrence {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  transition: all .15s;
+  border: 1px solid transparent;
+  line-height: 1.3;
+}
+.badge-inedito {
+  background: #ecfdf5;
+  color: #059669;
+  border-color: #a7f3d0;
+}
+.badge-inedito:hover { background: #d1fae5; }
+.badge-reprise {
+  background: #f5f3ff;
+  color: #7c3aed;
+  border-color: #ddd6fe;
+}
+.badge-reprise:hover { background: #ede9fe; }
+.badge-excecao {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+.badge-excecao:hover { background: #fef3c7; }
+.btn-slot-gear {
+  color: #64748b;
+  font-size: 11px;
+  padding: 1px 5px;
+  background: transparent;
+  border: 1px solid #cbd5e1;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.btn-slot-gear:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
 </style>
   <!-- BIBLIOTECAS DE EXPORTAÇÃO PDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -915,6 +965,7 @@ input, select { font-family: inherit; font-size: 12px; }
   </div>
 
   <div class="day-actions">
+    <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções por Data <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:4px">0</span></button>
     <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 Exportar PDF</button>
     <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar Dia...</button>
     <button class="btn-outline" onclick="compactarGrade()" title="Eliminar intervalos vazios e compactar sequência">⚡ Compactar</button>
@@ -929,8 +980,11 @@ input, select { font-family: inherit; font-size: 12px; }
   <aside class="sidebar-acervo">
     <div class="sidebar-header">
       <div class="sidebar-header-top">
-        <h2>Acervo de Programas (<span id="acervo-count">0</span>)</h2>
-        <button class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="abrirNovoProgramaRapido()">+ Novo</button>
+        <h2>Acervo (<span id="acervo-count">0</span>)</h2>
+        <div style="display:flex;gap:4px">
+          <button class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="abrirModalFilasEpisodios()" title="Gerenciar fila de episódios">🎬 Filas</button>
+          <button class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="abrirNovoProgramaRapido()">+ Novo</button>
+        </div>
       </div>
       <input type="text" class="search-input" id="search-programas" placeholder="Buscar título ou código..." oninput="filtrarProgramas()">
     </div>
@@ -1048,6 +1102,175 @@ input, select { font-family: inherit; font-size: 12px; }
     <div class="modal-actions">
       <button class="btn-outline" onclick="closeQuickProgModal()">Cancelar</button>
       <button class="btn-primary" onclick="salvarNovoProgramaRapido()">Adicionar ao Acervo</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL: CONFIGURAÇÃO DE RECORRÊNCIA DO SLOT (INÉDITO / REPRISE) -->
+<div class="overlay" id="modal-config-slot" style="display:none" onclick="if(event.target===this)closeConfigSlotModal()">
+  <div class="modal-box" style="max-width:520px">
+    <div class="modal-title" id="config-slot-title">Configurar Recorrência do Horário</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px" id="config-slot-desc">
+      Defina se este horário é uma exibição inédita ou reprise de outro dia.
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px">
+      <!-- Opções de Tipo -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label style="flex:1;min-width:135px;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:#fafafa" id="lbl-tipo-fixo">
+          <input type="radio" name="slot-tipo-exibicao" value="fixo" checked onchange="toggleConfigRepriseSection()">
+          <div><div style="font-weight:600;font-size:12px;color:#475569">● Fixo</div><div style="font-size:10.5px;color:#64748b">Não avança fila de episódios</div></div>
+        </label>
+        <label style="flex:1;min-width:135px;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:#fafafa" id="lbl-tipo-inedito">
+          <input type="radio" name="slot-tipo-exibicao" value="inedito" onchange="toggleConfigRepriseSection()">
+          <div>
+            <div style="font-weight:600;font-size:12px;color:#059669">★ Inédito</div>
+            <div style="font-size:10.5px;color:#64748b">Avança a fila de episódios semana a semana</div>
+          </div>
+        </label>
+
+        <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;background:#fafafa" id="lbl-tipo-reprise">
+          <input type="radio" name="slot-tipo-exibicao" value="reprise" onchange="toggleConfigRepriseSection()">
+          <div>
+            <div style="font-weight:600;font-size:12px;color:#7c3aed">↺ Reprise</div>
+            <div style="font-size:10.5px;color:#64748b">Espelha o episódio de um horário inédito</div>
+          </div>
+        </label>
+      </div>
+
+      <!-- Seção de Vínculo de Reprise -->
+      <div id="section-origem-reprise" style="display:none;padding:12px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px">
+        <label style="display:block;font-size:11px;font-weight:700;color:#5b21b6;margin-bottom:6px">
+          Vincular ao Horário Inédito de Origem (mesma semana):
+        </label>
+        <select id="select-origem-reprise" class="search-input" style="background:#fff">
+          <!-- Opções preenchidas dinamicamente -->
+        </select>
+        <p style="font-size:10.5px;color:#6d28d9;margin-top:6px">
+          💡 A reprise acompanhará automaticamente qualquer episódio que for ao ar no horário inédito escolhido.
+        </p>
+      </div>
+
+      <!-- Atalho para criar exceção pontual -->
+      <div style="border-top:1px dashed var(--border);padding-top:10px;display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:#64748b">Precisa alterar apenas em uma data específica?</span>
+        <button type="button" class="btn-outline" style="font-size:11px;color:#7c3aed;border-color:#c4b5fd" onclick="abrirExcecaoParaSlotAtual()">⚡ Criar Exceção por Data</button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-outline" onclick="closeConfigSlotModal()">Cancelar</button>
+      <button class="btn-primary" onclick="salvarConfigSlot()">Salvar Configuração</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: EXCEÇÕES PONTUAIS POR DATA -->
+<div class="overlay" id="modal-excecoes-data" style="display:none" onclick="if(event.target===this)closeModalExcecoes()">
+  <div class="modal-box" style="max-width:680px;max-height:90vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>⚡ Exceções Pontuais por Data</span>
+      <span style="font-size:11px;font-weight:400;color:#64748b">Overrides isolados · Não alteram a grade semanal</span>
+    </div>
+
+    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:14px;gap:8px">
+      <button type="button" id="tab-btn-nova-excecao" class="day-tab active" style="padding:6px 12px;font-size:12px" onclick="switchModalExcecaoTab('nova')">+ Nova Exceção</button>
+      <button type="button" id="tab-btn-lista-excecoes" class="day-tab" style="padding:6px 12px;font-size:12px" onclick="switchModalExcecaoTab('lista')">Exceções Cadastradas (<span id="modal-excecoes-count">0</span>)</button>
+    </div>
+
+    <!-- Painel 1: Formulário de Nova Exceção -->
+    <div id="panel-nova-excecao" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Data da Exibição *</label>
+          <input type="date" id="excecao-input-data" class="search-input" required>
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Horário (HH:MM:SS) *</label>
+          <input type="text" id="excecao-input-hora" class="search-input" placeholder="ex: 08:00:00" value="08:00:00" required>
+        </div>
+      </div>
+
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Tipo de Exceção *</label>
+        <select id="excecao-select-tipo" class="search-input" onchange="atualizarCamposTipoExcecao()">
+          <option value="substituir_episodio">Trocar Episódio (mantém o programa, exibe episódio temático/especial)</option>
+          <option value="substituir_programa">Trocar Programa (debate, transmissão ao vivo, pronunciamento)</option>
+          <option value="cancelar_slot">Cancelar Horário (sem transmissão / slot vago nesta data)</option>
+        </select>
+      </div>
+
+      <div id="campo-excecao-episodio">
+        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Título do Episódio Substituto *</label>
+        <input type="text" id="excecao-input-ep-titulo" class="search-input" placeholder="ex: 7 de Setembro — Especial Independência">
+      </div>
+
+      <div id="campo-excecao-programa" style="display:none">
+        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Nome do Programa Substituto *</label>
+        <input type="text" id="excecao-input-prog-nome" class="search-input" placeholder="ex: Debate Eleitoral Ao Vivo">
+      </div>
+
+      <div>
+        <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Motivo / Justificativa</label>
+        <input type="text" id="excecao-input-motivo" class="search-input" placeholder="ex: Programação de feriado / Cobertura especial">
+      </div>
+
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;padding:8px 12px;border-radius:6px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer">
+          <input type="checkbox" id="excecao-input-avancar-fila">
+          <span><strong>Avançar fila de episódios normais</strong> (se desmarcado, congela o cursor para não pular o episódio regular na semana seguinte)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Painel 2: Lista de Exceções Cadastradas -->
+    <div id="panel-lista-excecoes" style="display:none;flex:1;overflow-y:auto;max-height:360px">
+      <div id="lista-excecoes-cards" style="display:flex;flex-direction:column;gap:8px">
+        <!-- Cards gerados dinamicamente -->
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-outline" onclick="closeModalExcecoes()">Fechar</button>
+      <button class="btn-primary" id="btn-salvar-excecao" onclick="salvarNovaExcecao()">Salvar Exceção Pontual</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: FILAS DE EPISÓDIOS POR PROGRAMA -->
+<div class="overlay" id="modal-filas-episodios" style="display:none" onclick="if(event.target===this)closeModalFilasEpisodios()">
+  <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>🎬 Fila Ordenada de Episódios</span>
+      <span style="font-size:11px;font-weight:400;color:#64748b">Ordem sequencial · Títulos temáticos</span>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Selecione o Programa:</label>
+      <select id="select-programa-fila" class="search-input" onchange="carregarFilaProgramaSelecionado()">
+        <!-- Opções dos programas do acervo -->
+      </select>
+    </div>
+
+    <!-- Adicionar Novo Episódio -->
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:700;color:#334155;margin-bottom:6px">+ Adicionar Episódio à Fila</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center">
+        <input type="text" id="novo-ep-titulo" class="search-input" placeholder="Título (ex: 7 de Setembro)">
+        <input type="text" id="novo-ep-codigo" class="search-input" placeholder="Cód (ex: IND_01)">
+        <input type="text" id="novo-ep-duracao" class="search-input" value="00:26:00" placeholder="00:26:00">
+        <button type="button" class="btn-primary" style="padding:6px 12px;font-size:11px" onclick="adicionarEpisodioAFila()">Adicionar</button>
+      </div>
+    </div>
+
+    <!-- Lista de Episódios na Fila -->
+    <div style="flex:1;overflow-y:auto;max-height:280px;border:1px solid var(--border);border-radius:6px;padding:8px" id="container-episodios-fila">
+      <!-- Gerado via JS -->
+    </div>
+
+    <div class="modal-actions" style="margin-top:14px">
+      <button class="btn-primary" onclick="closeModalFilasEpisodios()">Concluir</button>
     </div>
   </div>
 </div>

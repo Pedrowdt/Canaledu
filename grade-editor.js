@@ -28,6 +28,12 @@
   let blocksByDay = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
   let isDirty = false;
 
+  // Persistência por emissora de regras de recorrência, filas e exceções.
+  let recurrenceState = { slots: {}, episodeQueues: {}, dateExceptions: {} };
+  let slotConfigContext = null;
+  let exceptionContext = null;
+  const RECURRENCE_STORAGE_KEY = gradeRecorrencia;
+
   const colorCache = {};
   let colorIdx = 0;
   function getProgColor(title) {
@@ -236,6 +242,12 @@
     setSyncStatus('Carregando dados...');
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+    const recurrenceStorageKey = getRecurrenceStorageKey();
+    recurrenceState = { slots: {}, episodeQueues: {}, dateExceptions: {}, ...(saved[RECURRENCE_STORAGE_KEY] || {}) };
+    try {
+      const recurrenceLocal = JSON.parse(localStorage.getItem(recurrenceStorageKey) || '{}');
+      recurrenceState = { ...recurrenceState, ...recurrenceLocal };
+    } catch (err) { console.warn('Falha ao carregar regras de recorrência:', err); }
 
     // 1. Carrega acervo de programas
     programas = [];
@@ -274,11 +286,15 @@
       try {
         const { data: userRow } = await supabaseClient
           .from('user_data')
-          .select('grade_by_day, grade_order_by_day, updated_at')
+          .select('grade_by_day, grade_order_by_day, grade_recorrencia, updated_at')
           .eq('user_id', currentUser.id)
           .eq('emissora_id', emissoraId)
           .maybeSingle();
         if (userRow) {
+          if (userRow.grade_recorrencia && typeof userRow.grade_recorrencia === 'object') {
+            recurrenceState = { slots: {}, episodeQueues: {}, dateExceptions: {}, ...userRow.grade_recorrencia };
+            localStorage.setItem(recurrenceStorageKey, JSON.stringify(recurrenceState));
+          }
           if (userRow.grade_by_day && Object.keys(userRow.grade_by_day).length > 0) {
             saved.gradeByDay = userRow.grade_by_day;
             // gradeBlocksByDay é um cache local expandido da grade. Quando há
@@ -408,6 +424,7 @@
   }
 
   function renderActiveView() {
+    atualizarBadgeExcecoes();
     if (viewMode === 'week') {
       document.getElementById('timeline-view').style.display = 'none';
       document.getElementById('week-matrix-view').style.display = 'flex';
@@ -483,6 +500,7 @@
 
           <!-- Controles de Duração -->
           <div class="slot-controls">
+            ${hasProg ? `<div style="display:flex;align-items:center;gap:5px;margin-right:4px">${renderRecurrenceBadge(currentDow, idx)}<button type="button" class="btn-slot-gear" onclick="abrirConfigSlot(${currentDow}, ${idx})" title="Configurar inédito ou reprise vinculada">⚙</button></div>` : ''}
             <div class="duration-stepper" title="Ajustar tempo deste bloco">
               <button type="button" class="step-btn" onclick="ajustarTempoSlot(${idx}, -15)">-15m</button>
               <button type="button" class="step-btn" onclick="ajustarTempoSlot(${idx}, -5)">-5m</button>
@@ -564,6 +582,7 @@
                 <div style="flex:1;min-width:0">
                   <div class="week-slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
                   ${b.program.code ? `<div style="font-size:9px;color:#64748b;font-family:var(--mono)">${escapeHtml(b.program.code)}</div>` : ''}
+                  <div style="display:flex;align-items:center;gap:4px;margin-top:2px">${renderRecurrenceBadge(d, idx)}<button type="button" class="btn-slot-gear" onclick="abrirConfigSlot(${d}, ${idx})" title="Configurar inédito ou reprise vinculada">⚙</button></div>
                 </div>
               </div>
             ` : `
@@ -1210,6 +1229,334 @@
   };
 
   /* ══════════════════════════════════════════════════════════
+     CONFIGURAÇÃO DE RECORRÊNCIA, FILAS E EXCEÇÕES PONTUAIS
+     ══════════════════════════════════════════════════════════ */
+  function getRecurrenceStorageKey() {
+    const emissoraId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
+    const userId = currentUser?.id || 'sem-usuario';
+    return `gradeRecorrencia_${userId}_${emissoraId || 'sem-emissora'}`;
+  }
+
+  function getSlotKey(dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    return block ? `${dow}|${block.time}` : `${dow}|${idx}`;
+  }
+
+  function getProgramKey(program) {
+    if (!program) return '';
+    return String(program.code || program.id || program.title || program.nome || '').trim();
+  }
+
+  function formatDayName(dow) {
+    return DOW_NAMES[dow] || `Dia ${dow}`;
+  }
+
+  function renderRecurrenceBadge(dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    if (!block?.program) return '';
+    const rule = recurrenceState.slots[getSlotKey(dow, idx)] || { tipoExibicao: 'fixo' };
+    if (rule.tipoExibicao === 'reprise') {
+      const origin = rule.origemReprise || {};
+      return `<span class="badge-recurrence badge-reprise" title="Reprise de ${escapeHtml(formatDayName(origin.diaSemana))} às ${escapeHtml(origin.horario || '')}">↺ Reprise</span>`;
+    }
+    if (rule.tipoExibicao === 'inedito') {
+      return `<span class="badge-recurrence badge-inedito" title="Exibição inédita: avança a fila">★ Inédito</span>`;
+    }
+    return `<span class="badge-recurrence" style="background:#f1f5f9;color:#475569;border-color:#cbd5e1" title="Horário fixo: não avança fila de episódios">● Fixo</span>`;
+  }
+
+  function atualizarBadgeExcecoes() {
+    const count = Object.values(recurrenceState.dateExceptions || {}).reduce((sum, day) => sum + Object.keys(day || {}).length, 0);
+    const badge = document.getElementById('badge-excecoes-count');
+    if (badge) badge.textContent = String(count);
+  }
+
+  function renderListarExcecoes() {
+    const container = document.getElementById('lista-excecoes-cards');
+    const count = document.getElementById('modal-excecoes-count');
+    if (!container) return;
+    const items = [];
+    Object.entries(recurrenceState.dateExceptions || {}).forEach(([data, horarios]) => {
+      Object.entries(horarios || {}).forEach(([horario, exc]) => items.push({ data, horario, ...exc }));
+    });
+    items.sort((a,b) => `${a.data} ${a.horario}`.localeCompare(`${b.data} ${b.horario}`));
+    if (count) count.textContent = String(items.length);
+    atualizarBadgeExcecoes();
+    if (!items.length) {
+      container.innerHTML = '<div style="padding:18px;text-align:center;color:#64748b;font-size:12px">Nenhuma exceção cadastrada para esta emissora.</div>';
+      return;
+    }
+    container.innerHTML = items.map(item => {
+      const label = item.tipoExcecao === 'cancelar_slot' ? 'Horário cancelado' : item.tipoExcecao === 'substituir_programa' ? `Programa: ${item.programaNome || 'Especial'}` : `Episódio: ${item.episodioTitulo || 'Especial'}`;
+      return `<div style="border:1px solid #e2e8f0;border-left:4px solid #8b5cf6;border-radius:6px;padding:9px 11px;background:#fff;display:flex;justify-content:space-between;gap:12px;align-items:center">
+        <div><div style="font-weight:700;font-size:12px">${escapeHtml(item.data)} · ${escapeHtml(item.horario)}</div><div style="font-size:11px;color:#475569;margin-top:3px">${escapeHtml(label)}</div>${item.motivo ? `<div style="font-size:10px;color:#64748b;margin-top:2px">${escapeHtml(item.motivo)}</div>` : ''}</div>
+        <button type="button" class="btn-outline" style="padding:3px 8px;color:#b91c1c" onclick="removerExcecaoData('${escapeHtml(item.data)}','${escapeHtml(item.horario)}')">Remover</button>
+      </div>`;
+    }).join('');
+  }
+
+  window.abrirModalExcecoes = function (data='', horario='') {
+    const modal = document.getElementById('modal-excecoes-data');
+    if (!modal) return;
+    const inputData = document.getElementById('excecao-input-data');
+    const inputHora = document.getElementById('excecao-input-hora');
+    if (inputData) { const now = new Date(); const localDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; inputData.value = data || localDate; }
+    if (inputHora) inputHora.value = horario || '08:00:00';
+    exceptionContext = data || horario ? { data, horario } : null;
+    atualizarCamposTipoExcecao();
+    renderListarExcecoes();
+    window.switchModalExcecaoTab('nova');
+    modal.style.display = 'flex';
+  };
+
+  window.closeModalExcecoes = function () {
+    const modal = document.getElementById('modal-excecoes-data');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.switchModalExcecaoTab = function (tab) {
+    const isNova = tab === 'nova';
+    const novo = document.getElementById('panel-nova-excecao');
+    const lista = document.getElementById('panel-lista-excecoes');
+    const btnNova = document.getElementById('tab-btn-nova-excecao');
+    const btnLista = document.getElementById('tab-btn-lista-excecoes');
+    if (novo) novo.style.display = isNova ? 'flex' : 'none';
+    if (lista) lista.style.display = isNova ? 'none' : 'block';
+    if (btnNova) btnNova.classList.toggle('active', isNova);
+    if (btnLista) btnLista.classList.toggle('active', !isNova);
+  };
+
+  window.atualizarCamposTipoExcecao = function () {
+    const tipo = document.getElementById('excecao-select-tipo')?.value;
+    const ep = document.getElementById('campo-excecao-episodio');
+    const prog = document.getElementById('campo-excecao-programa');
+    if (ep) ep.style.display = tipo === 'substituir_episodio' ? 'block' : 'none';
+    if (prog) prog.style.display = tipo === 'substituir_programa' ? 'block' : 'none';
+  };
+
+  window.salvarNovaExcecao = function () {
+    const data = document.getElementById('excecao-input-data')?.value;
+    const horario = document.getElementById('excecao-input-hora')?.value.trim();
+    const tipoExcecao = document.getElementById('excecao-select-tipo')?.value;
+    const episodioTitulo = document.getElementById('excecao-input-ep-titulo')?.value.trim();
+    const programaNome = document.getElementById('excecao-input-prog-nome')?.value.trim();
+    const motivo = document.getElementById('excecao-input-motivo')?.value.trim();
+    const avancarFila = !!document.getElementById('excecao-input-avancar-fila')?.checked;
+    if (!data || !horario || !/^\d{2}:\d{2}(:\d{2})?$/.test(horario)) {
+      alert('Informe uma data e um horário válido (HH:MM ou HH:MM:SS).');
+      return;
+    }
+    if (tipoExcecao === 'substituir_episodio' && !episodioTitulo) {
+      alert('Informe o título do episódio substituto.');
+      return;
+    }
+    if (tipoExcecao === 'substituir_programa' && !programaNome) {
+      alert('Informe o nome do programa substituto.');
+      return;
+    }
+    const horarioNormalizado = horario.length === 5 ? `${horario}:00` : horario;
+    try {
+      recurrenceState.dateExceptions = window.GradeRecorrenciaCore.cadastrarExcecao(recurrenceState.dateExceptions, {
+        data, horario: horarioNormalizado, tipoExcecao,
+        episodioTitulo, programaNome, motivo, avancarFila
+      });
+      persistirEstadoRecorrencia();
+      renderListarExcecoes();
+      renderActiveView();
+      showToast('Exceção salva somente para essa data.', 'success');
+      document.getElementById('excecao-input-ep-titulo').value = '';
+      document.getElementById('excecao-input-prog-nome').value = '';
+      document.getElementById('excecao-input-motivo').value = '';
+    } catch (err) {
+      console.error(err);
+      showToast('Não foi possível salvar a exceção.', 'error');
+    }
+  };
+
+  window.removerExcecaoData = function (data, horario) {
+    if (!confirm(`Remover a exceção de ${data} às ${horario}? A regra semanal voltará a valer nessa data.`)) return;
+    recurrenceState.dateExceptions = window.GradeRecorrenciaCore.removerExcecao(recurrenceState.dateExceptions, data, horario);
+    persistirEstadoRecorrencia();
+    renderListarExcecoes();
+    renderActiveView();
+    showToast('Exceção removida; a regra semanal foi restaurada.', 'success');
+  };
+
+  window.abrirExcecaoParaSlotAtual = function () {
+    const modal = document.getElementById('modal-config-slot');
+    if (!slotConfigContext) return;
+    const block = blocksByDay[slotConfigContext.dow]?.[slotConfigContext.idx];
+    if (modal) modal.style.display = 'none';
+    window.abrirModalExcecoes('', block?.time || '08:00:00');
+  };
+
+  window.abrirConfigSlot = function (dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    if (!block?.program) {
+      showToast('Adicione um programa ao horário antes de configurar a recorrência.');
+      return;
+    }
+    slotConfigContext = { dow: Number(dow), idx: Number(idx) };
+    const key = getSlotKey(dow, idx);
+    const rule = recurrenceState.slots[key] || { tipoExibicao: 'fixo' };
+    document.getElementById('config-slot-title').textContent = `Recorrência · ${formatDayName(dow)} ${block.time}`;
+    document.getElementById('config-slot-desc').textContent = `${block.program.title || block.program.nome} · configuração da regra semanal deste horário.`;
+    document.querySelectorAll('input[name="slot-tipo-exibicao"]').forEach(r => { r.checked = r.value === rule.tipoExibicao; });
+    popularOrigensReprise(dow, idx, rule.origemReprise);
+    window.toggleConfigRepriseSection();
+    document.getElementById('modal-config-slot').style.display = 'flex';
+  };
+
+  function popularOrigensReprise(targetDow, targetIdx, selected) {
+    const select = document.getElementById('select-origem-reprise');
+    if (!select) return;
+    const options = [];
+    [1,2,3,4,5,6,0].forEach(dow => {
+      (blocksByDay[dow] || []).forEach((block, idx) => {
+        if (!block.program || !block.program.title) return;
+        if (dow === targetDow && idx === targetIdx) return;
+        // A origem pode ser qualquer horário inédito do mesmo programa; controles permitem escolher a origem explicitamente.
+        const rule = recurrenceState.slots[getSlotKey(dow, idx)] || { tipoExibicao: 'fixo' };
+        if (rule.tipoExibicao !== 'inedito') return;
+        const sameProgram = getProgramKey(block.program) === getProgramKey(blocksByDay[targetDow]?.[targetIdx]?.program);
+        if (!sameProgram) return;
+        const value = `${dow}|${block.time}`;
+        const label = `${formatDayName(dow)} · ${block.time} · ${block.program.title}`;
+        options.push(`<option value="${escapeHtml(value)}" ${selected && Number(selected.diaSemana) === dow && selected.horario === block.time ? 'selected' : ''}>${escapeHtml(label)}</option>`);
+      });
+    });
+    select.innerHTML = options.length ? options.join('') : '<option value="">Nenhum horário inédito do mesmo programa encontrado</option>';
+  }
+
+  window.toggleConfigRepriseSection = function () {
+    const type = document.querySelector('input[name="slot-tipo-exibicao"]:checked')?.value;
+    const section = document.getElementById('section-origem-reprise');
+    if (section) section.style.display = type === 'reprise' ? 'block' : 'none';
+  };
+
+  window.closeConfigSlotModal = function () {
+    const modal = document.getElementById('modal-config-slot');
+    if (modal) modal.style.display = 'none';
+    slotConfigContext = null;
+  };
+
+  window.salvarConfigSlot = function () {
+    if (!slotConfigContext) return;
+    const { dow, idx } = slotConfigContext;
+    const tipoExibicao = document.querySelector('input[name="slot-tipo-exibicao"]:checked')?.value || 'inedito';
+    let origemReprise = null;
+    if (tipoExibicao === 'reprise') {
+      const value = document.getElementById('select-origem-reprise')?.value || '';
+      if (!value.includes('|')) {
+        alert('Não há horário inédito disponível do mesmo programa para vincular. Configure primeiro um horário inédito desse programa.');
+        return;
+      }
+      const [dia, horario] = value.split('|');
+      origemReprise = { diaSemana: Number(dia), horario };
+    }
+    recurrenceState.slots[getSlotKey(dow, idx)] = {
+      tipoExibicao,
+      origemReprise,
+      programaId: getProgramKey(blocksByDay[dow]?.[idx]?.program)
+    };
+    persistirEstadoRecorrencia();
+    window.closeConfigSlotModal();
+    renderActiveView();
+    showToast(tipoExibicao === 'reprise' ? 'Horário configurado como reprise vinculada.' : 'Horário configurado como inédito.', 'success');
+  };
+
+  window.abrirModalFilasEpisodios = function () {
+    const select = document.getElementById('select-programa-fila');
+    if (!select) return;
+    const queuePrograms = programas.filter(p => p && (p.title || p.nome));
+    select.innerHTML = queuePrograms.map((p, i) => `<option value="${i}">${escapeHtml(p.title || p.nome)}</option>`).join('');
+    select._programList = queuePrograms;
+    if (!queuePrograms.length) {
+      showToast('Não há programas no acervo para configurar filas.');
+      return;
+    }
+    window.carregarFilaProgramaSelecionado();
+    document.getElementById('modal-filas-episodios').style.display = 'flex';
+  };
+
+  window.closeModalFilasEpisodios = function () {
+    const modal = document.getElementById('modal-filas-episodios');
+    if (modal) modal.style.display = 'none';
+  };
+
+  function programaFilaSelecionado() {
+    const select = document.getElementById('select-programa-fila');
+    return select?._programList?.[Number(select.value)] || null;
+  }
+
+  window.carregarFilaProgramaSelecionado = function () {
+    const program = programaFilaSelecionado();
+    const key = getProgramKey(program);
+    const items = recurrenceState.episodeQueues[key] || [];
+    const container = document.getElementById('container-episodios-fila');
+    if (!container) return;
+    if (!items.length) {
+      container.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;font-size:12px">Fila vazia. Adicione episódios abaixo; a ordem é definida aqui e não depende do título.</div>';
+      return;
+    }
+    container.innerHTML = items.map((ep, idx) => `<div style="display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:7px;border-bottom:1px solid #f1f5f9">
+      <strong style="color:#64748b">${idx+1}.</strong><div><div style="font-size:12px;font-weight:600">${escapeHtml(ep.titulo)}</div><div style="font-size:10px;color:#64748b">${escapeHtml(ep.codigo || 'Sem código')} · ${escapeHtml(ep.duracao || '')}</div></div>
+      <div style="display:flex;gap:3px"><button class="btn-outline" style="padding:2px 6px" onclick="moverEpisodioFila(${idx},-1)" ${idx===0?'disabled':''}>↑</button><button class="btn-outline" style="padding:2px 6px" onclick="moverEpisodioFila(${idx},1)" ${idx===items.length-1?'disabled':''}>↓</button><button class="btn-outline" style="padding:2px 6px;color:#b91c1c" onclick="removerEpisodioFila(${idx})">×</button></div>
+    </div>`).join('');
+  };
+
+  window.adicionarEpisodioAFila = function () {
+    const program = programaFilaSelecionado();
+    if (!program) return;
+    const titleEl = document.getElementById('novo-ep-titulo');
+    const codeEl = document.getElementById('novo-ep-codigo');
+    const durEl = document.getElementById('novo-ep-duracao');
+    const titulo = titleEl?.value.trim();
+    if (!titulo) { alert('Informe o título do episódio.'); return; }
+    const key = getProgramKey(program);
+    recurrenceState.episodeQueues[key] = window.GradeRecorrenciaCore.adicionarEpisodioFila(recurrenceState.episodeQueues[key] || [], {
+      id: codeEl?.value.trim() || `episode-${Date.now()}`,
+      codigo: codeEl?.value.trim(), titulo, duracao: durEl?.value.trim(), ordem: (recurrenceState.episodeQueues[key] || []).length + 1
+    });
+    if (titleEl) titleEl.value = '';
+    if (codeEl) codeEl.value = '';
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+    showToast('Episódio adicionado à fila.', 'success');
+  };
+
+  window.moverEpisodioFila = function (idx, delta) {
+    const program = programaFilaSelecionado();
+    const key = getProgramKey(program);
+    const list = [...(recurrenceState.episodeQueues[key] || [])];
+    const next = idx + delta;
+    if (next < 0 || next >= list.length) return;
+    [list[idx], list[next]] = [list[next], list[idx]];
+    recurrenceState.episodeQueues[key] = list.map((ep, i) => ({ ...ep, ordem: i + 1 }));
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+  };
+
+  window.removerEpisodioFila = function (idx) {
+    const program = programaFilaSelecionado();
+    const key = getProgramKey(program);
+    recurrenceState.episodeQueues[key] = (recurrenceState.episodeQueues[key] || []).filter((_, i) => i !== idx).map((ep, i) => ({ ...ep, ordem: i + 1 }));
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+  };
+
+  function persistirEstadoRecorrencia() {
+    try {
+      localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
+      isDirty = true;
+      atualizarBadgeExcecoes();
+    } catch (err) {
+      console.error('Falha ao persistir recorrência local:', err);
+      showToast('Falha ao salvar localmente as regras de recorrência.', 'error');
+    }
+  }
+
+  /* ══════════════════════════════════════════════════════════
      SALVAMENTO & PUBLICAÇÃO
      ══════════════════════════════════════════════════════════ */
   window.salvarGrade = async function () {
@@ -1233,6 +1580,8 @@
     saved.gradeByDay = gradeByDay;
     saved.gradeOrderByDay = gradeOrderByDay;
     saved.gradeBlocksByDay = gradeBlocksByDay;
+    saved[RECURRENCE_STORAGE_KEY] = recurrenceState;
+    localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
     saved.gradeSemanalInfo = {
       descricao: `Editada em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
       updated_at: new Date().toISOString(),
@@ -1250,6 +1599,7 @@
             emissora_id: emissoraId,
             grade_by_day: gradeByDay,
             grade_order_by_day: gradeOrderByDay,
+            grade_recorrencia: recurrenceState,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'user_id, emissora_id' });
         }
