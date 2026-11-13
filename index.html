@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Roteiro Canal Educação</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icone-roteirohub.png">
+
+<title>RoteiroHub</title>
+<script src="src/ui/admin-painel.js"></script>
+
 <!-- xlsx-js-style: drop-in replacement do SheetJS com suporte real a estilos (cores, fontes, bordas) -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -131,8 +136,8 @@
   html, body { height: 100%; font-family: var(--sans); background: var(--bg); color: var(--text); font-size: 13px; }
 
   /* LAYOUT */
-  .app { display: grid; grid-template-rows: 44px 1fr; height: 100vh; }
-  .topbar { display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; }
+  .app { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; height: 100%; box-sizing: border-box; }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 4px 12px; min-height: 44px; background: var(--bg2); border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: visible; flex-shrink: 0; }
   .topbar .logo { font-family: var(--mono); font-size: 11px; font-weight: 500; color: var(--accent); letter-spacing: 0.07em; white-space: nowrap; flex-shrink: 0; }
   .topbar .logo span { color: var(--muted); }
   .tabs { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -523,12 +528,15 @@
   box-shadow: 0 8px 30px rgba(0,0,0,.08);
 }
 #login-overlay .login-logo {
-  font-family: var(--mono, monospace);
-  font-weight: 600; letter-spacing: .04em;
-  margin-bottom: 18px; text-align: center;
-  color: var(--text, #1a1d29);
+  margin-bottom: 22px; text-align: center;
 }
-#login-overlay .login-logo span { color: var(--accent, #2f6fe0); }
+#login-overlay .login-logo-img {
+  max-width: 210px; width: 100%; height: auto; display: block; margin: 0 auto 8px auto;
+}
+#login-overlay .login-subtitle {
+  font-size: 10.5px; font-weight: 600; color: var(--muted, #64748b);
+  letter-spacing: 1.2px; text-transform: uppercase; font-family: var(--sans, sans-serif);
+}
 #login-overlay input {
   width: 100%; box-sizing: border-box;
   padding: 10px 12px; margin-bottom: 10px;
@@ -564,11 +572,16 @@
   font-family: var(--sans, sans-serif);
 }
 #hub-overlay .hub-box { text-align: center; }
-#hub-overlay .hub-title {
-  font-family: var(--mono, monospace); font-weight: 600; letter-spacing: .04em;
-  margin-bottom: 26px; color: var(--text, #1a1d29); font-size: 15px;
+#hub-overlay .hub-header {
+  margin-bottom: 26px; text-align: center;
 }
-#hub-overlay .hub-title span { color: var(--accent, #2f6fe0); }
+#hub-overlay .hub-logo-img {
+  max-width: 230px; width: 100%; height: auto; display: block; margin: 0 auto 8px auto;
+}
+#hub-overlay .hub-subtitle {
+  font-size: 11px; font-weight: 600; color: var(--muted, #64748b);
+  letter-spacing: 1.2px; text-transform: uppercase; font-family: var(--sans, sans-serif);
+}
 #hub-overlay .hub-cards { display: flex; gap: 16px; }
 #hub-overlay .hub-card {
   width: 210px; padding: 26px 20px; cursor: pointer;
@@ -620,7 +633,10 @@
      ═══════════════════════════════════════════════════════ -->
 <div id="login-overlay">
   <div class="login-box">
-    <div class="login-logo">CANAL <span>EDUCAÇÃO</span><br>ROTEIRO</div>
+    <div class="login-logo">
+      <img src="assets/logo-roteirohub-claro.png" alt="RoteiroHub" class="login-logo-img">
+      <div class="login-subtitle">Programação &amp; Exibição</div>
+    </div>
     <input type="email" id="login-email" placeholder="E-mail" autocomplete="username">
     <input type="password" id="login-password" placeholder="Senha" autocomplete="current-password">
     <button id="login-submit" onclick="cloudSyncLogin()">Entrar</button>
@@ -639,7 +655,10 @@
      ═══════════════════════════════════════════════════════ -->
 <div id="hub-overlay">
   <div class="hub-box">
-    <div class="hub-title">CANAL <span>EDUCAÇÃO</span> — o que você quer abrir?</div>
+    <div class="hub-header">
+      <img src="assets/logo-roteirohub-claro.png" alt="RoteiroHub" class="hub-logo-img">
+      <div class="hub-subtitle">Programação &amp; Exibição · Escolha o módulo</div>
+    </div>
     <div class="hub-cards">
       <div class="hub-card" onclick="cloudSyncOpenRoteiro()">
         <div class="hub-card-icon">📋</div>
@@ -651,6 +670,16 @@
         <div class="hub-card-title">Peças e Programas</div>
         <div class="hub-card-sub">Cadastrar/editar o banco compartilhado</div>
       </div>
+      <div class="hub-card" onclick="cloudSyncOpenGradeEditor()">
+        <div class="hub-card-icon">📅</div>
+        <div class="hub-card-title">Confecção de Grade</div>
+        <div class="hub-card-sub">Montar grade em blocos de 30min</div>
+      </div>
+      <div class="hub-card" id="hub-card-admin" style="display: none;" onclick="window.AdminPainel && window.AdminPainel.abrir()">
+        <div class="hub-card-icon">⚙️</div>
+        <div class="hub-card-title">Administração</div>
+        <div class="hub-card-sub">Emissoras e operadores</div>
+      </div>
     </div>
   </div>
 </div>
@@ -660,14 +689,22 @@
        TOPBAR: Logo, abas de navegação e botões de exportação
        ═══════════════════════════════════════════════════════ -->
   <header class="topbar">
-    <div class="logo">CANAL <span>EDUCAÇÃO</span> — ROTEIRO</div>
-    <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)">⇆ Peças e Programas</a>
+    <div class="topbar-brand" onclick="cloudSyncBackToHub(event)" title="Voltar ao Hub" style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0">
+      <img src="assets/icone-roteirohub.png" alt="RoteiroHub" class="topbar-logo-icon" style="height:24px;width:24px;object-fit:contain;border-radius:4px">
+      <div class="logo" id="app-logo-title">ROTEIRO<span>HUB</span></div>
+    </div>
+    <a href="#" id="switch-app-link" onclick="cloudSyncBackToHub(event)" title="Voltar ao Hub">← Hub</a>
+    <!-- Seletor de Emissora Ativa -->
+    <div id="emissora-wrap" style="display:none;align-items:center;gap:4px;margin-left:10px">
+      <label for="select-emissora" style="font-size:11px;color:var(--muted,#888)">Emissora:</label>
+      <select id="select-emissora" onchange="trocarEmissoraNoRoteiro(this.value)" style="padding:2px 8px;font-size:12px;border:1px solid var(--border,#ccc);border-radius:4px;background:var(--bg3,#fff);color:var(--text,#eee);font-weight:600">
+      </select>
+    </div>
     <nav class="tabs">
       <button class="tab active" onclick="showPanel('roteiro')">Roteiro do Dia</button>
       <button class="tab" onclick="showPanel('pecas')">Banco de Peças <span class="tab-badge" id="badge-pecas">0</span></button>
       <button class="tab" onclick="showPanel('programas')">Programas <span class="tab-badge" id="badge-prog">0</span></button>
       <button class="tab" onclick="showPanel('pecas-dia')">Peças do Dia <span class="tab-badge" id="badge-pecas-dia">0</span></button>
-      <button class="tab" onclick="showPanel('grade-visual');renderGrade()">Grade Semanal</button>
     </nav>
     <div class="topbar-right">
       <select id="theme-selector" onchange="setTheme(this.value)"
@@ -721,6 +758,11 @@
             <button class="week-arrow" onclick="changeWeek(+1)" title="Próxima semana">›</button>
           </div>
           <div class="day-selector" id="day-selector"></div>
+          <div style="margin-top:6px;display:flex;gap:4px">
+            <button type="button" class="btn-outline" style="width:100%;font-size:11px;padding:4px 6px;border-color:var(--border2);display:flex;align-items:center;justify-content:center;gap:4px;font-weight:600" onclick="sincronizarRoteiroComGradeSemana()" title="Preencher ou alinhar o roteiro do dia com a Grade Semanal">
+              <span>📅 Sincronizar com Grade</span>
+            </button>
+          </div>
         </div>
         <div class="pecas-search">
           <input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-search-input" oninput="typeof renderPecasSidebarDebounced==='function'&&renderPecasSidebarDebounced()">
@@ -1563,7 +1605,35 @@
   </div>
 </div>
 
-<input type="file" id="file-import" accept=".json,.csv" style="display:none" onchange="handleImport(event)">
+<!-- MODAL DE RELATÓRIO DE DISTRIBUIÇÃO DE BREAKS -->
+<div id="modal-distribuicao-breaks" class="modal-overlay" style="display:none">
+  <div class="modal" style="width:680px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border2);padding-bottom:12px;margin-bottom:16px">
+      <h3 style="margin:0;font-size:15px;display:flex;align-items:center;gap:8px">
+        <span>🪄</span> Resultado do Auto-preenchimento de Breaks
+      </h3>
+      <button class="btn btn-sm" onclick="closeModal('modal-distribuicao-breaks')" style="padding:2px 8px;font-size:12px" title="Fechar">✕</button>
+    </div>
+
+    <div id="dist-breaks-resumo-cards" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));gap:8px;margin-bottom:16px"></div>
+
+    <div style="flex:1;overflow-y:auto;margin-bottom:16px;padding-right:4px">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:8px">Peças Distribuídas</div>
+      <div id="dist-breaks-lista-alocadas" style="border:1px solid var(--border2);border-radius:6px;background:var(--bg2);max-height:260px;overflow-y:auto"></div>
+
+      <div id="dist-breaks-nao-alocados-wrap" style="margin-top:14px;display:none">
+        <div style="font-size:12px;font-weight:600;color:var(--amber);margin-bottom:6px">⚠️ Slots que permaneceram vazios</div>
+        <div id="dist-breaks-lista-vazios" style="border:1px solid var(--border2);border-radius:6px;background:var(--bg2);padding:8px 12px;font-size:12px"></div>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="margin-top:0;padding-top:12px;border-top:1px solid var(--border2)">
+      <button class="btn btn-primary" onclick="closeModal('modal-distribuicao-breaks')">Concluir e fechar</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-import"  accept=".json,.csv" style="display:none" onchange="handleImport(event)">
 <input type="file" id="file-pecas-dia" accept=".xlsx" style="display:none" onchange="handlePecasDiaImport(event)">
 
 <!-- cloud-sync.js cuida do login e, após autenticar e baixar os dados da nuvem,
@@ -1572,6 +1642,8 @@
 <!-- auth.js e a ponte cadastro->roteiro precisam existir antes do cloud-sync -->
 <script src="auth.js"></script>
 <script src="canal-log.js"></script>
+<script src="src/core/emissoraContext.js"></script>
+<script src="src/core/semanaUtils.js"></script>
 <script src="pecas-repo.js"></script>
 <!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
 <script src="assinatura-programa.js"></script>

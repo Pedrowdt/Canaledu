@@ -65,7 +65,7 @@ function makeSupabaseMock({ sharedRow = null, userRow = null, onUserDataWrite } 
   return { from: builder };
 }
 
-function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite } = {}) {
+function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite, emissoraId = null } = {}) {
   const ls = localStorage || makeLocalStorage();
   const fakeSupabase = makeSupabaseMock({ sharedRow, userRow, onUserDataWrite });
   const g = {
@@ -83,6 +83,7 @@ function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite } = {
       mergeCadastro(local) { return { pecas: local.pecas || [], programas: local.programas || [] }; },
     },
     localStorage: ls,
+    EmissoraContext: { getEmissoraAtivaId: () => emissoraId },
     console,
     setTimeout,
     clearTimeout,
@@ -101,13 +102,13 @@ function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite } = {
   const factory = new Function(
     'window', 'globalThis', 'document', 'location', 'CanalAuth',
     'RoteiroPecasBridge', 'localStorage', 'console', 'setTimeout', 'clearTimeout',
-    'WORKSPACE_ID',
+    'WORKSPACE_ID', 'EmissoraContext',
     body
   );
   const cs = factory.call(
     g, g.window, g, g.document, g.location, g.CanalAuth,
     g.RoteiroPecasBridge, g.localStorage, g.console, g.setTimeout, g.clearTimeout,
-    g.WORKSPACE_ID
+    g.WORKSPACE_ID, g.EmissoraContext
   );
   cs.__test_setCurrentUser({ id: 'user-1', email: 'user@teste.com' });
   return { cs, localStorage: ls };
@@ -287,6 +288,26 @@ describe('grade isolada por usuário em user_data', () => {
     expect(payloadUserData.grade_order_by_day).toEqual({ '1': ['PGM A'] });
     expect(payloadSharedData.grade_by_day).toBeUndefined();
     expect(payloadSharedData.grade).toBeUndefined();
+  });
+
+  it('não herda a grade legada de shared_data em uma emissora diferente do Canal Educação', async () => {
+    const local = makeLocalStorage();
+    const tbcId = 'uuid-tv-brasil-central';
+    const { cs } = loadCloudSync({
+      localStorage: local,
+      emissoraId: tbcId,
+      sharedRow: {
+        grade_by_day: { '1': { 'GRADE LEGADA CE': '08:00:00' } },
+        grade_order_by_day: { '1': ['GRADE LEGADA CE'] },
+      },
+      userRow: null,
+    });
+
+    await cs.fetchAndMergeCloudData({ id: 'user-1' });
+
+    const saved = JSON.parse(local.getItem(`roteiroApp_${tbcId}`));
+    expect(saved.gradeByDay).toEqual({});
+    expect(saved.gradeOrderByDay).toEqual({});
   });
 
   it('fetchAndMergeCloudData carrega grade_by_day de user_data em vez de shared_data', async () => {

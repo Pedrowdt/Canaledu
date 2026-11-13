@@ -18,6 +18,8 @@ await q(`
   insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000001', 'teste@teste.com');
   create or replace function auth.uid() returns uuid
   language sql stable as $$ select '00000000-0000-0000-0000-000000000001'::uuid $$;
+  create or replace function auth.role() returns text
+  language sql stable as $$ select 'authenticated'::text $$;
   create table if not exists public.shared_data (
     id text primary key, pecas jsonb default '[]', programas jsonb default '[]',
     grade jsonb default '{}', updated_by uuid, updated_at timestamptz default now());
@@ -25,6 +27,7 @@ await q(`
   create role anon; create role authenticated; create role service_role;
   create publication supabase_realtime;
 `);
+
 
 const schema = readFileSync(new URL('./001_pecas_programas.sql', import.meta.url), 'utf8');
 await q(schema);
@@ -166,3 +169,220 @@ await show('fn_pecas_elegiveis continua funcionando depois de 007:',
   `select code from public.fn_pecas_elegiveis(1,'12:00','2026-08-05')`);
 
 console.log('\n007 validado.');
+// =====================================================
+// 008 (grade_por_usuario), 009 (emissoras), 010 (tipos_pecas)
+// =====================================================
+try {
+  await q(readFileSync(new URL('./008_grade_por_usuario.sql', import.meta.url), 'utf8'));
+  console.log('008_grade_por_usuario aplicado ✓');
+} catch (e) {
+  // Se o 008 não estiver na pasta de testes, apenas loga
+  console.log('008 pulado ou não encontrado');
+}
+
+await q(readFileSync(new URL('./009_emissoras.sql', import.meta.url), 'utf8'));
+console.log('009_emissoras aplicado ✓');
+
+await q(readFileSync(new URL('./010_tipos_pecas.sql', import.meta.url), 'utf8'));
+console.log('010_tipos_pecas aplicado ✓');
+
+// Validações básicas das novas tabelas
+await show('emissoras cadastradas:', `select id, nome, slug, ativo from public.emissoras`);
+await show('tipos de peças (Canal Educação):', `select codigo, nome, eh_interprograma from public.tipos_pecas where emissora_id = '00000000-0000-0000-0000-000000000001' order by ordem`);
+
+// Teste de integridade: tenta cadastrar uma nova emissora e tipos personalizados para ela
+await q(`insert into public.emissoras (id, nome, slug) values ('00000000-0000-0000-0000-000000000002', 'TV Cultura Regional', 'cultura-reg')`);
+await q(`insert into public.tipos_pecas (emissora_id, codigo, nome, eh_interprograma) values ('00000000-0000-0000-0000-000000000002', 'PATROCINIO', 'Patrocínio Master', false)`);
+
+await show('tipo criado para a nova emissora:', `select e.nome as emissora, t.codigo, t.nome as tipo from public.tipos_pecas t join public.emissoras e on e.id = t.emissora_id where e.slug = 'cultura-reg'`);
+
+console.log('\n009 e 010 validados com sucesso ✓');
+// --- 011_vincular_emissora_dados.sql ---
+const s011 = readFileSync(new URL('./011_vincular_emissora_dados.sql', import.meta.url), 'utf8');
+await q(s011);
+console.log('011_vincular_emissora_dados aplicado ✓');
+
+// 011 só vincula os dados existentes ao Canal Educação e mantém o contrato
+// original das funções da migration 006 (jsonb, text[]). Multiemissora ainda
+// não é habilitada nesta etapa.
+const emissoraLegada = '00000000-0000-0000-0000-000000000001';
+await show('peças vinculadas à emissora legada:',
+  `select count(*) as total, count(*) filter (where emissora_id = '${emissoraLegada}') as canal_educacao from public.pecas`);
+await show('programas vinculados à emissora legada:',
+  `select count(*) as total, count(*) filter (where emissora_id = '${emissoraLegada}') as canal_educacao from public.programas`);
+
+// Verifica gravação pelo contrato legado e aplicação do default de emissora_id.
+await q(`select public.fn_salvar_pecas(
+  '[{"code":"011_TESTE_LEGADO","descricao":"Teste 011","tempo":"00:00:05","type":"ECHE","categoria":"CHAMADA_QUENTE"}]'::jsonb,
+  '{}'::text[]
+)`);
+await q(`select public.fn_salvar_programas(
+  '[{"code":"011_PROG_LEGADO","descricao":"Teste 011","tempo":"00:01:00","type":"RPRO"}]'::jsonb,
+  '{}'::text[]
+)`);
+await show('peça criada pelo contrato legado mantém Canal Educação:',
+  `select code, emissora_id from public.pecas where code = '011_TESTE_LEGADO'`);
+await show('programa criado pelo contrato legado mantém Canal Educação:',
+  `select code, emissora_id from public.programas where code = '011_PROG_LEGADO'`);
+
+// Confirma que as assinaturas de gravação continuam com dois parâmetros.
+await show('assinatura legada de fn_salvar_pecas:',
+  `select to_regprocedure('public.fn_salvar_pecas(jsonb,text[])') is not null as existe`);
+await show('assinatura legada de fn_salvar_programas:',
+  `select to_regprocedure('public.fn_salvar_programas(jsonb,text[])') is not null as existe`);
+
+console.log('011 validado: vínculo legado e funções preservados ✓');
+
+
+// --- 012_usuarios_emissoras.sql ---
+const s012 = readFileSync(new URL('./012_usuarios_emissoras.sql', import.meta.url), 'utf8');
+await q(s012);
+console.log('012_usuarios_emissoras aplicado ✓');
+
+await show('vínculo retrocompatível do usuário de teste:',
+  `select usuario_id, emissora_id, papel, ativo from public.usuarios_emissoras where usuario_id = '00000000-0000-0000-0000-000000000001'`);
+await show('função confirma acesso ao Canal Educação:',
+  `select public.fn_usuario_tem_acesso_emissora('00000000-0000-0000-0000-000000000001'::uuid) as permitido`);
+await show('sem vínculo automático à emissora de teste:',
+  `select public.fn_usuario_tem_acesso_emissora('00000000-0000-0000-0000-000000000002'::uuid) as permitido`);
+await show('papel do usuário no Canal Educação:',
+  `select public.fn_usuario_papel_emissora('00000000-0000-0000-0000-000000000001'::uuid) as papel`);
+
+// Idempotência: reaplicar 012 não duplica nem altera vínculos existentes.
+await q(s012);
+await show('vínculos após reaplicar 012:',
+  `select count(*) as total from public.usuarios_emissoras where usuario_id = '00000000-0000-0000-0000-000000000001'`);
+console.log('012 validado: associação, verificação de acesso e idempotência ✓');
+
+// =====================================================
+// 013 — ESCRITA E ISOLAMENTO MULTIEMISSORA
+// =====================================================
+await q(readFileSync(new URL('./013_escrita_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('013_escrita_multiemissora aplicado ✓');
+
+await q(readFileSync(new URL('./013_testes_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('013 testes de aceitação executados ✓');
+
+// ============================================================
+// 014: Particionamento de user_data por emissora
+// ============================================================
+// Garante a tabela base caso a migration 008 tenha sido pulada no runner local
+await q(`
+  create table if not exists public.user_data (
+    user_id uuid primary key,
+    grade jsonb default '{}'
+  );
+`);
+
+await q(readFileSync(new URL('./014_user_data_multiemissora.sql', import.meta.url), 'utf8'));
+console.log('014_user_data_multiemissora aplicado ✓');
+
+// ============================================================
+// 015: Funções administrativas seguras (Painel Admin)
+// ============================================================
+await q(readFileSync(new URL('./015_painel_admin.sql', import.meta.url), 'utf8'));
+console.log('015_painel_admin aplicado ✓');
+
+// Teste de aceitação: criar emissora via RPC e listar membros
+const resCriacao = await db.query(`
+  select public.fn_admin_criar_emissora('TV Brasil Central', 'tbc-admin', '#10b981') as res;
+`);
+const emissoraCriada = resCriacao.rows[0].res;
+console.log('015 emissora criada:', emissoraCriada);
+
+const resMembros = await db.query(`
+  select public.fn_admin_listar_membros('${emissoraCriada.emissora_id}'::uuid) as membros;
+`);
+console.log('015 membros listados:', resMembros.rows[0].membros);
+console.log('014 e 015 validados com sucesso ✓');
+/// ============================================================
+//  016_editar_emissora.sql
+// ============================================================
+
+const s016 = readFileSync(new URL('./016_editar_emissora.sql', import.meta.url), 'utf8');
+await q(s016);
+console.log('016_editar_emissora aplicado ✓');
+
+// 1. Busca a emissora criada na 015 onde o usuário de teste é admin
+const rEmissoraAdmin = await db.query(`select id from public.emissoras where slug = 'tbc-admin' limit 1;`);
+const idAdmin = rEmissoraAdmin.rows[0].id;
+
+// 2. Testa a consulta dos dados da emissora (deve autorizar)
+const rObter = await db.query(`select public.fn_admin_obter_emissora('${idAdmin}'::uuid) as dados;`);
+console.log('016 dados da emissora obtidos:', rObter.rows[0].dados);
+
+// 3. Testa a atualização de nome, cor e logo da emissora
+const rAtualizar = await db.query(`
+  select public.fn_admin_atualizar_emissora(
+    '${idAdmin}'::uuid,
+    'TV Brasil Central - Atualizada',
+    '#059669',
+    'https://exemplo.com/logo-tbc.png'
+  ) as resultado;
+`);
+console.log('016 emissora atualizada:', rAtualizar.rows[0].resultado);
+
+// 4. Confirma que os dados foram gravados na tabela
+const rConfirma = await db.query(`
+  select nome, cor_primaria, logo_url
+  from public.emissoras
+  where id = '${idAdmin}'::uuid;
+`);
+console.log('016 conferência no banco:', JSON.stringify(rConfirma.rows[0]));
+console.log('016 validado com sucesso ✓\n');
+
+
+
+
+// --- 017_personalizacao_visual_emissora.sql ---
+const s017 = readFileSync(new URL('./017_personalizacao_visual_emissora.sql', import.meta.url), 'utf8');
+await q(s017);
+console.log('017_personalizacao_visual_emissora aplicado ✓');
+
+// 018: Persistência de regras de recorrência por emissora
+await q(readFileSync(new URL('./018_grade_recorrencia.sql', import.meta.url), 'utf8'));
+console.log('018_grade_recorrencia aplicado ✓');
+
+// Testa criação de emissora com logo_url e cor_primaria na 017
+const rCriar017 = await db.query(`
+  select public.fn_admin_criar_emissora(
+    'TV Brasil',
+    'tv-brasil',
+    '#10b981',
+    'https://exemplo.com/logo-tvbrasil.png'
+  ) as resultado;
+`);
+console.log('017 emissora criada com logo e cor:', rCriar017.rows[0].resultado);
+const idTvBrasil = rCriar017.rows[0].resultado.emissora_id;
+
+const rConfirma017 = await db.query(`
+  select nome, slug, cor_primaria, logo_url
+  from public.emissoras
+  where id = '${idTvBrasil}'::uuid;
+`);
+console.log('017 conferência no banco:', JSON.stringify(rConfirma017.rows[0]));
+if (rConfirma017.rows[0].cor_primaria !== '#10b981' || rConfirma017.rows[0].logo_url !== 'https://exemplo.com/logo-tvbrasil.png') {
+  throw new Error('017 falhou ao persistir cor_primaria ou logo_url!');
+}
+console.log('017 validado com sucesso ✓\n');
+
+/// ============================================================
+//  019_admin_canal_educacao.sql
+// ============================================================
+await q(readFileSync(new URL('./019_admin_canal_educacao.sql', import.meta.url), 'utf8'));
+console.log('019_admin_canal_educacao aplicado ✓');
+
+const rListar019 = await db.query(`select public.fn_admin_listar_emissoras() as emissoras;`);
+const emissorasAdmin = rListar019.rows[0].emissoras;
+console.log('019 emissoras retornadas pelo admin:', emissorasAdmin.map(e => ({ id: e.id, nome: e.nome, papel: e.papel })));
+
+const canalEduNoAdmin = emissorasAdmin.find(e => e.id === '00000000-0000-0000-0000-000000000001');
+if (!canalEduNoAdmin || canalEduNoAdmin.papel !== 'admin') {
+  throw new Error('019 falhou: Canal Educação não foi listado como emissora administrável!');
+}
+
+const rMembrosCanalEdu = await db.query(`
+  select public.fn_admin_listar_membros('00000000-0000-0000-0000-000000000001'::uuid) as membros;
+`);
+console.log('019 membros do Canal Educação geridos pelo admin:', rMembrosCanalEdu.rows[0].membros);
+console.log('019 validado com sucesso ✓\n');

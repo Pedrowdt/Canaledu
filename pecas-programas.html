@@ -3,7 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Peças e Programas — Canal Educação</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/icone-roteirohub.png">
+
+<script src="src/ui/admin-painel.js"></script>
+
+<title>Peças e Programas — RoteiroHub</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -14,6 +19,9 @@
 <script src="canal-log.js"></script>
 <script src="pecas-repo.js"></script>
 <script src="cadastro-sync.js"></script>
+<script src="src/core/pecasDeduplicador.js"></script>
+<script src="src/core/emissoraContext.js"></script>
+<script src="src/core/csvImportador.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;background:#F5F5F3;color:#1a1a18;height:100vh;display:flex;flex-direction:column;overflow:hidden}
@@ -186,13 +194,33 @@ tbody tr:hover{background:#f5f5f3}
 <script>document.getElementById('version-badge').textContent = window.APP_VERSION ? 'v' + window.APP_VERSION : '';</script>
 
 <div class="topnav">
-  <a href="index.html">← Voltar</a>
-  <div class="right">
+  <div class="topnav-brand" style="display:flex;align-items:center;gap:10px">
+    <a href="index.html" class="brand-link" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:#fff;font-weight:600" title="Voltar ao Hub">
+      <img src="assets/icone-roteirohub.png" alt="RoteiroHub" style="height:24px;width:24px;border-radius:4px;object-fit:contain">
+      <span>ROTEIRO<span style="color:#2f6fe0">HUB</span></span>
+    </a>
+    <span style="color:#4a5568">|</span>
+    <span class="topnav-module-title" id="page-module-title" style="font-size:11.5px;color:#cbd5e1;font-weight:600;letter-spacing:0.03em">PEÇAS E PROGRAMAS</span>
+    <div class="nav-pills" style="display:flex;align-items:center;gap:6px;margin-left:6px">
+      <a href="index.html" style="color:#9aa3c2;text-decoration:none;font-size:11.5px;padding:3px 8px;border-radius:4px" title="Abrir Roteiro">📋 Roteiro</a>
+      <a href="grade-editor.html" style="color:#9aa3c2;text-decoration:none;font-size:11.5px;padding:3px 8px;border-radius:4px" title="Abrir Confecção de Grade">📅 Grade</a>
+    </div>
+  </div>
+   <div class="right" style="display:flex;align-items:center;gap:10px">
     <span class="sync" id="sync-status"></span>
     <button type="button" class="btn-outline" style="width:auto;padding:4px 12px;font-size:12px" onclick="openLog()">🕘 Log</button>
+    
+    <!-- Seletor de Emissora Ativa -->
+    <div id="emissora-wrap" style="display:none;align-items:center;gap:4px">
+      <label for="select-emissora" style="font-size:11px;color:#666">Emissora:</label>
+      <select id="select-emissora" onchange="trocarEmissoraAtiva(this.value)" style="padding:3px 8px;font-size:12px;border:1px solid #ccc;border-radius:4px;background:#fff;font-weight:600">
+      </select>
+    </div>
+
     <span id="user-email"></span>
     <a href="#" id="logout-link">Sair</a>
   </div>
+
 </div>
 
 <div class="tabs">
@@ -227,12 +255,31 @@ tbody tr:hover{background:#f5f5f3}
       </div>
     </div>
 
-    <div class="search-bar">
-      <div class="search-wrap">
+        <div class="search-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="search-wrap" style="flex:1;min-width:240px">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input id="search" placeholder="Buscar código, descrição ou type…" oninput="render()">
       </div>
+      <button id="btn-toggle-duplicados" class="btn-outline" style="width:auto;display:flex;align-items:center;gap:6px" onclick="toggleFiltroDuplicados()">
+        <span>⚠️</span> <span id="lbl-duplicados">Apenas duplicados</span>
+      </button>
     </div>
+
+    <!-- Barra de ações em lote (aparece quando há itens selecionados ou duplicados) -->
+    <div id="batch-bar" style="display:none;background:#FFF9E6;border:1px solid #FFE58F;padding:8px 14px;border-radius:6px;margin:8px 16px;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;flex-wrap:wrap">
+        <strong id="batch-count">0 itens selecionados</strong>
+        <span style="color:#8c8c8c">|</span>
+        <button class="btn-outline" id="btn-sugerir-limpeza" style="width:auto;padding:3px 10px;font-size:11px" onclick="selecionarSugeridosLimpeza()">💡 Sugerir limpeza (manter maior código)</button>
+        <button class="btn-outline" style="width:auto;padding:3px 8px;font-size:11px" onclick="limparSelecao()">Limpar seleção</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn-primary" id="btn-batch-edit" style="width:auto;padding:5px 12px;font-size:12px;background:#2563eb;color:#fff;border:none" onclick="openBatchModal()">✏️ Alterar em lote</button>
+        <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px" onclick="executarAcaoLote('desativar')">Desativar selecionados</button>
+        <button class="btn-outline" style="width:auto;padding:4px 10px;font-size:12px;color:#A32D2D;border-color:#E9B9B9" onclick="executarAcaoLote('excluir')">🗑 Excluir selecionados</button>
+      </div>
+    </div>
+
 
     <div class="table-wrap">
       <table>
@@ -284,6 +331,27 @@ tbody tr:hover{background:#f5f5f3}
         <div class="field" id="kill-field">
           <label>Validade (kill date)</label>
           <input type="date" id="f-validade">
+        </div>
+                <div class="row3" style="margin-top:10px">
+          <div class="field">
+            <label>Finalidade</label>
+            <select id="f-finalidade">
+              <option value="">— Padrão (peso 5) —</option>
+              <option value="estreia">Estreia (peso 10)</option>
+              <option value="promocional">Promocional (peso 7)</option>
+              <option value="comercial">Comercial (peso 6)</option>
+              <option value="vinhetas">Vinhetas (peso 5)</option>
+              <option value="calhau">Calhau (peso 5)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Data Alvo / Estreia</label>
+            <input type="date" id="f-data-alvo">
+          </div>
+          <div class="field">
+            <label>Peso (opcional)</label>
+            <input type="number" min="1" max="10" id="f-peso" placeholder="1 a 10">
+          </div>
         </div>
         <div class="horario-box">
           <label class="horario-toggle">
@@ -369,6 +437,117 @@ tbody tr:hover{background:#f5f5f3}
   </div>
 </div>
 
+<!-- BATCH EDIT MODAL -->
+<div class="overlay center" id="batch-edit-overlay" style="display:none" onclick="if(event.target===this)closeBatchModal()">
+  <div class="modal" style="width:480px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" style="font-weight:600;font-size:15px">Modificar em Lote</div>
+        <div id="batch-edit-subtitle" style="font-size:11.5px;color:#666;margin-top:2px">0 itens selecionados</div>
+      </div>
+      <button class="modal-close" onclick="closeBatchModal()">×</button>
+    </div>
+    <div class="modal-body" style="gap:14px">
+      <div style="font-size:12px;color:#555;background:#f8f9fa;border:1px solid #e9ecef;border-radius:6px;padding:8px 12px;line-height:1.4">
+        Selecione apenas os campos que deseja alterar nos itens marcados. Campos mantidos em <strong>"— Não alterar —"</strong> não serão modificados.
+      </div>
+
+      <!-- Type -->
+      <div class="field">
+        <label>Alterar Type</label>
+        <select id="batch-f-type">
+          <option value="">— Não alterar —</option>
+          <option value="ECHE">ECHE (Chamada de Estreia)</option>
+          <option value="ECHM">ECHM (Chamada Comum / Manutenção)</option>
+          <option value="RCOM">RCOM (Comercial)</option>
+          <option value="RPOL">RPOL (Político)</option>
+          <option value="EINT">EINT (Interprograma)</option>
+          <option value="EVNH">EVNH (Vinheta)</option>
+          <option value="RPRO">RPRO (Programa)</option>
+        </select>
+      </div>
+
+      <!-- Campos de peças -->
+      <div id="batch-pecas-fields" style="display:flex;flex-direction:column;gap:14px">
+        <!-- Categoria -->
+        <div class="field">
+          <label>Alterar Categoria</label>
+          <select id="batch-f-cat">
+            <option value="">— Não alterar —</option>
+            <option value="CHAMADA_QUENTE">Chamada quente</option>
+            <option value="RCOM">Comercial</option>
+            <option value="RPOL">Político</option>
+            <option value="INTGOV">Interprograma gov</option>
+            <option value="MANUT">Manutenção</option>
+            <option value="BUSSOLA">Bússola</option>
+          </select>
+        </div>
+
+        <!-- Definição de Peso -->
+        <div class="field">
+          <label>Definição de Peso</label>
+          <select id="batch-f-peso-acao" onchange="toggleBatchPesoInput(this.value)">
+            <option value="">— Não alterar —</option>
+            <option value="definir">Definir peso numérico (1 a 10)</option>
+            <option value="limpar">Remover peso (deixar vazio / padrão)</option>
+          </select>
+          <div id="batch-peso-valor-wrap" style="display:none;margin-top:8px">
+            <input type="number" id="batch-f-peso-valor" min="1" max="10" placeholder="Digite o peso de 1 a 10 (ex: 5)">
+          </div>
+        </div>
+
+        <!-- Finalidade -->
+        <div class="field">
+          <label>Finalidade / Urgência</label>
+          <select id="batch-f-finalidade">
+            <option value="">— Não alterar —</option>
+            <option value="__limpar__">— Remover finalidade (padrão peso 5) —</option>
+            <option value="estreia">Estreia (peso 10)</option>
+            <option value="promocional">Promocional (peso 7)</option>
+            <option value="comercial">Comercial (peso 6)</option>
+            <option value="vinhetas">Vinhetas (peso 5)</option>
+            <option value="calhau">Calhau (peso 5)</option>
+          </select>
+        </div>
+
+        <!-- Função (EVNH / Vinhetas) -->
+        <div class="field">
+          <label>Função <span style="font-weight:400;opacity:.7">(o que a vinheta/peça faz)</span></label>
+          <select id="batch-f-funcao" onchange="toggleBatchProgramaRelacionadoField(this.value)">
+            <option value="">— Não alterar —</option>
+            <option value="__limpar__">— Remover função (Não classificada) —</option>
+            <option value="assinatura_infantil">Assinatura — Infantil</option>
+            <option value="assinatura_jovem">Assinatura — Jovem</option>
+            <option value="assinatura_adulto">Assinatura — Adulto</option>
+            <option value="assinatura_padrao">Assinatura — Padrão</option>
+            <option value="vh_a_seguir">VH "A seguir"</option>
+            <option value="vh_daqui_a_pouco">VH "Daqui a pouco"</option>
+            <option value="vh_voce_esta_assistindo">VH "Você está assistindo"</option>
+            <option value="classificacao_indicativa">Classificação indicativa</option>
+            <option value="cartela_oficial">Cartela oficial</option>
+            <option value="vinheta_id">Vinheta de identificação do canal</option>
+            <option value="transicao">Transição</option>
+            <option value="outro">Outro</option>
+          </select>
+        </div>
+
+        <!-- Programa relacionado -->
+        <div class="field" id="batch-programa-relacionado-field" style="display:none">
+          <label>Programa relacionado <span style="font-weight:400;opacity:.7">(qual programa esta vinheta acompanha)</span></label>
+          <input id="batch-f-programa-relacionado" list="batch-programa-relacionado-list" placeholder="Comece a digitar o nome do programa…">
+          <datalist id="batch-programa-relacionado-list"></datalist>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center">
+      <button class="btn-cancel" onclick="closeBatchModal()">Cancelar</button>
+      <button class="btn-primary" id="btn-batch-confirm" onclick="confirmarEdicaoLote()" style="padding:7px 18px;font-weight:600">
+        Aplicar Alterações
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- DELETE MODAL -->
 <div class="overlay center" id="del-overlay" style="display:none" onclick="if(event.target===this)closeDel()">
   <div class="del-modal">
@@ -411,6 +590,81 @@ tbody tr:hover{background:#f5f5f3}
     </div>
     <div class="log-body" id="log-body">
       <div class="log-empty">Carregando…</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL DE PRÉ-VISUALIZAÇÃO DE IMPORTAÇÃO CSV / XLSX -->
+<div class="overlay center" id="import-preview-overlay" style="display:none" onclick="if(event.target===this)closeImportPreview()">
+  <div class="modal" style="width:720px;max-width:92vw;max-height:88vh">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="import-preview-title">Pré-visualização da Importação</div>
+        <div style="font-size:11.5px;color:var(--muted,#666);margin-top:2px" id="import-preview-sub">
+          Destino: <strong id="import-dest-tipo">Peças</strong> (<span id="import-dest-emissora">Emissora Ativa</span>)
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeImportPreview()">×</button>
+    </div>
+    <div class="modal-body" style="gap:16px">
+      <!-- Cards de resumo -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px">
+        <div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Arquivo</div>
+          <div id="import-file-name" style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="">-</div>
+          <div id="import-delim-badge" style="font-size:10.5px;color:#2B6CB0;margin-top:2px">Delim: ;</div>
+        </div>
+        <div style="background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em">Linhas do Arquivo</div>
+          <div id="import-total-linhas" style="font-size:18px;font-weight:700;color:#1a1a18">0</div>
+        </div>
+        <div style="background:#EBF8FF;border:1px solid #BEE3F8;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#2B6CB0;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Novos para Adicionar</div>
+          <div id="import-novos-count" style="font-size:18px;font-weight:700;color:#2B6CB0">0</div>
+        </div>
+        <div style="background:#FFF5F5;border:1px solid #FED7D7;border-radius:8px;padding:10px 12px">
+          <div style="font-size:10px;color:#C53030;text-transform:uppercase;letter-spacing:.05em">Ignorados (Já existem)</div>
+          <div id="import-duplicados-count" style="font-size:18px;font-weight:700;color:#C53030">0</div>
+        </div>
+      </div>
+
+      <!-- Aviso de colunas mapeadas -->
+      <div id="import-info-box" style="font-size:11.5px;color:#555;background:#fcfcfc;border:1px solid #eee;border-radius:6px;padding:8px 12px">
+        Colunas identificadas: <span id="import-colunas-detectadas" style="font-weight:500">-</span>
+      </div>
+
+      <!-- Tabela com amostra -->
+      <div>
+        <div style="font-size:11px;font-weight:600;color:#555;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em">
+          Amostra das Primeiras Linhas (com conversão de duração)
+        </div>
+        <div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
+          <table style="width:100%;border-collapse:collapse;font-size:11.5px;text-align:left">
+            <thead style="background:#f4f5f7;position:sticky;top:0;font-size:10.5px;color:#666">
+              <tr>
+                <th style="padding:6px 10px">#</th>
+                <th style="padding:6px 10px">Código</th>
+                <th style="padding:6px 10px">Descrição</th>
+                <th style="padding:6px 10px">Duração Original</th>
+                <th style="padding:6px 10px">Convertido (HH:MM:SS)</th>
+                <th style="padding:6px 10px">Tipo</th>
+                <th style="padding:6px 10px">Status</th>
+              </tr>
+            </thead>
+            <tbody id="import-preview-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;color:#777" id="import-footer-hint">Nenhum dado será alterado se você cancelar.</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn-cancel" onclick="closeImportPreview()">Cancelar</button>
+        <button class="btn-primary" id="btn-confirmar-import" onclick="confirmarImportacao()" style="padding:7px 16px;font-weight:600">
+          Confirmar Importação
+        </button>
+      </div>
     </div>
   </div>
 </div>

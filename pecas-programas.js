@@ -271,15 +271,106 @@ function wireGateLogin() {
   [email, pass].forEach((el) => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); }));
 }
 
+// =====================================================
+// CONTEXTO DE EMISSORA NA TELA
+// =====================================================
+function atualizarBrandingPecas(emissora) {
+  const modTitle = document.getElementById('page-module-title');
+  if (modTitle) {
+    if (emissora && emissora.nome) {
+      const cor = emissora.cor_primaria || "#0066cc";
+      const logoUrl = emissora.logo_url || null;
+      let logoHtml = "";
+      if (logoUrl) {
+        logoHtml = `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(emissora.nome)}" style="height:20px;max-width:40px;object-fit:contain;vertical-align:middle;margin-right:6px;border-radius:3px">`;
+      }
+      modTitle.innerHTML = `${logoHtml}<span style="background:${escapeHtml(cor)};color:#fff;padding:2px 7px;border-radius:4px;font-size:10.5px;font-weight:700;letter-spacing:0.03em">${escapeHtml(emissora.nome.toUpperCase())}</span> <span style="color:#94a3b8;font-weight:400;margin-left:4px">· PEÇAS E PROGRAMAS</span>`;
+      document.title = `Peças e Programas — ${emissora.nome}`;
+    } else {
+      modTitle.innerHTML = `<span>PEÇAS E PROGRAMAS</span>`;
+      document.title = 'Peças e Programas · RoteiroHub';
+    }
+  }
+  const sel = document.getElementById("select-emissora");
+  if (sel && emissora && emissora.cor_primaria) {
+    sel.style.borderColor = emissora.cor_primaria;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.atualizarBrandingPecas = atualizarBrandingPecas;
+}
+
+async function trocarEmissoraAtiva(novaEmissoraId) {
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+    const lista = EmissoraContext.getEmissorasCache();
+    const ativa = lista.find(e => e.id === novaEmissoraId);
+    atualizarBrandingPecas(ativa);
+  }
+  if (!novaEmissoraId) return;
+  if (window.EmissoraContext) {
+    EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
+  }
+  if (window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
+    PecasRepo.setEmissoraId(novaEmissoraId);
+  }
+  setGateMessage('Carregando peças da emissora...');
+  document.getElementById('gate').style.display = 'flex';
+  try {
+    const dados = await PecasRepo.loadAll();
+    pecas = Array.isArray(dados.pecas) ? dados.pecas : [];
+    programas = Array.isArray(dados.programas) ? dados.programas : [];
+    deletedPecas = [];
+    deletedProgramas = [];
+    render();
+  } catch (e) {
+    console.error('[Peças e Programas] Erro ao trocar emissora:', e);
+  } finally {
+    document.getElementById('gate').style.display = 'none';
+  }
+}
+  if (window.AdminPainel) {
+    window.AdminPainel.atualizarBotao();
+  }
 async function startApp(user) {
   currentUser = user;
   setGateMessage('Carregando cadastro...');
   document.getElementById('user-email').textContent = currentUser.email;
   document.getElementById('logout-link').addEventListener('click', async (e) => {
     e.preventDefault();
-    // Logout único: encerra a sessão e volta ao ponto de entrada.
     await CanalAuth.signOut('index.html');
   });
+
+  // Carrega e preenche o seletor de emissoras
+  if (window.EmissoraContext && supabaseClient) {
+    try {
+      const emissoras = await EmissoraContext.carregarEmissoras(supabaseClient, currentUser.id);
+      if (emissoras && emissoras.length > 0) {
+        const ativa = EmissoraContext.resolverEmissoraAtiva(emissoras);
+        const sel = document.getElementById('select-emissora');
+        const wrap = document.getElementById('emissora-wrap');
+        if (sel && wrap) {
+          sel.innerHTML = emissoras.map(e => `
+            <option value="${e.id}" ${ativa && ativa.id === e.id ? 'selected' : ''}>
+              ${escapeHtml(e.nome)}
+            </option>
+          `).join('');
+          wrap.style.display = 'flex';
+          sel.onchange = (e) => trocarEmissoraAtiva(e.target.value);
+        }
+        if (ativa && window.PecasRepo && typeof PecasRepo.setEmissoraId === 'function') {
+          PecasRepo.setEmissoraId(ativa.id);
+        }
+        atualizarBrandingPecas(ativa);
+                if (window.AdminPainel && supabaseClient && currentUser) {
+          window.AdminPainel.init(supabaseClient, currentUser);
+        }
+      }
+    } catch (err) {
+      console.warn('[Peças e Programas] Não foi possível listar emissoras:', err);
+    }
+  }
 
   try {
     // Banco relacional (public.pecas / public.programas) com fallback
@@ -289,6 +380,7 @@ async function startApp(user) {
       CanalLog.registrar('cadastro_aberto', { email: currentUser.email });
     }
     const modo = await PecasRepo.init(supabaseClient, WORKSPACE_ID);
+
     if (window.CadastroSync) {
       // Única tela autorizada a gravar no cadastro (fluxo de mão única).
       CadastroSync.init({
@@ -576,6 +668,299 @@ function renderSidebar(){
   document.getElementById('alert-box').innerHTML=alerts>0?`<div class="alert-box">⚠ ${alerts} com validade crítica</div>`:'';
 }
 function setCat(c){activeCat=c;render();}
+// =====================================================
+// DUPLICADOS E SELEÇÃO EM LOTE
+// =====================================================
+let filtroDuplicadosApenas = false;
+let selectedCodes = new Set();
+
+function toggleFiltroDuplicados() {
+  filtroDuplicadosApenas = !filtroDuplicadosApenas;
+  const btn = document.getElementById('btn-toggle-duplicados');
+  if (btn) {
+    btn.style.background = filtroDuplicadosApenas ? '#FFE58F' : '';
+    btn.style.fontWeight = filtroDuplicadosApenas ? '600' : 'normal';
+  }
+  render();
+}
+
+function toggleSelectAll(checked) {
+  const checkboxes = document.querySelectorAll('.batch-checkbox');
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+    if (checked) selectedCodes.add(cb.value);
+    else selectedCodes.delete(cb.value);
+  });
+  atualizarBarraLote();
+}
+
+function toggleSelectRow(code, checked) {
+  if (checked) selectedCodes.add(code);
+  else selectedCodes.delete(code);
+  atualizarBarraLote();
+}
+
+function limparSelecao() {
+  selectedCodes.clear();
+  const selectAllCb = document.getElementById('select-all-cb');
+  if (selectAllCb) selectAllCb.checked = false;
+  document.querySelectorAll('.batch-checkbox').forEach(cb => cb.checked = false);
+  atualizarBarraLote();
+}
+
+function atualizarBarraLote() {
+  const bar = document.getElementById('batch-bar');
+  const countSpan = document.getElementById('batch-count');
+  if (!bar || !countSpan) return;
+
+  const isPecas = activeTab === 'pecas';
+  const btnLimpeza = document.getElementById('btn-sugerir-limpeza');
+  if (btnLimpeza) {
+    btnLimpeza.textContent = isPecas
+      ? "💡 Sugerir limpeza (manter maior código)"
+      : "💡 Sugerir limpeza (código idêntico)";
+  }
+
+  if (selectedCodes.size > 0 || filtroDuplicadosApenas) {
+    bar.style.display = 'flex';
+    countSpan.textContent = `${selectedCodes.size} ite${selectedCodes.size === 1 ? 'm' : 'ns'} selecionado${selectedCodes.size === 1 ? '' : 's'}`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function selecionarSugeridosLimpeza() {
+  if (!window.PecasDeduplicador) {
+    alert('Módulo de deduplicação não carregado.');
+    return;
+  }
+  const isPecas = activeTab === 'pecas';
+  const lista = items();
+  const criterio = isPecas ? 'descricao' : 'code';
+  const grupos = window.PecasDeduplicador.encontrarDuplicados(lista, criterio);
+  const descartar = window.PecasDeduplicador.selecionarParaAcao(grupos, isPecas ? 'manter_maior_code' : 'manter_recente');
+  
+  selectedCodes = new Set(descartar);
+  render();
+  atualizarBarraLote();
+  if (window.toast) {
+    if (descartar.length === 0) {
+      window.toast(isPecas ? 'Nenhuma peça duplicada encontrada.' : 'Nenhum programa com código duplicado encontrado.');
+    } else {
+      const msg = isPecas
+        ? `${descartar.length} peca${descartar.length === 1 ? ' duplicada marcada' : 's duplicadas marcadas'} (preservando o maior código de cada grupo).`
+        : `${descartar.length} programa${descartar.length === 1 ? ' com código duplicado marcado' : 's com códigos duplicados marcados'}.`;
+      window.toast(msg);
+    }
+  }
+}
+
+// =====================================================
+// MODIFICAÇÕES EM LOTE (Bulk Edit)
+// =====================================================
+function openBatchModal() {
+  if (!selectedCodes || selectedCodes.size === 0) {
+    alert('Nenhum item selecionado. Marque as caixas de seleção dos itens desejados na tabela.');
+    return;
+  }
+  const isPecas = activeTab === 'pecas';
+  const qtd = selectedCodes.size;
+
+  const subtitulo = document.getElementById('batch-edit-subtitle');
+  if (subtitulo) {
+    subtitulo.textContent = `${qtd} ite${qtd === 1 ? 'm selecionado' : 'ns selecionados'} na aba ${isPecas ? 'Peças' : 'Programas'}`;
+  }
+
+  const fType = document.getElementById('batch-f-type');
+  if (fType) fType.value = '';
+
+  const pecasFields = document.getElementById('batch-pecas-fields');
+  if (pecasFields) {
+    pecasFields.style.display = isPecas ? 'flex' : 'none';
+  }
+
+  const fCat = document.getElementById('batch-f-cat');
+  if (fCat) fCat.value = '';
+
+  const fPesoAcao = document.getElementById('batch-f-peso-acao');
+  if (fPesoAcao) fPesoAcao.value = '';
+
+  const fPesoVal = document.getElementById('batch-f-peso-valor');
+  if (fPesoVal) fPesoVal.value = '';
+
+  const wrapPeso = document.getElementById('batch-peso-valor-wrap');
+  if (wrapPeso) wrapPeso.style.display = 'none';
+
+  const fFinalidade = document.getElementById('batch-f-finalidade');
+  if (fFinalidade) fFinalidade.value = '';
+
+  const fFuncao = document.getElementById('batch-f-funcao');
+  if (fFuncao) fFuncao.value = '';
+  const fProgramaRelacionado = document.getElementById('batch-f-programa-relacionado');
+  if (fProgramaRelacionado) fProgramaRelacionado.value = '';
+  toggleBatchProgramaRelacionadoField('');
+
+  const titulos = [...new Set(programas.map(p => baseProgramTitle(p.descricao)).filter(Boolean))].sort();
+  const datalist = document.getElementById('batch-programa-relacionado-list');
+  if (datalist) datalist.innerHTML = titulos.map(t => `<option value="${escapeHtml(t)}">`).join('');
+
+  const overlay = document.getElementById('batch-edit-overlay');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+function closeBatchModal() {
+  const overlay = document.getElementById('batch-edit-overlay');
+  if (overlay) overlay.style.display = 'none';
+}
+
+function toggleBatchPesoInput(acao) {
+  const wrapPeso = document.getElementById('batch-peso-valor-wrap');
+  if (wrapPeso) {
+    wrapPeso.style.display = acao === 'definir' ? 'block' : 'none';
+    if (acao === 'definir') {
+      const fPesoVal = document.getElementById('batch-f-peso-valor');
+      if (fPesoVal) fPesoVal.focus();
+    }
+  }
+}
+
+function toggleBatchProgramaRelacionadoField(funcao) {
+  const wrap = document.getElementById('batch-programa-relacionado-field');
+  if (wrap) wrap.style.display = FUNCOES_COM_PROGRAMA.has(funcao) ? 'block' : 'none';
+}
+
+function confirmarEdicaoLote() {
+  if (!selectedCodes || selectedCodes.size === 0) {
+    alert('Nenhum item selecionado.');
+    return;
+  }
+
+  const isPecas = activeTab === 'pecas';
+  const typeVal = document.getElementById('batch-f-type')?.value || '';
+  const catVal = isPecas ? (document.getElementById('batch-f-cat')?.value || '') : '';
+  const pesoAcao = isPecas ? (document.getElementById('batch-f-peso-acao')?.value || '') : '';
+  const pesoValRaw = isPecas ? (document.getElementById('batch-f-peso-valor')?.value?.trim() || '') : '';
+  const finalidadeVal = isPecas ? (document.getElementById('batch-f-finalidade')?.value || '') : '';
+  const funcaoVal = isPecas ? (document.getElementById('batch-f-funcao')?.value || '') : '';
+  const programaRelacionadoVal = isPecas ? (document.getElementById('batch-f-programa-relacionado')?.value?.trim() || '') : '';
+
+  if (!typeVal && !catVal && !pesoAcao && !finalidadeVal && !funcaoVal && !programaRelacionadoVal) {
+    alert('Selecione pelo menos um campo para alterar.');
+    return;
+  }
+
+  let pesoNumerico;
+  if (pesoAcao === 'definir') {
+    if (!pesoValRaw || isNaN(Number(pesoValRaw))) {
+      alert('Informe um número válido para o peso (entre 1 e 10).');
+      return;
+    }
+    pesoNumerico = Number(pesoValRaw);
+    if (pesoNumerico < 1 || pesoNumerico > 10) {
+      alert('O peso deve estar entre 1 e 10.');
+      return;
+    }
+  }
+
+  const codes = selectedCodes;
+  let qtdAlterados = 0;
+
+  const listaAtualizada = items().map(item => {
+    if (!codes.has(item.code)) return item;
+    qtdAlterados++;
+    const atualizado = { ...item };
+
+    if (typeVal) {
+      atualizado.type = typeVal;
+      if (atualizado.type !== 'EVNH') {
+        atualizado.funcao = '';
+        atualizado.programaRelacionado = '';
+      }
+    }
+
+    if (catVal) {
+      atualizado.categoria = catVal;
+    }
+
+    if (pesoAcao === 'definir') {
+      atualizado.peso = pesoNumerico;
+    } else if (pesoAcao === 'limpar') {
+      delete atualizado.peso;
+    }
+
+    if (finalidadeVal === '__limpar__') {
+      atualizado.tipoFinalidade = '';
+    } else if (finalidadeVal) {
+      atualizado.tipoFinalidade = finalidadeVal;
+    }
+
+    if (atualizado.type !== 'EVNH') {
+      atualizado.funcao = '';
+      atualizado.programaRelacionado = '';
+    } else if (funcaoVal === '__limpar__') {
+      atualizado.funcao = '';
+      atualizado.programaRelacionado = '';
+    } else if (funcaoVal) {
+      atualizado.funcao = funcaoVal;
+      atualizado.programaRelacionado = FUNCOES_COM_PROGRAMA.has(funcaoVal) ? programaRelacionadoVal : '';
+    } else if (programaRelacionadoVal) {
+      atualizado.programaRelacionado = programaRelacionadoVal;
+    }
+
+    return atualizado;
+  });
+
+  setItems(listaAtualizada);
+  closeBatchModal();
+  limparSelecao();
+  render();
+  scheduleSync();
+
+  if (window.toast) {
+    window.toast(`${qtdAlterados} ite${qtdAlterados === 1 ? 'm atualizado' : 'ns atualizados'} em lote com sucesso.`);
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.openBatchModal = openBatchModal;
+  window.closeBatchModal = closeBatchModal;
+  window.toggleBatchPesoInput = toggleBatchPesoInput;
+  window.toggleBatchProgramaRelacionadoField = toggleBatchProgramaRelacionadoField;
+  window.confirmarEdicaoLote = confirmarEdicaoLote;
+}
+
+function executarAcaoLote(acao) {
+  if (selectedCodes.size === 0) {
+    alert('Nenhum item selecionado.');
+    return;
+  }
+  const codes = Array.from(selectedCodes);
+  const qtd = codes.length;
+
+  if (acao === 'excluir') {
+    if (!confirm(`Tem certeza que deseja excluir ${qtd} ite${qtd === 1 ? 'm' : 'ns'} selecionado${qtd === 1 ? '' : 's'}?`)) {
+      return;
+    }
+    marcarExcluidos(codes);
+    setItems(items().filter(x => !selectedCodes.has(x.code)));
+    limparSelecao();
+    render();
+    scheduleSync();
+    if (window.toast) window.toast(`${qtd} itens excluídos.`);
+  } else if (acao === 'desativar') {
+    const atualizados = items().map(x => {
+      if (selectedCodes.has(x.code)) {
+        return { ...x, ativo: false };
+      }
+      return x;
+    });
+    setItems(atualizados);
+    limparSelecao();
+    render();
+    scheduleSync();
+    if (window.toast) window.toast(`${qtd} itens desativados.`);
+  }
+}
 
 // =====================================================
 // RENDER PRINCIPAL
@@ -583,34 +968,60 @@ function setCat(c){activeCat=c;render();}
 function render(){
   const isPecas = activeTab === 'pecas';
   const q=document.getElementById('search').value.toLowerCase();
-  const list = items();
+  let list = items();
+
+  // Contagem e identificação de duplicados
+  let duplicateCodes = new Set();
+  if (window.PecasDeduplicador) {
+    const criterio = isPecas ? 'descricao' : 'code';
+    const grupos = window.PecasDeduplicador.encontrarDuplicados(list, criterio);
+    if (Array.isArray(grupos)) {
+      grupos.forEach(g => (g.itens || []).forEach(p => duplicateCodes.add(p.code)));
+    } else if (grupos && typeof grupos === "object") {
+      Object.values(grupos).forEach(arr => (Array.isArray(arr) ? arr : []).forEach(p => duplicateCodes.add(p.code)));
+    }
+    const lblDuplicados = document.getElementById('lbl-duplicados');
+    if (lblDuplicados) {
+      lblDuplicados.textContent = `Apenas duplicados (${duplicateCodes.size})`;
+    }
+  }
+
   const filtered=list.filter(p=>{
+    if(filtroDuplicadosApenas && !duplicateCodes.has(p.code)) return false;
     if(isPecas && activeCat!=='ALL' && p.categoria!==activeCat)return false;
     if(q)return (p.code||'').toLowerCase().includes(q)||(p.descricao||'').toLowerCase().includes(q)||(p.type||'').toLowerCase().includes(q);
     return true;
   });
 
   const noun = isPecas ? 'peça' : 'programa';
-  const sub=`${filtered.length} ${noun}${filtered.length!==1?'s':''}${isPecas&&activeCat!=='ALL'?' · '+catMeta(activeCat).label:''}`;
+  const sub=`${filtered.length} ${noun}${filtered.length!==1?'s':''}${isPecas&&activeCat!=='ALL'?' · '+catMeta(activeCat).label:''}${filtroDuplicadosApenas?' · [Duplicados]':''}`;
   document.getElementById('header-sub').textContent = sub;
-
+  
   const thead = document.getElementById('thead');
   thead.innerHTML = isPecas
-    ? `<tr><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
-    : `<tr><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
+    ? `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
+    : `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
 
   if(filtered.length===0){
-    const colspan = isPecas ? 8 : 7;
-    document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.'}</td></tr>`;
+    const colspan = isPecas ? 9 : 8;
+    document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':(filtroDuplicadosApenas?'Nenhum item duplicado encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.')}</td></tr>`;
     if (isPecas) renderSidebar();
+    atualizarBarraLote();
     return;
   }
 
-  document.getElementById('tbody').innerHTML=filtered.map(p=> isPecas ? `
-    <tr>
+  document.getElementById('tbody').innerHTML=filtered.map(p=> {
+    const isChecked = selectedCodes.has(p.code) ? 'checked' : '';
+    const isDupl = duplicateCodes.has(p.code);
+    const rowStyle = isDupl ? 'background:#FFFDF5;' : '';
+    const duplBadge = isDupl ? '<span style="background:#FFE58F;color:#874D00;font-size:10px;padding:1px 4px;border-radius:3px;margin-left:4px">duplicado</span>' : '';
+
+    return isPecas ? `
+    <tr style="${rowStyle}">
+      <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
       <td>
-        <div class="desc-main">${escapeHtml(p.descricao)}</div>
+        <div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div>
         ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
         ${funcaoBadgeHtml(p)}
       </td>
@@ -626,9 +1037,10 @@ function render(){
         </div>
       </td>
     </tr>` : `
-    <tr>
+    <tr style="${rowStyle}">
+      <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
-      <td><div class="desc-main">${escapeHtml(p.descricao)}</div></td>
+      <td><div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div></td>
       <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
       <td class="type-cell">${escapeHtml(p.type)}</td>
       <td class="hor-cell">${escapeHtml(p.midia||'')}</td>
@@ -639,10 +1051,11 @@ function render(){
           <button class="icon-btn del" onclick="openDel('${p.id}')" title="Excluir">🗑</button>
         </div>
       </td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
 
   if (isPecas) renderSidebar();
+  atualizarBarraLote();
 }
 
 // =====================================================
@@ -664,6 +1077,9 @@ function openModal(id){
   if (isPecas) {
     document.getElementById('f-cat').value = p?.categoria || 'CHAMADA_QUENTE';
     document.getElementById('f-validade').value = p?.validade || '';
+    document.getElementById('f-finalidade').value = p?.tipoFinalidade || p?.finalidade || '';
+    document.getElementById('f-data-alvo').value = p?.dataEstreia || p?.dataAlvo || '';
+    document.getElementById('f-peso').value = (p?.peso != null && p?.peso !== '') ? p.peso : '';
     document.getElementById('f-obs').value = p?.obs || '';
     document.getElementById('f-hini').value = p?.hIni || '';
     document.getElementById('f-hfim').value = p?.hFim || '';
@@ -767,10 +1183,17 @@ function saveItem(){
     const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>normalizeDia(b.dataset.d));
     const showH=document.getElementById('f-showh').checked;
     const funcao = document.getElementById('f-funcao').value;
+    const pesoEl = document.getElementById('f-peso');
+    const pesoVal = pesoEl ? pesoEl.value.trim() : '';
+    const finalidadeEl = document.getElementById('f-finalidade');
+    const dataAlvoEl = document.getElementById('f-data-alvo');
     p = {
       ...p,
       categoria: document.getElementById('f-cat').value,
       validade: document.getElementById('f-validade').value || '',
+      tipoFinalidade: finalidadeEl ? finalidadeEl.value : '',
+      dataEstreia: dataAlvoEl ? dataAlvoEl.value : '',
+      peso: pesoVal !== '' && !isNaN(Number(pesoVal)) ? Number(pesoVal) : undefined,
       dias: showH?dias:[],
       hIni: showH?document.getElementById('f-hini').value:'',
       hFim: showH?document.getElementById('f-hfim').value:'',
@@ -783,7 +1206,9 @@ function saveItem(){
       programaRelacionado: (p.type === 'EVNH' && FUNCOES_COM_PROGRAMA.has(funcao))
         ? document.getElementById('f-programa-relacionado').value.trim() : '',
     };
-  } else {
+  }
+
+  else {
     // Campos estruturados (MVP-CADASTRO.md, Fase 1): calculados automaticamente
     // da descrição, mesma extração já usada pelo importador de grade em
     // app.js — o cadastro manual ganha o mesmo benefício sem digitar de novo.
@@ -811,11 +1236,15 @@ function saveItem(){
 function openDel(id){
   deleteId=id;
   const isPecas = activeTab === 'pecas';
-  const p=items().find(x=>x.id===id);
+  const p = items().find(x => x.id === id || x.code === id);
+  if (!p) {
+    console.warn("Item não encontrado para exclusão:", id);
+    return;
+  }
   document.getElementById('del-title').textContent = `Excluir ${isPecas?'peça':'programa'}`;
-  document.getElementById('del-code').textContent=p.code;
-  document.getElementById('del-desc').textContent=(p.descricao||'').slice(0,60);
-  document.getElementById('del-overlay').style.display='flex';
+  document.getElementById('del-code').textContent = p.code || id;
+  document.getElementById('del-desc').textContent = (p.descricao || p.programa_titulo || '').slice(0,60);
+  document.getElementById('del-overlay').style.display = 'flex';
 }
 
 // [NOVO] Botão "Excluir todos" — usa o mesmo modal de confirmação,
@@ -868,6 +1297,9 @@ function showToast(msg, isError) {
 // =====================================================
 function excelTimeToHMS(v, fallback){
   fallback = fallback || '00:01:00';
+  if (window.CsvImportador && typeof CsvImportador.normalizarDuracao === 'function') {
+    return CsvImportador.normalizarDuracao(v, fallback);
+  }
   if (v == null || v === '') return fallback;
   if (typeof v === 'number') {
     const secs = Math.round(v * 86400);
@@ -915,34 +1347,219 @@ function detectCols(headers, rows){
   };
 }
 
-function importFile(e){
+let pendenteImportacao = null;
+
+function closeImportPreview() {
+  const el = document.getElementById("import-preview-overlay");
+  if (el) el.style.display = "none";
+  pendenteImportacao = null;
+  const input = document.getElementById("import-file");
+  if (input) input.value = "";
+}
+
+function getNomeEmissoraAtiva() {
+  try {
+    if (window.EmissoraContext) {
+      const id = EmissoraContext.getEmissoraAtivaId();
+      const lista = typeof EmissoraContext.getEmissorasCache === "function" ? EmissoraContext.getEmissorasCache() : [];
+      const found = lista.find(e => e.id === id);
+      if (found && found.nome) return found.nome;
+      if (id === "00000000-0000-0000-0000-000000000001") return "Canal Educação";
+      if (id) return "Emissora selecionada";
+    }
+  } catch (_) {}
+  return "Emissora Ativa";
+}
+
+function abrirImportPreview({ fileName, delimiterInfo, rows }) {
+  const isPecas = activeTab === "pecas";
+  const importador = window.CsvImportador;
+
+  if (!rows || rows.length < 2) {
+    showToast("Planilha vazia ou sem linhas de dados", true);
+    return;
+  }
+
+  let analise;
+  if (importador && typeof importador.analisarImportacao === "function") {
+    analise = importador.analisarImportacao({
+      rows,
+      itensExistentes: items(),
+      isPecas,
+      uidGenerator: uid,
+    });
+  } else {
+    const headers = rows[0].map(h => String(h || "").trim().toUpperCase());
+    const ci = detectCols(headers, rows);
+    if (ci.code < 0 || ci.desc < 0) {
+      showToast("Não encontrei as colunas CODE e DESCRIÇÃO na primeira linha", true);
+      return;
+    }
+    processImportedRows(rows);
+    return;
+  }
+
+  if (!analise.valido) {
+    showToast(analise.erro || "Não foi possível ler as colunas do arquivo", true);
+    return;
+  }
+
+  pendenteImportacao = {
+    fileName,
+    delimiterInfo,
+    isPecas,
+    novosItens: analise.novosItens,
+    totalNovos: analise.totalNovos,
+    totalDuplicados: analise.totalDuplicados,
+    totalLinhas: analise.totalLinhas,
+  };
+
+  const setT = (id, txt) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  };
+
+  setT("import-file-name", fileName || "arquivo.csv");
+  const fileEl = document.getElementById("import-file-name");
+  if (fileEl) fileEl.title = fileName || "";
+
+  setT("import-delim-badge", "Separador: " + (delimiterInfo?.nome || "Ponto e vírgula (;)"));
+  setT("import-total-linhas", String(analise.totalLinhas || 0));
+  setT("import-novos-count", String(analise.totalNovos || 0));
+  setT("import-duplicados-count", String(analise.totalDuplicados || 0));
+  setT("import-dest-tipo", isPecas ? "Peças" : "Programas");
+  setT("import-dest-emissora", getNomeEmissoraAtiva());
+
+  const colunasStr = Object.entries(analise.colunasMapeadas || {})
+    .filter(([_, v]) => Boolean(v))
+    .map(([k, v]) => k.toUpperCase() + ": \"" + v + "\"")
+    .join(" · ");
+  setT("import-colunas-detectadas", colunasStr || "CODE, DESCRIÇÃO");
+
+  const tbody = document.getElementById("import-preview-tbody");
+  if (tbody) {
+    tbody.innerHTML = (analise.amostra || []).map((item) => {
+      const isNovo = item.status === "novo";
+      const badgeStyle = isNovo
+        ? "background:#C6F6D5;color:#22543D;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600"
+        : "background:#FEEBC8;color:#C05621;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600";
+      const badgeLabel = isNovo ? "Novo" : "Já existe";
+
+      return (
+        "<tr style=\"border-bottom:1px solid #edf2f7\">" +
+        "<td style=\"padding:6px 10px;color:#888\">" + item.linha + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600\">" + escapeHtml(item.code) + "</td>" +
+        "<td style=\"padding:6px 10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\" title=\"" + escapeHtml(item.descricao) + "\">" + escapeHtml(item.descricao) + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;color:#666\">" + escapeHtml(item.tempoOriginal) + "</td>" +
+        "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600;color:#2B6CB0\">" + escapeHtml(item.tempoFormatado) + "</td>" +
+        "<td style=\"padding:6px 10px;color:#555\">" + escapeHtml(item.type || "-") + "</td>" +
+        "<td style=\"padding:6px 10px\"><span style=\"" + badgeStyle + "\">" + badgeLabel + "</span></td>" +
+        "</tr>"
+      );
+    }).join("");
+  }
+
+  const btnConfirmar = document.getElementById("btn-confirmar-import");
+  if (btnConfirmar) {
+    if (analise.totalNovos > 0) {
+      btnConfirmar.disabled = false;
+      btnConfirmar.style.opacity = "1";
+      btnConfirmar.style.cursor = "pointer";
+      btnConfirmar.textContent = "Confirmar e Importar (" + analise.totalNovos + " " + (isPecas ? "peças" : "programas") + ")";
+    } else {
+      btnConfirmar.disabled = true;
+      btnConfirmar.style.opacity = "0.5";
+      btnConfirmar.style.cursor = "not-allowed";
+      btnConfirmar.textContent = "Nenhum novo item para importar";
+    }
+  }
+
+  const modal = document.getElementById("import-preview-overlay");
+  if (modal) modal.style.display = "flex";
+}
+
+function confirmarImportacao() {
+  if (!pendenteImportacao || !pendenteImportacao.novosItens || !pendenteImportacao.novosItens.length) {
+    showToast("Nenhum item novo para importar", true);
+    closeImportPreview();
+    return;
+  }
+
+  const isPecas = pendenteImportacao.isPecas;
+  const list = items();
+  const novos = pendenteImportacao.novosItens;
+  const count = novos.length;
+
+  novos.forEach(item => list.push(item));
+  setItems(list);
+  render();
+  scheduleSync();
+
+  const msg = "✓ " + count + " " + (isPecas ? "peças" : "programas") + " importados com sucesso!";
+  showToast(msg);
+  closeImportPreview();
+}
+
+function importFile(e) {
   const file = e.target.files[0];
   if (!file) return;
-  e.target.value = '';
 
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') {
-    Papa.parse(file, {
-      complete: (res) => processImportedRows(res.data),
-      error: (err) => showToast('Erro ao ler o CSV: ' + err.message, true),
-      skipEmptyLines: true,
-    });
-  } else if (ext === 'xlsx' || ext === 'xls') {
-    if (!window.XLSX) { showToast('Biblioteca XLSX não carregada', true); return; }
+  const ext = file.name.split(".").pop().toLowerCase();
+
+  if (ext === "csv") {
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      try {
+        const text = evt.target.result || "";
+        const importador = window.CsvImportador;
+        const delimInfo = (importador && typeof importador.detectarDelimitador === "function")
+          ? importador.detectarDelimitador(text)
+          : { delimitador: ";", nome: "Ponto e vírgula (;)" };
+
+        if (!window.Papa) {
+          showToast("Biblioteca PapaParse não carregada", true);
+          return;
+        }
+
+        Papa.parse(text, {
+          delimiter: delimInfo.delimitador,
+          skipEmptyLines: true,
+          complete: (res) => {
+            abrirImportPreview({
+              fileName: file.name,
+              delimiterInfo: delimInfo,
+              rows: res.data,
+            });
+          },
+          error: (err) => showToast("Erro ao processar CSV: " + err.message, true),
+        });
+      } catch (err) {
+        showToast("Erro ao ler arquivo CSV: " + err.message, true);
+      }
+    };
+    reader.onerror = () => showToast("Erro ao carregar o arquivo selecionado", true);
+    reader.readAsText(file, "UTF-8");
+  } else if (ext === "xlsx" || ext === "xls") {
+    if (!window.XLSX) { showToast("Biblioteca XLSX não carregada", true); return; }
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const wb = window.XLSX.read(ev.target.result, { type: 'array' });
+        const wb = window.XLSX.read(ev.target.result, { type: "array" });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
-        processImportedRows(rows);
+        const rows = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+        abrirImportPreview({
+          fileName: file.name,
+          delimiterInfo: { delimitador: "XLSX", nome: "Planilha Excel" },
+          rows,
+        });
       } catch (err) {
-        showToast('Erro ao ler o XLSX: ' + err.message, true);
+        showToast("Erro ao ler o XLSX: " + err.message, true);
       }
     };
     reader.readAsArrayBuffer(file);
   } else {
-    showToast('Formato não suportado — use .xlsx, .xls ou .csv', true);
+    showToast("Formato não suportado — use .xlsx, .xls ou .csv", true);
+    e.target.value = "";
   }
 }
 

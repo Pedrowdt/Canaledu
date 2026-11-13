@@ -586,18 +586,27 @@ const GRADE_BASE = {
 
 // Load grade for a day-of-week, falling back to GRADE_BASE if not yet customized
 /** Carrega a grade para o dia dow priorizando customizações do usuário no localStorage. Se não houver customização, usa os dados base do GRADE_BASE (extraídos da planilha de programação de março/2026). */
+function _gradeBasePertenceAEmissoraAtiva() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  return emissoraId === '00000000-0000-0000-0000-000000000001';
+}
+function _gradeStorageKeyAtiva() {
+  const emissoraId = (typeof EmissoraContext !== 'undefined' && EmissoraContext.getEmissoraAtivaId)
+    ? EmissoraContext.getEmissoraAtivaId() : null;
+  return emissoraId ? 'roteiroApp_' + emissoraId : 'roteiroApp';
+}
 function loadGradeWithBase(dow) {
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const saved = JSON.parse(localStorage.getItem(_gradeStorageKeyAtiva()) || '{}');
   const customGrade = (saved.gradeByDay || {})[dow];
-  // If user has a saved grade for this day, use it; otherwise fall back to GRADE_BASE
   if (customGrade && Object.keys(customGrade).length > 0) return customGrade;
-  return GRADE_BASE.gradeByDay[String(dow)] || {};
+  return _gradeBasePertenceAEmissoraAtiva() ? (GRADE_BASE.gradeByDay[String(dow)] || {}) : {};
 }
 
-/** Carrega a ordem dos programas para o dia dow. Prioridade: localStorage → GRADE_BASE. */
+/** Carrega a ordem dos programas da emissora ativa; só usa GRADE_BASE no Canal Educação. */
 function loadGradeOrderWithBase(dow) {
-  const saved = JSON.parse(localStorage.getItem('roteiroApp') || '{}');
+  const saved = JSON.parse(localStorage.getItem(_gradeStorageKeyAtiva()) || '{}');
   const customOrder = (saved.gradeOrderByDay || {})[dow];
   if (customOrder && customOrder.length > 0) return customOrder;
-  return GRADE_BASE.gradeOrderByDay[String(dow)] || [];
+  return _gradeBasePertenceAEmissoraAtiva() ? (GRADE_BASE.gradeOrderByDay[String(dow)] || []) : [];
 }

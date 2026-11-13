@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 
+const BACKUP_FIXTURE_PATH = new URL(
+  '../fixtures/roteiro-canal-educacao-backup_17.json',
+  import.meta.url
+);
+
 const src = readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
 const srcSemBoot = src.replace(/\ninit\(\);\s*$/, '\n');
 
@@ -256,7 +261,7 @@ describe('Recurso: Copiar Roteiro de Outro Dia e Importação Flexível', () => 
 
 describe('Caso Real: Backup do usuário com trabalho feito no dia 16 para aplicar no dia 17', () => {
   it('carrega o roteiro de 2026-10-16 (467 itens) para o dia 2026-10-17 através do modal de importação', () => {
-    const rawBackup = readFileSync('/mnt/user-uploads/roteiro-canal-educacao-backup_17.json', 'utf8');
+    const rawBackup = readFileSync(BACKUP_FIXTURE_PATH, 'utf8');
     const ls = makeLocalStorage();
     const { app, elements } = loadPure({ localStorage: ls });
 
@@ -291,7 +296,7 @@ describe('Caso Real: Backup do usuário com trabalho feito no dia 16 para aplica
   });
 
   it('permite copiar diretamente do dia 16 para o dia 17 pelo botão Copiar de outro dia', () => {
-    const rawBackup = JSON.parse(readFileSync('/mnt/user-uploads/roteiro-canal-educacao-backup_17.json', 'utf8'));
+    const rawBackup = JSON.parse(readFileSync(BACKUP_FIXTURE_PATH, 'utf8'));
     // Supor que o usuário já tinha o dia 16 salvo no app
     const ls = makeLocalStorage({
       roteiroApp: {
