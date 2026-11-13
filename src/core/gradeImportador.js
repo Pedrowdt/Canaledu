@@ -23,7 +23,31 @@
       1: [
         { time: '06:00:00', duration: '00:30:00', program: { title: 'Raiz Brasileira', code: 'TV_SAGRES_T03_EP11', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '06:30:00', duration: '00:30:00', program: { title: 'Agro Amazonas', code: 'TV_AGUAS_T03_EP31', categoria: 'Agronegócio' }, tipoExibicao: 'inedito' },
-        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL_SEG', categoria: 'Infantil' }, tipoExibicao: 'fixo' },
+        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL', categoria: 'Infantil', isFaixa: true, classificacao: 'tv_brasil', subprogramas: [
+          { titulo: 'ESSE E O BICHO', temporada: 'T 01', duracao: '00:15:00', ordem: 1 },
+          { titulo: 'LIA PEDRO E O MINIMUNDO', temporada: 'T 01', duracao: '00:15:00', ordem: 2 },
+          { titulo: 'PLAYPOLIS', temporada: 'T 01', duracao: '00:15:00', ordem: 3 },
+          { titulo: 'TROPA TROCO', temporada: 'T 01', duracao: '00:15:00', ordem: 4 },
+          { titulo: 'MUNDO BITA', temporada: 'T 09', duracao: '00:15:00', ordem: 5 },
+          { titulo: 'MASSINHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 6 },
+          { titulo: 'MUNDO BITA', temporada: 'T 06', duracao: '00:15:00', ordem: 7 },
+          { titulo: 'LUPITA NO PLANETA DE GENTE GRANDE', temporada: 'T 02', duracao: '00:15:00', ordem: 8 },
+          { titulo: 'MUNDO BITA', temporada: 'T 07', duracao: '00:15:00', ordem: 9 },
+          { titulo: 'IGARAPE MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 10 },
+          { titulo: 'SONHOS E SAPATILHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 11 },
+          { titulo: 'OS CHOCOLIX', temporada: 'T 01 / 02 / 03', duracao: '00:15:00', ordem: 12 },
+          { titulo: 'PORTAO MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 13 },
+          { titulo: 'MUNDO BITA', temporada: 'T 08', duracao: '00:15:00', ordem: 14 },
+          { titulo: 'HISTORIAS ATRAS DA PORTA', temporada: 'T 01', duracao: '00:15:00', ordem: 15 },
+          { titulo: 'O DIARIO DE MIKA', temporada: 'T 01 / 02', duracao: '00:15:00', ordem: 16 },
+          { titulo: 'CRIANCA RAIZ', temporada: 'T 01', duracao: '00:15:00', ordem: 17 },
+          { titulo: 'AS AVENTURAS DE TITA', temporada: 'T 01', duracao: '00:15:00', ordem: 18 },
+          { titulo: 'NINHOS EM MOVIMENTO', temporada: 'T 01', duracao: '00:15:00', ordem: 19 },
+          { titulo: 'ALEM DA LENDA', temporada: 'T 01', duracao: '00:15:00', ordem: 20 },
+          { titulo: 'JULIO E VERNE OS IRMAOS GEMIAIS', temporada: 'T 01', duracao: '00:15:00', ordem: 21 },
+          { titulo: 'IURI & UDI', temporada: 'T 01', duracao: '00:15:00', ordem: 22 },
+          { titulo: 'HEROINAS NEGRAS BRASILEIRAS', temporada: 'T 01', duracao: '00:15:00', ordem: 23 }
+        ] }, tipoExibicao: 'fixo', isFaixa: true, classificacao: 'tv_brasil' },
         { time: '12:45:00', duration: '00:45:00', program: { title: 'Repórter Brasil Tarde', code: 'RBT_AOVIVO', categoria: 'Jornalismo' }, tipoExibicao: 'inedito' },
         { time: '13:30:00', duration: '00:30:00', program: { title: 'Nova Amazônia', code: 'TV_AGUAS_T09_EP07', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '14:00:00', duration: '00:30:00', program: { title: 'Faróis do Brasil', code: 'FAROIS_T01_EP01', categoria: 'Documentário' }, tipoExibicao: 'inedito' },
@@ -47,7 +71,31 @@
       2: [
         { time: '06:00:00', duration: '00:30:00', program: { title: 'Discotoca', code: 'TVC_PARA_T03_EP13', categoria: 'Música' }, tipoExibicao: 'inedito' },
         { time: '06:30:00', duration: '00:30:00', program: { title: 'Agro Educativa', code: 'TV_MS_T02_EP43', categoria: 'Agronegócio' }, tipoExibicao: 'inedito' },
-        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL_TER', categoria: 'Infantil' }, tipoExibicao: 'fixo' },
+        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL', categoria: 'Infantil', isFaixa: true, classificacao: 'tv_brasil', subprogramas: [
+          { titulo: 'ESSE E O BICHO', temporada: 'T 01', duracao: '00:15:00', ordem: 1 },
+          { titulo: 'LIA PEDRO E O MINIMUNDO', temporada: 'T 01', duracao: '00:15:00', ordem: 2 },
+          { titulo: 'PLAYPOLIS', temporada: 'T 01', duracao: '00:15:00', ordem: 3 },
+          { titulo: 'TROPA TROCO', temporada: 'T 01', duracao: '00:15:00', ordem: 4 },
+          { titulo: 'MUNDO BITA', temporada: 'T 09', duracao: '00:15:00', ordem: 5 },
+          { titulo: 'MASSINHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 6 },
+          { titulo: 'MUNDO BITA', temporada: 'T 06', duracao: '00:15:00', ordem: 7 },
+          { titulo: 'LUPITA NO PLANETA DE GENTE GRANDE', temporada: 'T 02', duracao: '00:15:00', ordem: 8 },
+          { titulo: 'MUNDO BITA', temporada: 'T 07', duracao: '00:15:00', ordem: 9 },
+          { titulo: 'IGARAPE MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 10 },
+          { titulo: 'SONHOS E SAPATILHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 11 },
+          { titulo: 'OS CHOCOLIX', temporada: 'T 01 / 02 / 03', duracao: '00:15:00', ordem: 12 },
+          { titulo: 'PORTAO MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 13 },
+          { titulo: 'MUNDO BITA', temporada: 'T 08', duracao: '00:15:00', ordem: 14 },
+          { titulo: 'HISTORIAS ATRAS DA PORTA', temporada: 'T 01', duracao: '00:15:00', ordem: 15 },
+          { titulo: 'O DIARIO DE MIKA', temporada: 'T 01 / 02', duracao: '00:15:00', ordem: 16 },
+          { titulo: 'CRIANCA RAIZ', temporada: 'T 01', duracao: '00:15:00', ordem: 17 },
+          { titulo: 'AS AVENTURAS DE TITA', temporada: 'T 01', duracao: '00:15:00', ordem: 18 },
+          { titulo: 'NINHOS EM MOVIMENTO', temporada: 'T 01', duracao: '00:15:00', ordem: 19 },
+          { titulo: 'ALEM DA LENDA', temporada: 'T 01', duracao: '00:15:00', ordem: 20 },
+          { titulo: 'JULIO E VERNE OS IRMAOS GEMIAIS', temporada: 'T 01', duracao: '00:15:00', ordem: 21 },
+          { titulo: 'IURI & UDI', temporada: 'T 01', duracao: '00:15:00', ordem: 22 },
+          { titulo: 'HEROINAS NEGRAS BRASILEIRAS', temporada: 'T 01', duracao: '00:15:00', ordem: 23 }
+        ] }, tipoExibicao: 'fixo', isFaixa: true, classificacao: 'tv_brasil' },
         { time: '12:45:00', duration: '00:45:00', program: { title: 'Repórter Brasil Tarde', code: 'RBT_AOVIVO', categoria: 'Jornalismo' }, tipoExibicao: 'inedito' },
         { time: '13:30:00', duration: '00:30:00', program: { title: 'Destino Pernambuco', code: 'TV_PE_T01_EP14', categoria: 'Turismo' }, tipoExibicao: 'inedito' },
         { time: '14:00:00', duration: '00:30:00', program: { title: 'Faróis do Brasil', code: 'FAROIS_T01_EP02', categoria: 'Documentário' }, tipoExibicao: 'inedito' },
@@ -71,7 +119,31 @@
       3: [
         { time: '06:00:00', duration: '00:30:00', program: { title: 'Univerciência', code: 'TV_UESB_T08_EP06', categoria: 'Ciência' }, tipoExibicao: 'inedito' },
         { time: '06:30:00', duration: '00:30:00', program: { title: 'Culturas do Campo', code: 'TVE_ES_T02_EP44', categoria: 'Agronegócio' }, tipoExibicao: 'inedito' },
-        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL_QUA', categoria: 'Infantil' }, tipoExibicao: 'fixo' },
+        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL', categoria: 'Infantil', isFaixa: true, classificacao: 'tv_brasil', subprogramas: [
+          { titulo: 'ESSE E O BICHO', temporada: 'T 01', duracao: '00:15:00', ordem: 1 },
+          { titulo: 'LIA PEDRO E O MINIMUNDO', temporada: 'T 01', duracao: '00:15:00', ordem: 2 },
+          { titulo: 'PLAYPOLIS', temporada: 'T 01', duracao: '00:15:00', ordem: 3 },
+          { titulo: 'TROPA TROCO', temporada: 'T 01', duracao: '00:15:00', ordem: 4 },
+          { titulo: 'MUNDO BITA', temporada: 'T 09', duracao: '00:15:00', ordem: 5 },
+          { titulo: 'MASSINHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 6 },
+          { titulo: 'MUNDO BITA', temporada: 'T 06', duracao: '00:15:00', ordem: 7 },
+          { titulo: 'LUPITA NO PLANETA DE GENTE GRANDE', temporada: 'T 02', duracao: '00:15:00', ordem: 8 },
+          { titulo: 'MUNDO BITA', temporada: 'T 07', duracao: '00:15:00', ordem: 9 },
+          { titulo: 'IGARAPE MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 10 },
+          { titulo: 'SONHOS E SAPATILHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 11 },
+          { titulo: 'OS CHOCOLIX', temporada: 'T 01 / 02 / 03', duracao: '00:15:00', ordem: 12 },
+          { titulo: 'PORTAO MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 13 },
+          { titulo: 'MUNDO BITA', temporada: 'T 08', duracao: '00:15:00', ordem: 14 },
+          { titulo: 'HISTORIAS ATRAS DA PORTA', temporada: 'T 01', duracao: '00:15:00', ordem: 15 },
+          { titulo: 'O DIARIO DE MIKA', temporada: 'T 01 / 02', duracao: '00:15:00', ordem: 16 },
+          { titulo: 'CRIANCA RAIZ', temporada: 'T 01', duracao: '00:15:00', ordem: 17 },
+          { titulo: 'AS AVENTURAS DE TITA', temporada: 'T 01', duracao: '00:15:00', ordem: 18 },
+          { titulo: 'NINHOS EM MOVIMENTO', temporada: 'T 01', duracao: '00:15:00', ordem: 19 },
+          { titulo: 'ALEM DA LENDA', temporada: 'T 01', duracao: '00:15:00', ordem: 20 },
+          { titulo: 'JULIO E VERNE OS IRMAOS GEMIAIS', temporada: 'T 01', duracao: '00:15:00', ordem: 21 },
+          { titulo: 'IURI & UDI', temporada: 'T 01', duracao: '00:15:00', ordem: 22 },
+          { titulo: 'HEROINAS NEGRAS BRASILEIRAS', temporada: 'T 01', duracao: '00:15:00', ordem: 23 }
+        ] }, tipoExibicao: 'fixo', isFaixa: true, classificacao: 'tv_brasil' },
         { time: '12:45:00', duration: '00:45:00', program: { title: 'Repórter Brasil Tarde', code: 'RBT_AOVIVO', categoria: 'Jornalismo' }, tipoExibicao: 'inedito' },
         { time: '13:30:00', duration: '00:30:00', program: { title: 'Vem Ver', code: 'VEM_VER_T02_EP10', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '14:00:00', duration: '00:30:00', program: { title: 'Faróis do Brasil', code: 'FAROIS_T01_EP03', categoria: 'Documentário' }, tipoExibicao: 'inedito' },
@@ -95,7 +167,31 @@
       4: [
         { time: '06:00:00', duration: '00:30:00', program: { title: 'Vozes do Semiárido', code: 'TV_UERN_T01_EP03', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '06:30:00', duration: '00:30:00', program: { title: 'Agricultura Alto Vale', code: 'BELA_ALIANCA_T03_EP44', categoria: 'Agronegócio' }, tipoExibicao: 'inedito' },
-        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL_QUI', categoria: 'Infantil' }, tipoExibicao: 'fixo' },
+        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL', categoria: 'Infantil', isFaixa: true, classificacao: 'tv_brasil', subprogramas: [
+          { titulo: 'ESSE E O BICHO', temporada: 'T 01', duracao: '00:15:00', ordem: 1 },
+          { titulo: 'LIA PEDRO E O MINIMUNDO', temporada: 'T 01', duracao: '00:15:00', ordem: 2 },
+          { titulo: 'PLAYPOLIS', temporada: 'T 01', duracao: '00:15:00', ordem: 3 },
+          { titulo: 'TROPA TROCO', temporada: 'T 01', duracao: '00:15:00', ordem: 4 },
+          { titulo: 'MUNDO BITA', temporada: 'T 09', duracao: '00:15:00', ordem: 5 },
+          { titulo: 'MASSINHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 6 },
+          { titulo: 'MUNDO BITA', temporada: 'T 06', duracao: '00:15:00', ordem: 7 },
+          { titulo: 'LUPITA NO PLANETA DE GENTE GRANDE', temporada: 'T 02', duracao: '00:15:00', ordem: 8 },
+          { titulo: 'MUNDO BITA', temporada: 'T 07', duracao: '00:15:00', ordem: 9 },
+          { titulo: 'IGARAPE MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 10 },
+          { titulo: 'SONHOS E SAPATILHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 11 },
+          { titulo: 'OS CHOCOLIX', temporada: 'T 01 / 02 / 03', duracao: '00:15:00', ordem: 12 },
+          { titulo: 'PORTAO MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 13 },
+          { titulo: 'MUNDO BITA', temporada: 'T 08', duracao: '00:15:00', ordem: 14 },
+          { titulo: 'HISTORIAS ATRAS DA PORTA', temporada: 'T 01', duracao: '00:15:00', ordem: 15 },
+          { titulo: 'O DIARIO DE MIKA', temporada: 'T 01 / 02', duracao: '00:15:00', ordem: 16 },
+          { titulo: 'CRIANCA RAIZ', temporada: 'T 01', duracao: '00:15:00', ordem: 17 },
+          { titulo: 'AS AVENTURAS DE TITA', temporada: 'T 01', duracao: '00:15:00', ordem: 18 },
+          { titulo: 'NINHOS EM MOVIMENTO', temporada: 'T 01', duracao: '00:15:00', ordem: 19 },
+          { titulo: 'ALEM DA LENDA', temporada: 'T 01', duracao: '00:15:00', ordem: 20 },
+          { titulo: 'JULIO E VERNE OS IRMAOS GEMIAIS', temporada: 'T 01', duracao: '00:15:00', ordem: 21 },
+          { titulo: 'IURI & UDI', temporada: 'T 01', duracao: '00:15:00', ordem: 22 },
+          { titulo: 'HEROINAS NEGRAS BRASILEIRAS', temporada: 'T 01', duracao: '00:15:00', ordem: 23 }
+        ] }, tipoExibicao: 'fixo', isFaixa: true, classificacao: 'tv_brasil' },
         { time: '12:45:00', duration: '00:45:00', program: { title: 'Repórter Brasil Tarde', code: 'RBT_AOVIVO', categoria: 'Jornalismo' }, tipoExibicao: 'inedito' },
         { time: '13:30:00', duration: '00:30:00', program: { title: 'É Logo Ali', code: 'TVE_ES_T01_EP19', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '14:00:00', duration: '00:30:00', program: { title: 'Faróis do Brasil', code: 'FAROIS_T01_EP04', categoria: 'Documentário' }, tipoExibicao: 'inedito' },
@@ -119,7 +215,31 @@
       5: [
         { time: '06:00:00', duration: '00:30:00', program: { title: 'Olhar Independente', code: 'TVU_RN_T04_EP45', categoria: 'Cinema' }, tipoExibicao: 'inedito' },
         { time: '06:30:00', duration: '00:30:00', program: { title: 'Bem Viver', code: 'TVT_T03_EP39', categoria: 'Saúde' }, tipoExibicao: 'inedito' },
-        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL_SEX', categoria: 'Infantil' }, tipoExibicao: 'fixo' },
+        { time: '07:00:00', duration: '05:45:00', program: { title: 'TV Brasil Animada', code: 'FAIXA_INFANTIL', categoria: 'Infantil', isFaixa: true, classificacao: 'tv_brasil', subprogramas: [
+          { titulo: 'ESSE E O BICHO', temporada: 'T 01', duracao: '00:15:00', ordem: 1 },
+          { titulo: 'LIA PEDRO E O MINIMUNDO', temporada: 'T 01', duracao: '00:15:00', ordem: 2 },
+          { titulo: 'PLAYPOLIS', temporada: 'T 01', duracao: '00:15:00', ordem: 3 },
+          { titulo: 'TROPA TROCO', temporada: 'T 01', duracao: '00:15:00', ordem: 4 },
+          { titulo: 'MUNDO BITA', temporada: 'T 09', duracao: '00:15:00', ordem: 5 },
+          { titulo: 'MASSINHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 6 },
+          { titulo: 'MUNDO BITA', temporada: 'T 06', duracao: '00:15:00', ordem: 7 },
+          { titulo: 'LUPITA NO PLANETA DE GENTE GRANDE', temporada: 'T 02', duracao: '00:15:00', ordem: 8 },
+          { titulo: 'MUNDO BITA', temporada: 'T 07', duracao: '00:15:00', ordem: 9 },
+          { titulo: 'IGARAPE MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 10 },
+          { titulo: 'SONHOS E SAPATILHAS', temporada: 'T 01', duracao: '00:15:00', ordem: 11 },
+          { titulo: 'OS CHOCOLIX', temporada: 'T 01 / 02 / 03', duracao: '00:15:00', ordem: 12 },
+          { titulo: 'PORTAO MAGICO', temporada: 'T 01', duracao: '00:15:00', ordem: 13 },
+          { titulo: 'MUNDO BITA', temporada: 'T 08', duracao: '00:15:00', ordem: 14 },
+          { titulo: 'HISTORIAS ATRAS DA PORTA', temporada: 'T 01', duracao: '00:15:00', ordem: 15 },
+          { titulo: 'O DIARIO DE MIKA', temporada: 'T 01 / 02', duracao: '00:15:00', ordem: 16 },
+          { titulo: 'CRIANCA RAIZ', temporada: 'T 01', duracao: '00:15:00', ordem: 17 },
+          { titulo: 'AS AVENTURAS DE TITA', temporada: 'T 01', duracao: '00:15:00', ordem: 18 },
+          { titulo: 'NINHOS EM MOVIMENTO', temporada: 'T 01', duracao: '00:15:00', ordem: 19 },
+          { titulo: 'ALEM DA LENDA', temporada: 'T 01', duracao: '00:15:00', ordem: 20 },
+          { titulo: 'JULIO E VERNE OS IRMAOS GEMIAIS', temporada: 'T 01', duracao: '00:15:00', ordem: 21 },
+          { titulo: 'IURI & UDI', temporada: 'T 01', duracao: '00:15:00', ordem: 22 },
+          { titulo: 'HEROINAS NEGRAS BRASILEIRAS', temporada: 'T 01', duracao: '00:15:00', ordem: 23 }
+        ] }, tipoExibicao: 'fixo', isFaixa: true, classificacao: 'tv_brasil' },
         { time: '12:45:00', duration: '00:45:00', program: { title: 'Repórter Brasil Tarde', code: 'RBT_AOVIVO', categoria: 'Jornalismo' }, tipoExibicao: 'inedito' },
         { time: '13:30:00', duration: '00:30:00', program: { title: 'Bem Bahia', code: 'TVE_BAHIA_T03_EP39', categoria: 'Regional' }, tipoExibicao: 'inedito' },
         { time: '14:00:00', duration: '00:30:00', program: { title: 'Faróis do Brasil', code: 'FAROIS_T01_EP05', categoria: 'Documentário' }, tipoExibicao: 'inedito' },
@@ -262,12 +382,17 @@
         blocks.push(block);
 
         // Regras de exibição / recorrência
-        if (item.tipoExibicao) {
-          const slotKey = `${d}:${item.time || '06:00:00'}`;
-          recorrenciaSugerida.slots[slotKey] = {
-            tipoExibicao: item.tipoExibicao,
+        if (item.tipoExibicao || item.classificacao || item.isFaixa) {
+          const hora = item.time || '06:00:00';
+          const ruleData = {
+            tipoExibicao: item.tipoExibicao || 'fixo',
             origemInedito: item.repriseDe || null,
+            classificacao: item.classificacao || item.program?.classificacao || (item.program?.title?.includes('AO VIVO') ? 'tv_brasil_aovivo' : 'tv_brasil'),
+            isFaixa: !!(item.isFaixa || item.program?.isFaixa),
+            subprogramas: item.subprogramas || item.program?.subprogramas || []
           };
+          recorrenciaSugerida.slots[`${d}:${hora}`] = ruleData;
+          recorrenciaSugerida.slots[`${d}|${hora}`] = ruleData;
         }
       });
 

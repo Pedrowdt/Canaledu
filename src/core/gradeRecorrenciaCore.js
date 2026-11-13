@@ -393,8 +393,226 @@
     };
   }
 
+  // =========================================================================
+  // 5 Classificações Oficiais TV Brasil (conforme legenda da grade oficial)
+  // =========================================================================
+  const CLASSIFICACOES = {
+    TV_BRASIL: {
+      id: 'tv_brasil',
+      label: 'Produções TV Brasil',
+      cor: '#92D050',
+      corTexto: '#143808',
+      bgBadge: '#eaf8dc',
+      borderBadge: '#92D050'
+    },
+    TV_BRASIL_AOVIVO: {
+      id: 'tv_brasil_aovivo',
+      label: 'Produções TV Brasil Ao Vivo',
+      cor: '#FFFF00',
+      corTexto: '#4d4000',
+      bgBadge: '#fefce8',
+      borderBadge: '#eab308'
+    },
+    LICENCIADO: {
+      id: 'licenciado',
+      label: 'Conteúdos Licenciados',
+      cor: '#FFFFFF',
+      corTexto: '#1e293b',
+      bgBadge: '#ffffff',
+      borderBadge: '#cbd5e1'
+    },
+    RNCP: {
+      id: 'rnpc',
+      label: 'Produções RNCP',
+      cor: '#B8CCE4',
+      corTexto: '#1e3a5f',
+      bgBadge: '#f0f5fa',
+      borderBadge: '#8faadc'
+    },
+    REPRISE_MADRUGADA: {
+      id: 'reprise_madrugada',
+      label: 'Reprises Madrugada',
+      cor: '#D9D9D9',
+      corTexto: '#334155',
+      bgBadge: '#f1f5f9',
+      borderBadge: '#94a3b8'
+    }
+  };
+
+  const EMISSORAS_RNCP_KEYWORDS = [
+    'TV SAGRES', 'TVC PARÁ', 'TVC', 'TV UESB', 'UESB', 'TV UERN', 'UERN',
+    'TVU RN', 'TVU', 'REDE BELA ALIANÇA', 'REDE BELA', 'TVT', 'TV ENCONTRO DAS ÁGUAS',
+    'ENCONTRO DAS ÁGUAS', 'TVE ES', 'TVE', 'TV EDUCATIVA MS', 'TV EDUCATIVA',
+    'TV GUARAPARI', 'TV ALERJ', 'RNCP', 'RNPC'
+  ];
+
+  function detectarClassificacao(slotOuPrograma = {}) {
+    if (!slotOuPrograma) return CLASSIFICACOES.TV_BRASIL;
+
+    const classifRaw = slotOuPrograma.classificacao || slotOuPrograma.program?.classificacao;
+    if (classifRaw) {
+      const chave = String(classifRaw).toUpperCase();
+      if (CLASSIFICACOES[chave]) return CLASSIFICACOES[chave];
+      const match = Object.values(CLASSIFICACOES).find(c => c.id === String(classifRaw).toLowerCase());
+      if (match) return match;
+    }
+
+    const title = String(slotOuPrograma.title || slotOuPrograma.program?.title || slotOuPrograma.programaNome || '').toUpperCase();
+    const code = String(slotOuPrograma.code || slotOuPrograma.program?.code || '').toUpperCase();
+    const horario = String(slotOuPrograma.time || slotOuPrograma.horario || '');
+    const tipo = String(slotOuPrograma.tipoExibicao || '');
+
+    // 1. Ao Vivo
+    if (title.includes('AO VIVO') || code.includes('AOVIVO')) {
+      return CLASSIFICACOES.TV_BRASIL_AOVIVO;
+    }
+
+    // 2. Reprises da Madrugada (01:00 às 05:45)
+    if (tipo === 'reprise' && horario) {
+      const horaNum = parseInt(horario.split(':')[0], 10);
+      if (!isNaN(horaNum) && (horaNum >= 1 && horaNum <= 5)) {
+        return CLASSIFICACOES.REPRISE_MADRUGADA;
+      }
+    }
+
+    // 3. RNCP
+    if (EMISSORAS_RNCP_KEYWORDS.some(k => title.includes(k) || code.includes(k))) {
+      return CLASSIFICACOES.RNCP;
+    }
+
+    // 4. Licenciados
+    if (title.includes('SESSÃO DE CINEMA') || title.includes('FESTIVAL DE CINEMA') || title.includes('LICENCIADO')) {
+      return CLASSIFICACOES.LICENCIADO;
+    }
+
+    return CLASSIFICACOES.TV_BRASIL;
+  }
+
+  // =========================================================================
+  // Faixas Compostas (ex: TV Brasil Animada agrupando 23 atrações)
+  // =========================================================================
+  function normalizarSubprograma(sub = {}, ordem = 1) {
+    return {
+      id: sub.id || 'sub-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6),
+      titulo: (sub.titulo || sub.title || 'Atração Sem Título').trim(),
+      temporada: (sub.temporada || '').trim(),
+      episodio: (sub.episodio || '').trim(),
+      duracao: sub.duracao || '00:15:00',
+      ordem: typeof sub.ordem === 'number' ? sub.ordem : ordem,
+      observacao: sub.observacao || ''
+    };
+  }
+
+  function criarFaixaComposta(config = {}) {
+    const {
+      titulo = 'Faixa de Programação',
+      duracaoTotal = '05:15:00',
+      subprogramas = []
+    } = config;
+
+    const subsNormalizados = (subprogramas || []).map((sub, idx) => normalizarSubprograma(sub, idx + 1));
+
+    return {
+      isFaixa: true,
+      tipoBloco: 'faixa',
+      titulo: titulo.trim(),
+      duracaoTotal,
+      subprogramas: subsNormalizados
+    };
+  }
+
+  function parseSubprogramasTexto(textoBruto = '') {
+    if (!textoBruto || typeof textoBruto !== 'string') return [];
+    const linhas = textoBruto.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const resultado = [];
+
+    for (const linha of linhas) {
+      if (/^TV BRASIL ANIMADA/i.test(linha) || /^FAIXA/i.test(linha)) continue;
+
+      let titulo = linha;
+      let temporada = '';
+      let episodio = '';
+
+      const matchT = linha.match(/^(.*?)\s*-\s*(T\s*\d+(?:\s*\/\s*\d+)*)(.*)$/i);
+      if (matchT) {
+        titulo = matchT[1].trim();
+        temporada = matchT[2].trim();
+        const resto = matchT[3].trim();
+        const matchEp = resto.match(/EP\s*(\d+)/i);
+        if (matchEp) episodio = matchEp[1];
+      }
+
+      resultado.push(normalizarSubprograma({
+        titulo,
+        temporada,
+        episodio,
+        duracao: '00:15:00'
+      }, resultado.length + 1));
+    }
+
+    return resultado;
+  }
+
+  function adicionarSubprograma(faixa, subprograma) {
+    if (!faixa) return faixa;
+    const subs = Array.isArray(faixa.subprogramas) ? [...faixa.subprogramas] : [];
+    subs.push(normalizarSubprograma(subprograma, subs.length + 1));
+    return {
+      ...faixa,
+      subprogramas: subs
+    };
+  }
+
+  function substituirSubprograma(faixa, subprogramaId, novoSubprograma) {
+    if (!faixa || !Array.isArray(faixa.subprogramas)) return faixa;
+    const subs = faixa.subprogramas.map((s, idx) => {
+      if (s.id === subprogramaId || s.titulo === subprogramaId) {
+        return normalizarSubprograma({ ...novoSubprograma, id: s.id }, idx + 1);
+      }
+      return { ...s, ordem: idx + 1 };
+    });
+    return {
+      ...faixa,
+      subprogramas: subs
+    };
+  }
+
+  function removerSubprograma(faixa, subprogramaId) {
+    if (!faixa || !Array.isArray(faixa.subprogramas)) return faixa;
+    const subs = faixa.subprogramas
+      .filter(s => s.id !== subprogramaId && s.titulo !== subprogramaId)
+      .map((s, idx) => ({ ...s, ordem: idx + 1 }));
+    return {
+      ...faixa,
+      subprogramas: subs
+    };
+  }
+
+  function reordenarSubprogramas(faixa, deIdx, paraIdx) {
+    if (!faixa || !Array.isArray(faixa.subprogramas)) return faixa;
+    const list = [...faixa.subprogramas];
+    if (deIdx < 0 || deIdx >= list.length || paraIdx < 0 || paraIdx >= list.length) return faixa;
+    const [item] = list.splice(deIdx, 1);
+    list.splice(paraIdx, 0, item);
+    return {
+      ...faixa,
+      subprogramas: list.map((s, i) => ({ ...s, ordem: i + 1 }))
+    };
+  }
+
   return {
     TIPOS_SLOT,
+    TIPOS_EXCECAO,
+    CLASSIFICACOES,
+    detectarClassificacao,
+    criarFaixaComposta,
+    normalizarSubprograma,
+    parseSubprogramasTexto,
+    adicionarSubprograma,
+    substituirSubprograma,
+    removerSubprograma,
+    reordenarSubprogramas,
+    criarSlotRecorrente,
     TIPOS_EXCECAO,
     criarSlotRecorrente,
     adicionarEpisodioFila,

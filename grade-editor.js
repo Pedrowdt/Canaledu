@@ -456,19 +456,24 @@
 
     container.innerHTML = blocks.map((b, idx) => {
       const hasProg = b.program && b.program.title;
-      const color = hasProg ? getProgColor(b.program.title) : '#ccc';
+      const classif = obterClassificacaoSlot(currentDow, idx);
+      const color = classif ? classif.cor : (hasProg ? getProgColor(b.program.title) : '#ccc');
       const isEmptyClass = hasProg ? '' : 'is-empty';
+      const cardAccentStyle = (hasProg && classif && classif.id === 'tv_brasil_aovivo') ? 'border-color:#ca8a04;background:#fefce8' : '';
 
       let contentHtml = '';
       if (hasProg) {
         contentHtml = `
-          <div class="slot-color-bar" style="background:${color}"></div>
+          <div class="slot-color-bar" style="background:${color};width:6px"></div>
           <span class="drag-handle" draggable="true" ondragstart="onSlotDragStart(event, ${idx})" title="Arrastar para trocar de horário" style="font-size:16px;cursor:grab">⠿</span>
           <div class="slot-details">
             <div class="slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
-            <div class="slot-meta">
+            <div class="slot-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               ${b.program.code ? `<span>Cód: <strong>${escapeHtml(b.program.code)}</strong></span>` : ''}
               ${b.program.categoria ? `<span>• ${escapeHtml(b.program.categoria)}</span>` : ''}
+              ${renderClassificacaoBadge(currentDow, idx)}
+              ${renderRecurrenceBadge(currentDow, idx)}
+              ${renderFaixaBadge(currentDow, idx)}
             </div>
           </div>
         `;
@@ -638,9 +643,11 @@
         if (val) {
           const isContinuation = val.startsWith('↳');
           const cleanTitle = val.replace(/^↳\s*/, '').replace(/\s*\([\d:]+\)$/, '');
-          const color = getProgColor(cleanTitle);
+          const classif = window.GradeRecorrenciaCore ? window.GradeRecorrenciaCore.detectarClassificacao({ title: cleanTitle }) : null;
+          const color = classif ? classif.cor : getProgColor(cleanTitle);
+          const cellBg = (classif && classif.id === 'tv_brasil_aovivo') ? 'background:#fefce8;' : '';
           return `
-            <div class="matrix-cell ${isContinuation ? 'continuation' : ''}" style="border-left: 3px solid ${color}"
+            <div class="matrix-cell ${isContinuation ? 'continuation' : ''}" style="border-left: 4px solid ${color}; ${cellBg}"
                  onclick="window.switchDay(${d})" title="${escapeHtml(val)}">
               <div class="cell-title">${escapeHtml(val)}</div>
             </div>
@@ -1265,6 +1272,39 @@
     return `<span class="badge-recurrence" style="background:#f1f5f9;color:#475569;border-color:#cbd5e1" title="Horário fixo: não avança fila de episódios">● Fixo</span>`;
   }
 
+  function obterClassificacaoSlot(dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    if (!block?.program) return null;
+    const rule = recurrenceState.slots[getSlotKey(dow, idx)] || {};
+    const slotInfo = {
+      ...block,
+      classificacao: rule.classificacao || block.classificacao || block.program.classificacao,
+      tipoExibicao: rule.tipoExibicao || block.tipoExibicao || 'fixo'
+    };
+    if (window.GradeRecorrenciaCore && window.GradeRecorrenciaCore.detectarClassificacao) {
+      return window.GradeRecorrenciaCore.detectarClassificacao(slotInfo);
+    }
+    return null;
+  }
+
+  function renderClassificacaoBadge(dow, idx) {
+    const classif = obterClassificacaoSlot(dow, idx);
+    if (!classif) return '';
+    return `<span class="badge-recurrence" style="background:${classif.bgBadge};color:${classif.corTexto};border-color:${classif.borderBadge};font-weight:600" title="Classificação Oficial: ${escapeHtml(classif.label)}">${escapeHtml(classif.label)}</span>`;
+  }
+
+  function renderFaixaBadge(dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    if (!block?.program) return '';
+    const rule = recurrenceState.slots[getSlotKey(dow, idx)] || {};
+    const isFaixa = rule.isFaixa || block.isFaixa || block.program.isFaixa || /ANIMADA|FAIXA/i.test(block.program.title || '');
+    if (!isFaixa) return '';
+
+    const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
+    const count = subs.length;
+    return `<button type="button" onclick="event.stopPropagation();abrirGerenciadorFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6;cursor:pointer;font-weight:700" title="Clique para gerenciar as atrações desta faixa composta">🎪 Faixa Composta (${count})</button>`;
+  }
+
   function atualizarBadgeExcecoes() {
     const count = Object.values(recurrenceState.dateExceptions || {}).reduce((sum, day) => sum + Object.keys(day || {}).length, 0);
     const badge = document.getElementById('badge-excecoes-count');
@@ -1404,7 +1444,29 @@
     document.querySelectorAll('input[name="slot-tipo-exibicao"]').forEach(r => { r.checked = r.value === rule.tipoExibicao; });
     popularOrigensReprise(dow, idx, rule.origemReprise);
     window.toggleConfigRepriseSection();
+
+    // Carrega classificação oficial
+    const classifVal = rule.classificacao || block.classificacao || block.program.classificacao || 'auto';
+    document.querySelectorAll('input[name="slot-classificacao"]').forEach(r => {
+      r.checked = r.value === classifVal;
+    });
+
+    // Carrega estado de faixa composta
+    const isFaixaVal = !!(rule.isFaixa || block.isFaixa || block.program.isFaixa);
+    const chkFaixa = document.getElementById('slot-is-faixa');
+    if (chkFaixa) chkFaixa.checked = isFaixaVal;
+    const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
+    const statusFaixa = document.getElementById('config-faixa-status-texto');
+    if (statusFaixa) statusFaixa.textContent = `${subs.length} atrações cadastradas nesta faixa.`;
+    window.toggleConfigFaixaSection();
+
     document.getElementById('modal-config-slot').style.display = 'flex';
+  };
+
+  window.toggleConfigFaixaSection = function () {
+    const isFaixa = document.getElementById('slot-is-faixa')?.checked || false;
+    const section = document.getElementById('section-config-faixa');
+    if (section) section.style.display = isFaixa ? 'block' : 'none';
   };
 
   function popularOrigensReprise(targetDow, targetIdx, selected) {
@@ -1851,4 +1913,246 @@
   } else {
     boot();
   }
+
+  // =========================================================================
+  // Gerenciador de Faixas Compostas (UI Modal)
+  // =========================================================================
+  let faixaContext = null;
+
+  window.abrirGerenciadorFaixaContextoAtual = function () {
+    if (!slotConfigContext) return;
+    const { dow, idx } = slotConfigContext;
+    window.closeConfigSlotModal();
+    window.abrirGerenciadorFaixa(dow, idx);
+  };
+
+  window.abrirGerenciadorFaixa = function (dow, idx) {
+    const block = blocksByDay[dow]?.[idx];
+    if (!block?.program) return;
+    const key = getSlotKey(dow, idx);
+    const rule = recurrenceState.slots[key] || {};
+    const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
+
+    faixaContext = {
+      dow: Number(dow),
+      idx: Number(idx),
+      subprogramas: Array.isArray(subs) ? JSON.parse(JSON.stringify(subs)) : []
+    };
+
+    const titleEl = document.getElementById('faixa-modal-title');
+    if (titleEl) titleEl.textContent = `🎪 Faixa Composta · ${escapeHtml(block.program.title || 'Faixa')} (${formatDayName(dow)})`;
+    const horEl = document.getElementById('faixa-info-horario');
+    if (horEl) horEl.textContent = `${block.time} ➔ ${block.endTime}`;
+    const durEl = document.getElementById('faixa-info-duracao');
+    if (durEl) durEl.textContent = block.duration;
+    const totEl = document.getElementById('faixa-info-total');
+    if (totEl) totEl.textContent = String(faixaContext.subprogramas.length);
+
+    window.switchFaixaTab('lista');
+    window.cancelarEdicaoSubprogramaFaixa();
+    window.renderFaixaSubprogramas();
+
+    const modal = document.getElementById('modal-faixa-composta');
+    if (modal) modal.style.display = 'flex';
+  };
+
+  window.closeFaixaModal = function () {
+    const modal = document.getElementById('modal-faixa-composta');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.switchFaixaTab = function (tab) {
+    const btnLista = document.getElementById('tab-btn-faixa-lista');
+    const btnLote = document.getElementById('tab-btn-faixa-lote');
+    const panelLista = document.getElementById('panel-faixa-lista');
+    const panelLote = document.getElementById('panel-faixa-lote');
+
+    if (tab === 'lote') {
+      if (btnLista) btnLista.classList.remove('active');
+      if (btnLote) btnLote.classList.add('active');
+      if (panelLista) panelLista.style.display = 'none';
+      if (panelLote) panelLote.style.display = 'block';
+    } else {
+      if (btnLista) btnLista.classList.add('active');
+      if (btnLote) btnLote.classList.remove('active');
+      if (panelLista) panelLista.style.display = 'block';
+      if (panelLote) panelLote.style.display = 'none';
+    }
+  };
+
+  window.renderFaixaSubprogramas = function () {
+    const container = document.getElementById('faixa-subprogramas-container');
+    if (!container || !faixaContext) return;
+
+    const totEl = document.getElementById('faixa-info-total');
+    if (totEl) totEl.textContent = String(faixaContext.subprogramas.length);
+
+    if (faixaContext.subprogramas.length === 0) {
+      container.innerHTML = `
+        <div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">
+          Nenhuma atração cadastrada nesta faixa.<br>Adicione programas infantis/desenhos acima ou importe a lista em lote.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = faixaContext.subprogramas.map((sub, i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #f1f5f9;background:${i % 2 === 0 ? '#fff' : '#fcfcfd'};font-size:12px">
+        <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0">
+          <span style="font-weight:700;color:#64748b;font-size:11px;min-width:24px">${i + 1}º</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;color:#0f172a" title="${escapeHtml(sub.titulo)}">${escapeHtml(sub.titulo)}</div>
+            <div style="font-size:10.5px;color:#64748b">
+              ${sub.temporada ? `<span style="background:#e2e8f0;padding:1px 5px;border-radius:3px;font-weight:600">${escapeHtml(sub.temporada)}</span>` : ''}
+              ${sub.episodio ? `<span>• Ep: ${escapeHtml(sub.episodio)}</span>` : ''}
+              <span>• Duração: ${escapeHtml(sub.duracao || '00:15:00')}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px">
+          <button type="button" class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="moverSubprogramaFaixa('${escapeHtml(sub.id)}', -1)" title="Mover para cima" ${i === 0 ? 'disabled style="opacity:0.4"' : ''}>▲</button>
+          <button type="button" class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="moverSubprogramaFaixa('${escapeHtml(sub.id)}', 1)" title="Mover para baixo" ${i === faixaContext.subprogramas.length - 1 ? 'disabled style="opacity:0.4"' : ''}>▼</button>
+          <button type="button" class="btn-outline" style="padding:2px 8px;font-size:11px;color:#0284c7;border-color:#bae6fd" onclick="editarSubprogramaFaixa('${escapeHtml(sub.id)}')" title="Substituir ou editar quando encerrar temporada">🔄 Substituir</button>
+          <button type="button" class="btn-outline" style="padding:2px 6px;font-size:11px;color:var(--danger);border-color:#fecaca" onclick="removerSubprogramaFaixa('${escapeHtml(sub.id)}')" title="Remover da faixa">✕</button>
+        </div>
+      </div>
+    `).join('');
+  };
+
+  window.salvarSubprogramaFaixa = function () {
+    if (!faixaContext) return;
+    const editId = document.getElementById('faixa-subprog-edit-id')?.value || '';
+    const titulo = document.getElementById('faixa-subprog-titulo')?.value?.trim() || '';
+    const temporada = document.getElementById('faixa-subprog-temporada')?.value?.trim() || '';
+    const duracao = document.getElementById('faixa-subprog-duracao')?.value?.trim() || '00:15:00';
+
+    if (!titulo) {
+      alert('Informe o título do desenho ou programa.');
+      return;
+    }
+
+    if (window.GradeRecorrenciaCore) {
+      if (editId) {
+        faixaContext.subprogramas = window.GradeRecorrenciaCore.substituirSubprograma(
+          { isFaixa: true, subprogramas: faixaContext.subprogramas },
+          editId,
+          { titulo, temporada, duracao }
+        ).subprogramas;
+        showToast('Atração substituída na faixa!', 'success');
+      } else {
+        faixaContext.subprogramas = window.GradeRecorrenciaCore.adicionarSubprograma(
+          { isFaixa: true, subprogramas: faixaContext.subprogramas },
+          { titulo, temporada, duracao }
+        ).subprogramas;
+        showToast('Atração adicionada à faixa!', 'success');
+      }
+    }
+
+    window.cancelarEdicaoSubprogramaFaixa();
+    window.renderFaixaSubprogramas();
+  };
+
+  window.editarSubprogramaFaixa = function (id) {
+    if (!faixaContext) return;
+    const sub = faixaContext.subprogramas.find(s => s.id === id);
+    if (!sub) return;
+
+    document.getElementById('faixa-subprog-edit-id').value = sub.id;
+    document.getElementById('faixa-subprog-titulo').value = sub.titulo || '';
+    document.getElementById('faixa-subprog-temporada').value = sub.temporada || '';
+    document.getElementById('faixa-subprog-duracao').value = sub.duracao || '00:15:00';
+
+    document.getElementById('faixa-form-header').textContent = `🔄 Substituir Atração: "${sub.titulo}"`;
+    document.getElementById('btn-faixa-salvar-subprog').textContent = 'Substituir';
+    document.getElementById('btn-faixa-cancelar-edit').style.display = 'inline-block';
+    document.getElementById('faixa-subprog-titulo').focus();
+  };
+
+  window.cancelarEdicaoSubprogramaFaixa = function () {
+    const editIdEl = document.getElementById('faixa-subprog-edit-id');
+    if (editIdEl) editIdEl.value = '';
+    const titEl = document.getElementById('faixa-subprog-titulo');
+    if (titEl) titEl.value = '';
+    const tempEl = document.getElementById('faixa-subprog-temporada');
+    if (tempEl) tempEl.value = '';
+    const durEl = document.getElementById('faixa-subprog-duracao');
+    if (durEl) durEl.value = '00:15:00';
+
+    const header = document.getElementById('faixa-form-header');
+    if (header) header.textContent = '➕ Adicionar Atração à Faixa';
+    const btnSalvar = document.getElementById('btn-faixa-salvar-subprog');
+    if (btnSalvar) btnSalvar.textContent = 'Salvar';
+    const btnCanc = document.getElementById('btn-faixa-cancelar-edit');
+    if (btnCanc) btnCanc.style.display = 'none';
+  };
+
+  window.removerSubprogramaFaixa = function (id) {
+    if (!faixaContext || !window.GradeRecorrenciaCore) return;
+    faixaContext.subprogramas = window.GradeRecorrenciaCore.removerSubprograma(
+      { isFaixa: true, subprogramas: faixaContext.subprogramas },
+      id
+    ).subprogramas;
+    window.renderFaixaSubprogramas();
+  };
+
+  window.moverSubprogramaFaixa = function (id, direcao) {
+    if (!faixaContext || !window.GradeRecorrenciaCore) return;
+    const idx = faixaContext.subprogramas.findIndex(s => s.id === id);
+    if (idx === -1) return;
+    const targetIdx = idx + direcao;
+    faixaContext.subprogramas = window.GradeRecorrenciaCore.reordenarSubprogramas(
+      { isFaixa: true, subprogramas: faixaContext.subprogramas },
+      idx,
+      targetIdx
+    ).subprogramas;
+    window.renderFaixaSubprogramas();
+  };
+
+  window.aplicarLoteSubprogramasFaixa = function () {
+    if (!faixaContext || !window.GradeRecorrenciaCore) return;
+    const texto = document.getElementById('faixa-textarea-lote')?.value || '';
+    if (!texto.trim()) {
+      alert('Cole ou digite a lista de atrações no campo.');
+      return;
+    }
+
+    const lista = window.GradeRecorrenciaCore.parseSubprogramasTexto(texto);
+    if (lista.length === 0) {
+      alert('Nenhuma atração válida foi identificada.');
+      return;
+    }
+
+    faixaContext.subprogramas = lista;
+    window.switchFaixaTab('lista');
+    window.renderFaixaSubprogramas();
+    showToast(`${lista.length} atrações importadas para a faixa com sucesso!`, 'success');
+  };
+
+  window.confirmarEFecharFaixaModal = function () {
+    if (!faixaContext) return;
+    const { dow, idx, subprogramas } = faixaContext;
+    const key = getSlotKey(dow, idx);
+    const existingRule = recurrenceState.slots[key] || {};
+
+    recurrenceState.slots[key] = {
+      ...existingRule,
+      isFaixa: true,
+      subprogramas: [...subprogramas]
+    };
+
+    if (blocksByDay[dow]?.[idx]) {
+      blocksByDay[dow][idx].isFaixa = true;
+      blocksByDay[dow][idx].subprogramas = [...subprogramas];
+      if (blocksByDay[dow][idx].program) {
+        blocksByDay[dow][idx].program.isFaixa = true;
+        blocksByDay[dow][idx].program.subprogramas = [...subprogramas];
+      }
+    }
+
+    persistirEstadoRecorrencia();
+    window.closeFaixaModal();
+    renderActiveView();
+    showToast(`Faixa composta atualizada com ${subprogramas.length} atrações!`, 'success');
+  };
+
 })();
