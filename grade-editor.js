@@ -1778,54 +1778,62 @@
   };
 
   window.confirmarImportacaoGrade = function () {
-    if (!previaImportacao || !previaImportacao.slotsPorDia) {
-      showToast('Nenhuma prévia carregada para importar.', 'error');
-      return;
-    }
+    try {
+      if (!previaImportacao || !previaImportacao.slotsPorDia) {
+        showToast('Nenhuma prévia carregada para importar.', 'error');
+        return;
+      }
 
-    // 1. Cadastra novos programas no Acervo da emissora
-    if (Array.isArray(previaImportacao.novosProgramas) && previaImportacao.novosProgramas.length > 0) {
-      const existingTitles = new Set(programas.map(p => (p.title || p.nome || '').trim().toUpperCase()));
-      previaImportacao.novosProgramas.forEach(np => {
-        if (!existingTitles.has(np.title.trim().toUpperCase())) {
-          programas.push(np);
-          existingTitles.add(np.title.trim().toUpperCase());
+      const storageKey = getStorageKey();
+
+      // 1. Cadastra novos programas no Acervo da emissora
+      if (Array.isArray(previaImportacao.novosProgramas) && previaImportacao.novosProgramas.length > 0) {
+        const existingTitles = new Set(programas.map(p => (p.title || p.nome || '').trim().toUpperCase()));
+        previaImportacao.novosProgramas.forEach(np => {
+          if (!existingTitles.has(np.title.trim().toUpperCase())) {
+            programas.push(np);
+            existingTitles.add(np.title.trim().toUpperCase());
+          }
+        });
+        const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        saved.programas = programas;
+        localStorage.setItem(storageKey, JSON.stringify(saved));
+      }
+
+      // 2. Preenche os 7 dias na grade ativa
+      [0, 1, 2, 3, 4, 5, 6].forEach(d => {
+        const importedBlocks = previaImportacao.slotsPorDia[d] || [];
+        if (importedBlocks.length > 0) {
+          blocksByDay[d] = importedBlocks.map(b => ({
+            ...b,
+            program: b.program ? { ...b.program } : null,
+          }));
         }
       });
-      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
-      saved.programas = programas;
-      localStorage.setItem(storageKey, JSON.stringify(saved));
-    }
 
-    // 2. Preenche os 7 dias na grade ativa
-    [0, 1, 2, 3, 4, 5, 6].forEach(d => {
-      const importedBlocks = previaImportacao.slotsPorDia[d] || [];
-      if (importedBlocks.length > 0) {
-        blocksByDay[d] = importedBlocks.map(b => ({
-          ...b,
-          program: b.program ? { ...b.program } : null,
-        }));
+      // 3. Atualiza regras de recorrência (inéditos e reprises sugeridas)
+      if (previaImportacao.recorrenciaSugerida && previaImportacao.recorrenciaSugerida.slots) {
+        recurrenceState = recurrenceState || { slots: {}, episodeQueues: {}, dateExceptions: {} };
+        recurrenceState.slots = {
+          ...recurrenceState.slots,
+          ...previaImportacao.recorrenciaSugerida.slots,
+        };
+        localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
       }
-    });
 
-    // 3. Atualiza regras de recorrência (inéditos e reprises sugeridas)
-    if (previaImportacao.recorrenciaSugerida && previaImportacao.recorrenciaSugerida.slots) {
-      recurrenceState = recurrenceState || { slots: {}, episodeQueues: {}, dateExceptions: {} };
-      recurrenceState.slots = {
-        ...recurrenceState.slots,
-        ...previaImportacao.recorrenciaSugerida.slots,
-      };
-      localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
+      // 4. Atualiza interface e marca como não salva
+      fecharModalImportarGrade();
+      renderAcervo();
+      atualizarBadgesDias();
+      renderActiveView();
+      isDirty = true;
+      setSyncStatus('Modificações não salvas');
+
+      showToast('Grade semanal importada com sucesso! Revise os blocos e clique em "Salvar Grade".', 'success');
+    } catch (err) {
+      console.error('Erro ao confirmar importação da grade:', err);
+      showToast('Erro ao aplicar importação: ' + (err.message || err), 'error');
     }
-
-    // 4. Atualiza interface e marca como não salva
-    fecharModalImportarGrade();
-    renderAcervo();
-    atualizarBadgesDias();
-    renderActiveView();
-    marcarDirty();
-
-    showToast('Grade semanal importada com sucesso! Revise os blocos e clique em "Salvar Grade".', 'success');
   };
 
   function escapeHtml(str) {

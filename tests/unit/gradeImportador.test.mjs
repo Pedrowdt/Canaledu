@@ -74,4 +74,15 @@ terça;07:00;01:00;Documentário Brasil;DOC01;Cultura;reprise
     expect(GradeImportador.normalizarHorario('6:00')).toBe('06:00:00');
     expect(GradeImportador.normalizarHorario('14:30:00')).toBe('14:30:00');
   });
+
+  it('confirmarImportacaoGrade em grade-editor.js define storageKey e marca isDirty sem erros', async () => {
+    const { readFileSync } = await import('node:fs');
+    const js = readFileSync(new URL('../../grade-editor.js', import.meta.url), 'utf8');
+
+    expect(js).toContain('window.confirmarImportacaoGrade = function');
+    expect(js).toContain('const storageKey = getStorageKey();');
+    expect(js).toContain('isDirty = true;');
+    expect(js).not.toContain('marcarDirty()');
+  });
+
 });
