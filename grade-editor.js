@@ -50,6 +50,33 @@
     return emissoraId ? `roteiroApp_${emissoraId}` : 'roteiroApp';
   }
 
+  function timeToSec(t) {
+    if (window.GradeEditorCore && typeof window.GradeEditorCore.timeToSec === "function") {
+      return window.GradeEditorCore.timeToSec(t);
+    }
+    if (!t) return 0;
+    const parts = String(t).trim().split(/[:;]/).map(Number);
+    if (parts.length >= 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    if (parts.length === 2) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60;
+    return 0;
+  }
+
+  function secToTime(s) {
+    if (window.GradeEditorCore && typeof window.GradeEditorCore.secToTime === "function") {
+      return window.GradeEditorCore.secToTime(s);
+    }
+    if (!Number.isFinite(s)) s = 0;
+    s = Math.max(0, Math.floor(s));
+    const total = s % 86400;
+    const h = String(Math.floor(total / 3600)).padStart(2, "0");
+    const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+    const sec = String(total % 60).padStart(2, "0");
+    return `${h}:${m}:${sec}`;
+  }
+
+  window.timeToSec = timeToSec;
+  window.secToTime = secToTime;
+
   function showToast(msg, type = 'info') {
     const toast = document.getElementById('toast');
     if (!toast) return;
@@ -191,7 +218,7 @@
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        salvarGrade();
+        if (typeof window.salvarGrade === 'function') window.salvarGrade();
       }
     });
   }
@@ -357,7 +384,7 @@
         // descarta
       } else {
         if (typeof window.salvarGrade === 'function') await window.salvarGrade();
-        else await salvarGrade();
+        else if (typeof window.salvarGrade === 'function') await window.salvarGrade();
       }
     }
 
@@ -1261,7 +1288,7 @@
     });
 
     isDirty = true;
-    closeCopyDayModal();
+    if (typeof window.closeCopyDayModal === 'function') window.closeCopyDayModal();
     atualizarBadgesDias();
     showToast(`Programação copiada para ${targets.length} dia(s).`, 'success');
   };
@@ -1297,7 +1324,7 @@
       categoria: 'Geral',
     };
     programas.unshift(novo);
-    closeQuickProgModal();
+    if (typeof window.closeQuickProgModal === 'function') window.closeQuickProgModal();
     renderAcervo();
     showToast(`Programa "${title}" adicionado ao acervo.`, 'success');
   };
@@ -1412,7 +1439,7 @@
     if (inputData) { const now = new Date(); const localDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`; inputData.value = data || localDate; }
     if (inputHora) inputHora.value = horario || '08:00:00';
     exceptionContext = data || horario ? { data, horario } : null;
-    atualizarCamposTipoExcecao();
+    if (typeof window.atualizarCamposTipoExcecao === 'function') window.atualizarCamposTipoExcecao();
     renderListarExcecoes();
     window.switchModalExcecaoTab('nova');
     modal.style.display = 'flex';
@@ -2239,7 +2266,7 @@
       }
 
       // 4. Atualiza interface e marca como não salva
-      fecharModalImportarGrade();
+      if (typeof window.fecharModalImportarGrade === 'function') window.fecharModalImportarGrade();
       renderAcervo();
       atualizarBadgesDias();
       renderActiveView();
@@ -2544,21 +2571,34 @@
         return;
       }
       const expectedDuration = subs.reduce((sum, sub) => sum + (typeof sub === 'object' && sub.duracao ? timeToSec(sub.duracao) : 900), 0);
-      const blockDuration = block.durationSec || timeToSec(block.duration);
+      const blockDuration = block.durationSec || (block.duration ? timeToSec(block.duration) : 0);
+      let subsToSplit = subs;
       if (blockDuration && expectedDuration > blockDuration) {
-        showToast(`Desmembramento bloqueado: as atrações ocupam ${secToTime(expectedDuration)}, acima da duração da faixa (${secToTime(blockDuration)}). Ajuste as durações antes.`, 'warning');
-        return;
+        const confirmar = confirm(`As atrações ocupam ${secToTime(expectedDuration)}, acima da duração da faixa (${secToTime(blockDuration)}).\n\nDeseja desmembrar as atrações que cabem no horário (até ${secToTime(blockDuration)})?`);
+        if (!confirmar) return;
+        let acc = 0;
+        subsToSplit = [];
+        for (const sub of subs) {
+          const d = (typeof sub === 'object' && sub.duracao ? timeToSec(sub.duracao) : 900);
+          if (acc + d <= blockDuration) {
+            subsToSplit.push(sub);
+            acc += d;
+          }
+        }
       }
       const faixaNome = (block.program.title || block.faixaNome || 'Faixa Composta').trim();
       const start = timeToSec(block.time || '07:00:00');
       const classification = rule.classificacao || block.classificacao || 'licenciado';
-      const split = subs.map((sub, i) => {
-        const sec = start + i * 900;
+      let curOffset = 0;
+      const split = subsToSplit.map((sub, i) => {
+        const durSec = (typeof sub === 'object' && sub.duracao ? timeToSec(sub.duracao) : 900);
+        const sec = start + curOffset;
+        curOffset += durSec;
         const time = secToTime(sec);
         const title = (typeof sub === 'string' ? sub : sub.titulo || sub.title || `Atração ${i + 1}`).trim();
         const code = typeof sub === 'object' ? sub.codigo || sub.code || '' : '';
         const category = (typeof sub === 'object' && sub.categoria) || block.program.categoria || 'Infantil';
-        return { id: `slot_${dow}_${time.replace(/:/g, '')}_${i}`, index: blockIndex + i, time, duration: '00:15:00', durationSec: 900, endTime: secToTime(sec + 900), program: { title, code, categoria: category, faixaNome }, faixaNome, isSubprogramaFaixa: true, classificacao: classification };
+        return { id: `slot_${dow}_${time.replace(/:/g, '')}_${i}`, index: blockIndex + i, time, duration: secToTime(durSec), durationSec: durSec, endTime: secToTime(sec + durSec), program: { title, code, categoria: category, faixaNome }, faixaNome, isSubprogramaFaixa: true, classificacao: classification };
       });
       blocks.splice(blockIndex, 1, ...split);
       blocks.forEach((b, i) => { b.index = i; if (b.durationSec) b.endTime = secToTime(timeToSec(b.time) + b.durationSec); });
