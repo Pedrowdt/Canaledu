@@ -51,6 +51,11 @@
     return emissorasCache[0] || null;
   }
 
+  function getEmissoraAtivaNome() {
+    const ativa = getEmissoraAtiva();
+    return ativa ? (ativa.nome || ativa.codigo || 'Emissora Ativa') : 'Emissora Ativa';
+  }
+
   function atualizarEmissoraNoCache(emissoraAtualizada) {
     if (!emissoraAtualizada || !emissoraAtualizada.id) return;
     const idx = emissorasCache.findIndex(e => e.id === emissoraAtualizada.id);
@@ -131,9 +136,7 @@
    */
   function resolverEmissoraAtiva(lista) {
     if (!Array.isArray(lista) || lista.length === 0) return null;
-    if (emissorasCache.length === 0) {
-      emissorasCache = lista.slice();
-    }
+    emissorasCache = lista.slice();
     const salva = getEmissoraAtivaId();
     const encontrada = lista.find(e => e.id === salva);
     if (encontrada) {
@@ -150,6 +153,7 @@
     getEmissoraAtivaId,
     setEmissoraAtivaId,
     getEmissoraAtiva,
+    getEmissoraAtivaNome,
     atualizarEmissoraNoCache,
     carregarEmissoras,
     resolverEmissoraAtiva,

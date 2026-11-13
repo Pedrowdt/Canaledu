@@ -39,4 +39,20 @@ describe('EmissoraContext', () => {
     const ativa = EmissoraContext.resolverEmissoraAtiva(lista);
     expect(ativa.id).toBe('uuid-1');
   });
+
+  it('retorna o nome da emissora ativa através de getEmissoraAtivaNome', () => {
+    const lista = [
+      { id: 'uuid-1', nome: 'TV Brasil' },
+      { id: 'uuid-2', nome: 'Canal Educação' },
+    ];
+    EmissoraContext.resolverEmissoraAtiva(lista);
+    expect(EmissoraContext.getEmissoraAtivaNome()).toBe('TV Brasil');
+    EmissoraContext.setEmissoraAtivaId('uuid-2');
+    expect(EmissoraContext.getEmissoraAtivaNome()).toBe('Canal Educação');
+  });
+
+  it('retorna a primeira do cache quando o ID ativo não existe no cache', () => {
+    EmissoraContext.setEmissoraAtivaId('inexistente');
+    expect(EmissoraContext.getEmissoraAtivaNome()).toBe('TV Brasil');
+  });
 });

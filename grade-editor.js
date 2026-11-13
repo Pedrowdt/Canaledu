@@ -1690,7 +1690,24 @@
     if (stepSelecao) stepSelecao.style.display = 'none';
     if (stepPrevia) stepPrevia.style.display = 'flex';
 
-    const emissoraNome = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaNome() : 'Emissora Ativa';
+    let emissoraNome = 'Emissora Ativa';
+    if (window.EmissoraContext) {
+      if (typeof window.EmissoraContext.getEmissoraAtivaNome === 'function') {
+        emissoraNome = window.EmissoraContext.getEmissoraAtivaNome();
+      } else if (typeof window.EmissoraContext.getEmissoraAtiva === 'function') {
+        const ativa = window.EmissoraContext.getEmissoraAtiva();
+        if (ativa && (ativa.nome || ativa.codigo)) {
+          emissoraNome = ativa.nome || ativa.codigo;
+        }
+      }
+    }
+    if (emissoraNome === 'Emissora Ativa') {
+      const seletor = document.getElementById('seletor-emissora-grade');
+      if (seletor && seletor.selectedOptions && seletor.selectedOptions[0]) {
+        const txt = seletor.selectedOptions[0].textContent?.trim();
+        if (txt) emissoraNome = txt;
+      }
+    }
     const elEmissora = document.getElementById('previa-emissora-destino');
     if (elEmissora) elEmissora.textContent = emissoraNome;
 
