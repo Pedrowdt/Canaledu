@@ -201,6 +201,71 @@ describe('Drag and Drop de Chamadas e Peças no Roteiro', () => {
       expect(state.roteiro[2].descricao).toBe('BLOCO 2');
     });
 
+    it('solta com sucesso da sidebar mesmo quando dataTransfer perde tipos customizados (Chrome/Windows)', () => {
+      state.roteiro = [
+        { code: 'PGM01', descricao: 'BLOCO 1', tempo: '00:15:00', type: 'RPRO' },
+        { code: 'PGM01', descricao: 'BLOCO 2', tempo: '00:15:00', type: 'RPRO' },
+      ];
+
+      // Simula dragFromSidebar
+      const startEv = {
+        dataTransfer: {
+          effectAllowed: '',
+          setData: () => {},
+        }
+      };
+      app.dragFromSidebar(startEv, '1001');
+
+      // Simula evento de drop onde dataTransfer.getData('source') e 'peca-code' retornam vazio (falha comum no Chrome Windows)
+      const dropEv = {
+        preventDefault: () => {},
+        currentTarget: {
+          classList: { remove: () => {}, contains: () => false }
+        },
+        dataTransfer: {
+          getData: () => '', // Vazio!
+        }
+      };
+
+      app.dragDrop(dropEv, 1);
+
+      expect(state.roteiro).toHaveLength(3);
+      expect(state.roteiro[1].code).toBe('1001');
+      expect(state.roteiro[2].descricao).toBe('BLOCO 2');
+    });
+
+    it('reordena linhas mesmo quando dataTransfer.getData(\'source\') retorna vazio', () => {
+      state.roteiro = [
+        { code: 'ITEM_A', descricao: 'Item A', tempo: '00:01:00', type: 'ECHE' },
+        { code: 'ITEM_B', descricao: 'Item B', tempo: '00:02:00', type: 'ECHE' },
+        { code: 'ITEM_C', descricao: 'Item C', tempo: '00:03:00', type: 'ECHE' },
+      ];
+
+      const startEv = {
+        dataTransfer: {
+          effectAllowed: '',
+          setData: () => {},
+        },
+        currentTarget: { classList: { add: () => {} } }
+      };
+      app.dragStart(startEv, 0); // Arrasta ITEM_A
+
+      const dropEv = {
+        preventDefault: () => {},
+        currentTarget: {
+          classList: { remove: () => {}, contains: () => false }
+        },
+        dataTransfer: {
+          getData: () => '', // Vazio!
+        }
+      };
+
+      app.dragDrop(dropEv, 2);
+
+      expect(state.roteiro.map(r => r.code)).toEqual(['ITEM_B', 'ITEM_C', 'ITEM_A']);
+      expect(app.__test_getDragIdx()).toBeNull();
+    });
+
     it('reordena linhas arrastadas dentro do roteiro e limpa dragIdx', () => {
       state.roteiro = [
         { code: 'ITEM_A', descricao: 'Item A', tempo: '00:01:00', type: 'ECHE' },

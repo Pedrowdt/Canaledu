@@ -1131,13 +1131,22 @@ function renderProgramas() {
 // =====================================================
 let dragIdx = null;
 
+// Estado global em memória para garantir compatibilidade total entre navegadores/SO
+// (Chrome/Edge no Windows frequentemente descartam tipos MIME customizados no dataTransfer)
+if (typeof window !== 'undefined') {
+  window._currentDrag = null;
+}
+
 /** Inicia o arrasto de uma linha já existente no roteiro. Registra o índice de origem em dragIdx e define source="roteiro" e text/plain no dataTransfer. */
 function dragStart(e, i) {
   dragIdx = i;
+  if (typeof window !== 'undefined') {
+    window._currentDrag = { source: 'roteiro', index: i };
+  }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('source', 'roteiro');
-    e.dataTransfer.setData('text/plain', String(i));
+    try { e.dataTransfer.setData('source', 'roteiro'); } catch (_) {}
+    try { e.dataTransfer.setData('text/plain', String(i)); } catch (_) {}
   }
   if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('dragging');
 }
@@ -1145,15 +1154,21 @@ function dragStart(e, i) {
 /** Finaliza ou cancela o arrasto, limpando o índice global e classes CSS residuais. */
 function dragEnd(e) {
   dragIdx = null;
-  document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
-  document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  if (typeof window !== 'undefined') {
+    window._currentDrag = null;
+  }
+  if (typeof document !== 'undefined') {
+    document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
+    document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+  }
 }
 
 /** Evento ao arrastar sobre uma linha alvo do roteiro. Previne o comportamento padrão e adiciona classe .drag-over para feedback visual. */
 function dragOver(e, i) {
   e.preventDefault();
   if (e.dataTransfer) {
-    e.dataTransfer.dropEffect = (dragIdx !== null) ? 'move' : 'copy';
+    const isRoteiroMove = (dragIdx !== null) || (typeof window !== 'undefined' && window._currentDrag?.source === 'roteiro');
+    e.dataTransfer.dropEffect = isRoteiroMove ? 'move' : 'copy';
   }
   if (e.currentTarget && e.currentTarget.classList) {
     e.currentTarget.classList.add('drag-over');
@@ -1173,17 +1188,44 @@ function dragDrop(e, i) {
   if (e.currentTarget && e.currentTarget.classList) {
     e.currentTarget.classList.remove('drag-over');
   }
-  const source = e.dataTransfer ? e.dataTransfer.getData('source') : null;
 
-  if (source === 'roteiro' && dragIdx !== null && dragIdx !== i) {
-    const item = state.roteiro.splice(dragIdx, 1)[0];
+  const memDrag = (typeof window !== 'undefined') ? window._currentDrag : null;
+
+  // 1. Determina a origem do arrasto com tripla proteção:
+  // - Prioridade 1: estado em memória (window._currentDrag), imune a restrições de dataTransfer no navegador
+  // - Prioridade 2: dataTransfer.getData('source')
+  // - Prioridade 3: inferência inteligente (se dragIdx !== null é roteiro, senão sidebar)
+  let source = (memDrag && memDrag.source) || (e.dataTransfer ? e.dataTransfer.getData('source') : null);
+
+  // 2. Determina o código da peça (se for da sidebar):
+  let code = (memDrag && memDrag.code) || '';
+  if (!code && e.dataTransfer) {
+    try {
+      code = e.dataTransfer.getData('peca-code') || e.dataTransfer.getData('text/plain') || '';
+    } catch (_) {}
+  }
+  code = String(code || '').trim();
+
+  // Inferência de fallback se source ainda for vazio/desconhecido
+  if (!source) {
+    if (dragIdx !== null || (memDrag && memDrag.index != null)) {
+      source = 'roteiro';
+    } else if (code) {
+      source = 'sidebar';
+    }
+  }
+
+  const fromIdx = (memDrag && memDrag.index != null) ? memDrag.index : dragIdx;
+
+  if (source === 'roteiro' && fromIdx !== null && fromIdx !== i) {
+    const item = state.roteiro.splice(fromIdx, 1)[0];
     state.roteiro.splice(i, 0, item);
     dragIdx = null;
+    if (typeof window !== 'undefined') window._currentDrag = null;
     recalcTimes();
     saveState();
     renderRoteiro();
   } else if (source === 'sidebar') {
-    const code = (e.dataTransfer ? (e.dataTransfer.getData('peca-code') || e.dataTransfer.getData('text/plain')) : '') || '';
     const peca = findPeca(code);
     if (peca) {
       if (Array.isArray(peca.dias) && peca.dias.length > 0 && state.currentDate) {
@@ -1224,19 +1266,26 @@ function dragDrop(e, i) {
       toast(`Peça "${code}" não encontrada no cadastro nem nas peças do dia.`, 'error');
     }
   }
+
   dragIdx = null;
+  if (typeof window !== 'undefined') window._currentDrag = null;
 }
 
 // =====================================================
 // DRAG FROM SIDEBAR
 // =====================================================
-/** Inicia o arrasto de uma peça a partir da barra lateral ou aba Peças do Dia. Define source="sidebar", peca-code e text/plain no dataTransfer para compatibilidade entre navegadores. */
+/** Inicia o arrasto de uma peça a partir da barra lateral ou aba Peças do Dia. Define source="sidebar", peca-code e text/plain no dataTransfer para compatibilidade entre navegadores e registra estado em window._currentDrag. */
 function dragFromSidebar(e, code) {
+  dragIdx = null;
+  const cleanCode = String(code || '').trim();
+  if (typeof window !== 'undefined') {
+    window._currentDrag = { source: 'sidebar', code: cleanCode };
+  }
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData('source', 'sidebar');
-    e.dataTransfer.setData('peca-code', String(code));
-    e.dataTransfer.setData('text/plain', String(code));
+    try { e.dataTransfer.setData('source', 'sidebar'); } catch (_) {}
+    try { e.dataTransfer.setData('peca-code', cleanCode); } catch (_) {}
+    try { e.dataTransfer.setData('text/plain', cleanCode); } catch (_) {}
   }
 }
 
