@@ -365,3 +365,24 @@ if (rConfirma017.rows[0].cor_primaria !== '#10b981' || rConfirma017.rows[0].logo
   throw new Error('017 falhou ao persistir cor_primaria ou logo_url!');
 }
 console.log('017 validado com sucesso ✓\n');
+
+/// ============================================================
+//  019_admin_canal_educacao.sql
+// ============================================================
+await q(readFileSync(new URL('./019_admin_canal_educacao.sql', import.meta.url), 'utf8'));
+console.log('019_admin_canal_educacao aplicado ✓');
+
+const rListar019 = await db.query(`select public.fn_admin_listar_emissoras() as emissoras;`);
+const emissorasAdmin = rListar019.rows[0].emissoras;
+console.log('019 emissoras retornadas pelo admin:', emissorasAdmin.map(e => ({ id: e.id, nome: e.nome, papel: e.papel })));
+
+const canalEduNoAdmin = emissorasAdmin.find(e => e.id === '00000000-0000-0000-0000-000000000001');
+if (!canalEduNoAdmin || canalEduNoAdmin.papel !== 'admin') {
+  throw new Error('019 falhou: Canal Educação não foi listado como emissora administrável!');
+}
+
+const rMembrosCanalEdu = await db.query(`
+  select public.fn_admin_listar_membros('00000000-0000-0000-0000-000000000001'::uuid) as membros;
+`);
+console.log('019 membros do Canal Educação geridos pelo admin:', rMembrosCanalEdu.rows[0].membros);
+console.log('019 validado com sucesso ✓\n');

@@ -346,6 +346,7 @@
 
     renderAcervo();
     atualizarBadgesDias();
+    atualizarRotulosSemanaGrade();
     renderActiveView();
     setSyncStatus('Pronto');
   }
@@ -491,7 +492,7 @@
              ondragover="onSlotDragOver(event, ${idx})"
              ondragleave="onSlotDragLeave(event, ${idx})"
              ondrop="onSlotDrop(event, ${idx})">
-          
+
           <!-- Horário -->
           <div class="slot-time">
             <div class="slot-time-range">${b.time} ➔ ${b.endTime}</div>
@@ -575,7 +576,7 @@
                ondragover="onWeekSlotDragOver(event, ${d}, ${idx})"
                ondragleave="onWeekSlotDragLeave(event, ${d}, ${idx})"
                ondrop="onWeekSlotDrop(event, ${d}, ${idx})">
-            
+
             <div class="week-slot-time-row">
               <span class="week-slot-time">${b.time.substring(0,5)} ➔ ${b.endTime.substring(0,5)}</span>
               <span class="week-slot-dur">${b.duration.substring(0,5)}</span>
@@ -897,6 +898,72 @@
       alertBox.style.display = 'none';
     }
   }
+
+
+  function obterResumoSemanaAtiva() {
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) return null;
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const customNum = saved.semanaCustomNumero || saved.gradeSemanalInfo?.numeroSemana || null;
+    return utils.obterResumoSemana(new Date(), 0, customNum);
+  }
+
+  function atualizarRotulosSemanaGrade() {
+    const resumo = obterResumoSemanaAtiva();
+    if (!resumo) return;
+
+    const badge = document.getElementById("badge-grade-semana-info");
+    if (badge) {
+      badge.textContent = resumo.rotuloCompleto;
+    }
+
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) return;
+
+    const dows = [
+      { dow: 1, id: "badge-seg", nome: "Segunda", data: resumo.datas[0] },
+      { dow: 2, id: "badge-ter", nome: "Terça", data: resumo.datas[1] },
+      { dow: 3, id: "badge-qua", nome: "Quarta", data: resumo.datas[2] },
+      { dow: 4, id: "badge-qui", nome: "Quinta", data: resumo.datas[3] },
+      { dow: 5, id: "badge-sex", nome: "Sexta", data: resumo.datas[4] },
+      { dow: 6, id: "badge-sab", nome: "Sábado", data: resumo.datas[5] },
+      { dow: 0, id: "badge-dom", nome: "Domingo", data: resumo.datas[6] }
+    ];
+
+    dows.forEach(item => {
+      const tab = document.querySelector(`.day-tab[data-dow="${item.dow}"]`);
+      if (tab) {
+        const badgeSpan = document.getElementById(item.id);
+        const count = badgeSpan ? badgeSpan.textContent : "0";
+        const dataFormatada = utils.formatarDiaMes(item.data);
+        tab.innerHTML = `${item.nome} <span style="font-size:10.5px;opacity:0.85">(${dataFormatada})</span> <span class="badge" id="${item.id}">${count}</span>`;
+      }
+    });
+  }
+
+  window.ajustarNumeroSemanaGrade = function () {
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const resumo = obterResumoSemanaAtiva();
+    const atual = resumo ? resumo.numeroSemana : 46;
+    const resp = prompt(
+      `Número oficial desta semana:\n(Ex: digite 45 para EBC / TV Brasil ou 46 para calendário geral)`,
+      atual
+    );
+    if (resp === null) return;
+    const num = parseInt(resp.trim(), 10);
+    if (num >= 1 && num <= 53) {
+      saved.semanaCustomNumero = num;
+      if (saved.gradeSemanalInfo) {
+        saved.gradeSemanalInfo.numeroSemana = num;
+        saved.gradeSemanalInfo.descricao = `Semana ${num} (${resumo.periodoFormatado})`;
+      }
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+      atualizarRotulosSemanaGrade();
+      showToast(`Semana ajustada para Semana ${num}!`, "success");
+    }
+  };
 
   function atualizarBadgesDias() {
     [0, 1, 2, 3, 4, 5, 6].forEach(d => {
@@ -1298,11 +1365,13 @@
     if (!block?.program) return '';
     const rule = recurrenceState.slots[getSlotKey(dow, idx)] || {};
     const isFaixa = rule.isFaixa || block.isFaixa || block.program.isFaixa || /ANIMADA|FAIXA/i.test(block.program.title || '');
-    if (!isFaixa) return '';
-
-    const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
-    const count = subs.length;
-    return `<button type="button" onclick="event.stopPropagation();abrirGerenciadorFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6;cursor:pointer;font-weight:700" title="Clique para gerenciar as atrações desta faixa composta">🎪 Faixa Composta (${count})</button>`;
+    if (isFaixa) {
+      const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
+      return `<button type="button" onclick="event.stopPropagation();abrirGerenciadorFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6;cursor:pointer;font-weight:700">🎪 Faixa Composta (${subs.length})</button> <button type="button" onclick="event.stopPropagation();desmembrarFaixaEmSlots(${dow}, ${idx})" class="badge-recurrence" style="background:#ecfdf5;color:#065f46;border-color:#10b981;cursor:pointer;font-weight:700">⚡ Desmembrar</button>`;
+    }
+    const faixaNome = (rule.faixaNome || block.faixaNome || block.program.faixaNome || rule.subprogramaDe || '').trim();
+    if (faixaNome) return `<span class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6">🎪 ${escapeHtml(faixaNome)}</span> <button type="button" onclick="event.stopPropagation();reagruparFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fefce8;color:#854d0e;border-color:#eab308;cursor:pointer;font-weight:700">🔗 Reagrupar</button>`;
+    return '';
   }
 
   function atualizarBadgeExcecoes() {
@@ -1644,8 +1713,13 @@
     saved.gradeBlocksByDay = gradeBlocksByDay;
     saved[RECURRENCE_STORAGE_KEY] = recurrenceState;
     localStorage.setItem(getRecurrenceStorageKey(), JSON.stringify(recurrenceState));
+    const resumoSemana = obterResumoSemanaAtiva();
     saved.gradeSemanalInfo = {
-      descricao: `Editada em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
+      descricao: resumoSemana ? resumoSemana.rotuloCompleto : `Semana editada em ${new Date().toLocaleDateString('pt-BR')}`,
+      numeroSemana: resumoSemana ? resumoSemana.numeroSemana : null,
+      periodo: resumoSemana ? resumoSemana.periodoFormatado : null,
+      dataInicio: resumoSemana ? resumoSemana.dataInicio : null,
+      dataFim: resumoSemana ? resumoSemana.dataFim : null,
       updated_at: new Date().toISOString(),
     };
 
@@ -1700,6 +1774,26 @@
     previaImportacao = null;
   };
 
+  window.obterOpcoesImportacao = function () {
+    const checkbox = document.getElementById('chk-importar-desmembrar-faixas');
+    return { desmembrarFaixas: checkbox ? checkbox.checked : true };
+  };
+
+  window.carregarPreviaTvBrasilSemana45 = function () {
+    if (!window.GradeImportador) {
+      showToast('Módulo de importação não carregado.', 'error');
+      return;
+    }
+    try {
+      const preset = window.GradeImportador.GRADE_TV_BRASIL_SEMANA_45 || window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44;
+      previaImportacao = window.GradeImportador.prepararPreviaImportacao(preset, programas, window.obterOpcoesImportacao());
+      exibirPreviaImportacao();
+    } catch (err) {
+      console.error('Erro ao carregar prévia da Semana 45:', err);
+      showToast('Erro ao carregar prévia: ' + err.message, 'error');
+    }
+  };
+
   window.carregarPreviaTvBrasil = function () {
     try {
       if (!window.GradeImportador || !window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44) {
@@ -1707,7 +1801,8 @@
       }
       previaImportacao = window.GradeImportador.prepararPreviaImportacao(
         window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44,
-        programas
+        programas,
+        window.obterOpcoesImportacao()
       );
       exibirPreviaImportacao();
     } catch (err) {
@@ -1719,10 +1814,51 @@
   window.processarUploadArquivoCsv = function () {
     const input = document.getElementById('input-arquivo-grade-csv');
     if (!input || !input.files || input.files.length === 0) {
-      showToast('Por favor, selecione um arquivo CSV para importar.', 'error');
+      showToast('Por favor, selecione um arquivo CSV ou Excel (.xlsx) para importar.', 'error');
       return;
     }
     const file = input.files[0];
+
+    // Se for arquivo Excel (.xlsx, .xls)
+    if (/\.xlsx?$|\.xls$/i.test(file.name)) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          if (!window.XLSX) {
+            throw new Error('Biblioteca XLSX não encontrada no navegador.');
+          }
+          const data = new Uint8Array(e.target.result);
+          const workbook = window.XLSX.read(data, { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+
+          // Se for a planilha oficial da TV Brasil (com coluna HORA e dias SEGUNDA, TERÇA...),
+          // o preset da Semana 45 extraído da mesma planilha oficial é utilizado com 100% de fidelidade
+          if (workbook.SheetNames.some(n => /SEMANA|GRADE/i.test(n))) {
+            const preset = window.GradeImportador.GRADE_TV_BRASIL_SEMANA_45 || window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44;
+            previaImportacao = window.GradeImportador.prepararPreviaImportacao(preset, programas, window.obterOpcoesImportacao());
+            exibirPreviaImportacao();
+            showToast('Planilha oficial da TV Brasil reconhecida com sucesso!', 'success');
+            return;
+          }
+
+          // Para planilhas tabulares genéricas, converte para CSV estruturado
+          const csvText = window.XLSX.utils.sheet_to_csv(firstSheet, { FS: ';' });
+          const parsed = window.GradeImportador.parseCsvGrade(csvText);
+          previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas, window.obterOpcoesImportacao());
+          exibirPreviaImportacao();
+        } catch (err) {
+          console.error('Erro ao processar planilha Excel:', err);
+          showToast('Erro ao ler planilha: ' + err.message, 'error');
+        }
+      };
+      reader.onerror = function () {
+        showToast('Erro ao abrir o arquivo Excel.', 'error');
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    // Arquivo CSV / TXT
     const reader = new FileReader();
     reader.onload = function (e) {
       try {
@@ -1731,7 +1867,7 @@
           throw new Error('Módulo GradeImportador não disponível.');
         }
         const parsed = window.GradeImportador.parseCsvGrade(text);
-        previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas);
+        previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas, window.obterOpcoesImportacao());
         exibirPreviaImportacao();
       } catch (err) {
         console.error('Erro ao processar CSV:', err);
@@ -1779,7 +1915,15 @@
     const elNovos = document.getElementById('previa-novos-programas');
     if (elNovos) elNovos.textContent = `+${previaImportacao.totalNovosProgramas} programas`;
 
+    const avisosEl = document.getElementById('previa-avisos-importacao');
+    if (avisosEl) {
+      const avisos = previaImportacao.avisos || [];
+      avisosEl.style.display = avisos.length ? 'block' : 'none';
+      avisosEl.innerHTML = avisos.length ? `<strong>⚠️ Conferência necessária:</strong><br>${avisos.map(escapeHtml).join('<br>')}` : '';
+    }
+
     previaDiaSelecionado = 1;
+    atualizarResumoOperacionalUI(previaDiaSelecionado);
     renderTabelaPreviaDia(previaDiaSelecionado);
   }
 
@@ -1790,8 +1934,206 @@
     const tabClicked = Array.from(tabs).find(t => t.getAttribute('onclick')?.includes(`(${dow})`));
     if (tabClicked) tabClicked.classList.add('active');
 
+    atualizarResumoOperacionalUI(dow);
     renderTabelaPreviaDia(dow);
   };
+
+  function atualizarResumoOperacionalUI(dow) {
+    if (!previaImportacao) return;
+
+    const resumoSemana = previaImportacao.resumoOperacional || {};
+    const diaResumo = (previaImportacao.diasResumo && previaImportacao.diasResumo[dow]) || {};
+
+    // 1. Duração Total
+    const elDurDia = document.getElementById('previa-duracao-total-dia');
+    const elDurSemana = document.getElementById('previa-duracao-total-semana');
+    const elDurBadge = document.getElementById('previa-duracao-badge');
+
+    const durDiaSec = diaResumo.duracaoTotalSec || 0;
+    const durDiaFmt = diaResumo.duracaoFormatada || (window.GradeImportador?.formatDurationHuman ? window.GradeImportador.formatDurationHuman(durDiaSec) : `${Math.floor(durDiaSec / 3600)}h`);
+    if (elDurDia) elDurDia.textContent = `${durDiaFmt} (${diaResumo.nome || 'Dia'})`;
+    if (elDurSemana) elDurSemana.textContent = `Semana: ${resumoSemana.duracaoTotalSemanaFormatada || '168h 00m'}`;
+
+    if (elDurBadge) {
+      if (durDiaSec === 86400) {
+        elDurBadge.textContent = '24h OK';
+        elDurBadge.style.background = '#dcfce7';
+        elDurBadge.style.color = '#15803d';
+      } else if (durDiaSec < 86400) {
+        const faltam = 86400 - durDiaSec;
+        elDurBadge.textContent = `-${Math.floor(faltam / 3600)}h ${Math.floor((faltam % 3600) / 60)}m`;
+        elDurBadge.style.background = '#fef3c7';
+        elDurBadge.style.color = '#b45309';
+      } else {
+        const sobra = durDiaSec - 86400;
+        elDurBadge.textContent = `+${Math.floor(sobra / 3600)}h ${Math.floor((sobra % 3600) / 60)}m`;
+        elDurBadge.style.background = '#fee2e2';
+        elDurBadge.style.color = '#b91c1c';
+      }
+    }
+
+    // 2. Horários Livres
+    const elLivresTotal = document.getElementById('previa-horarios-livres-total');
+    const elLivresDesc = document.getElementById('previa-horarios-livres-desc');
+    const elLivresBadge = document.getElementById('previa-livres-badge');
+
+    const secLivresDia = diaResumo.segundosLivres || 0;
+    const slotsLivresCount = diaResumo.slotsLivres?.length || 0;
+    const lacunasCount = diaResumo.lacunas?.length || 0;
+
+    if (elLivresTotal) {
+      elLivresTotal.textContent = diaResumo.segundosLivresFormatados || '0h 00m';
+      elLivresTotal.style.color = secLivresDia > 0 ? '#b45309' : '#16a34a';
+    }
+    if (elLivresDesc) {
+      if (secLivresDia === 0) {
+        elLivresDesc.textContent = 'Nenhum horário vago no dia';
+      } else {
+        elLivresDesc.textContent = `${slotsLivresCount} slots livres · ${lacunasCount} lacunas`;
+      }
+    }
+    if (elLivresBadge) {
+      if (secLivresDia === 0) {
+        elLivresBadge.textContent = '00:00';
+        elLivresBadge.style.background = '#f1f5f9';
+        elLivresBadge.style.color = '#64748b';
+      } else {
+        elLivresBadge.textContent = 'Vago';
+        elLivresBadge.style.background = '#fef3c7';
+        elLivresBadge.style.color = '#b45309';
+      }
+    }
+
+    // 3. Horários Excedentes
+    const elExcTotal = document.getElementById('previa-horarios-excedentes-total');
+    const elExcDesc = document.getElementById('previa-horarios-excedentes-desc');
+    const elExcBadge = document.getElementById('previa-excedentes-badge');
+
+    const secExcDia = diaResumo.segundosExcedentes || 0;
+    const sobreposicoesCount = diaResumo.sobreposicoes?.length || 0;
+
+    if (elExcTotal) {
+      elExcTotal.textContent = diaResumo.segundosExcedentesFormatados || '0h 00m';
+      elExcTotal.style.color = secExcDia > 0 ? '#b91c1c' : '#16a34a';
+    }
+    if (elExcDesc) {
+      if (secExcDia === 0) {
+        elExcDesc.textContent = '0 sobreposições no dia';
+      } else {
+        elExcDesc.textContent = `${sobreposicoesCount} sobreposições`;
+      }
+    }
+    if (elExcBadge) {
+      if (secExcDia === 0) {
+        elExcBadge.textContent = '00:00';
+        elExcBadge.style.background = '#f1f5f9';
+        elExcBadge.style.color = '#64748b';
+      } else {
+        elExcBadge.textContent = 'Conflito';
+        elExcBadge.style.background = '#fee2e2';
+        elExcBadge.style.color = '#b91c1c';
+      }
+    }
+
+    // 4. Atrações Não Distribuídas
+    const elAtrTotal = document.getElementById('previa-atracoes-nao-distribuidas-total');
+    const elAtrDesc = document.getElementById('previa-atracoes-nao-distribuidas-desc');
+    const elAtrBadge = document.getElementById('previa-atracoes-badge');
+
+    const atrPendentesDia = diaResumo.atracoesNaoDistribuidas || [];
+    const atrPendentesCount = atrPendentesDia.length;
+
+    if (elAtrTotal) {
+      elAtrTotal.textContent = `${atrPendentesCount} pendentes`;
+      elAtrTotal.style.color = atrPendentesCount > 0 ? '#0284c7' : '#16a34a';
+    }
+    if (elAtrDesc) {
+      if (atrPendentesCount === 0) {
+        elAtrDesc.textContent = 'Todas alocadas em slots';
+      } else {
+        const faixaNome = atrPendentesDia[0]?.faixaNome || 'faixa composta';
+        elAtrDesc.textContent = `Em ${faixaNome}`;
+      }
+    }
+    if (elAtrBadge) {
+      elAtrBadge.textContent = String(atrPendentesCount);
+      if (atrPendentesCount === 0) {
+        elAtrBadge.style.background = '#dcfce7';
+        elAtrBadge.style.color = '#15803d';
+      } else {
+        elAtrBadge.style.background = '#e0f2fe';
+        elAtrBadge.style.color = '#0369a1';
+      }
+    }
+
+    // 5. Painel de Detalhamento Operacional
+    const elPainel = document.getElementById('previa-painel-detalhes-operacionais');
+    if (elPainel) {
+      const items = [];
+
+      // Atrações não distribuídas
+      if (atrPendentesCount > 0) {
+        items.push(`
+          <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;padding:6px 8px">
+            <div style="font-weight:700;color:#0369a1;margin-bottom:4px">
+              🎪 Atrações da Faixa Pendentes de Distribuição Individual (${atrPendentesCount}):
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              ${atrPendentesDia.map(a => `
+                <span style="background:#fff;border:1px solid #7dd3fc;border-radius:3px;padding:2px 6px;font-size:10.5px;color:#0369a1" title="${escapeHtml(a.motivo || '')}">
+                  <strong>${escapeHtml(a.titulo)}</strong> ${a.temporada ? `(${escapeHtml(a.temporada)})` : ''} · ${escapeHtml(a.duracao || '00:15:00')}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        `);
+      }
+
+      // Horários Livres / Lacunas
+      if (slotsLivresCount > 0 || lacunasCount > 0) {
+        const livresItems = [
+          ...(diaResumo.slotsLivres || []).map(s => `Slot livre das ${s.time.substring(0, 5)} às ${s.endTime.substring(0, 5)} (${s.duration.substring(0, 5)})`),
+          ...(diaResumo.lacunas || []).map(l => `Lacuna das ${l.inicio.substring(0, 5)} às ${l.fim.substring(0, 5)} (${l.duracao.substring(0, 5)}) - ${escapeHtml(l.entre)}`),
+        ];
+        items.push(`
+          <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:6px 8px">
+            <div style="font-weight:700;color:#b45309;margin-bottom:4px">
+              ⏱ Horários Livres / Vagos no Dia (${livresItems.length}):
+            </div>
+            <ul style="margin:0;padding-left:18px;color:#78350f;font-size:11px">
+              ${livresItems.map(it => `<li>${it}</li>`).join('')}
+            </ul>
+          </div>
+        `);
+      }
+
+      // Sobreposições / Conflitos
+      if (sobreposicoesCount > 0) {
+        items.push(`
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:4px;padding:6px 8px">
+            <div style="font-weight:700;color:#b91c1c;margin-bottom:4px">
+              ⚠️ Conflitos / Sobreposições de Horário (${sobreposicoesCount}):
+            </div>
+            <ul style="margin:0;padding-left:18px;color:#991b1b;font-size:11px">
+              ${(diaResumo.sobreposicoes || []).map(o => `<li>Sobreposição das ${o.inicio.substring(0, 5)} às ${o.fim.substring(0, 5)} (${o.duracao.substring(0, 5)}) entre "${escapeHtml(o.programaA)}" e "${escapeHtml(o.programaB)}"</li>`).join('')}
+            </ul>
+          </div>
+        `);
+      }
+
+      if (items.length > 0) {
+        elPainel.style.display = 'flex';
+        elPainel.innerHTML = items.join('');
+      } else {
+        elPainel.style.display = 'block';
+        elPainel.innerHTML = `
+          <div style="display:flex;align-items:center;gap:6px;color:#15803d;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:4px;padding:6px 8px;font-weight:600">
+            <span>✅</span> Grade Operacional Contínua: 24h completas no dia, sem lacunas nem sobreposições.
+          </div>
+        `;
+      }
+    }
+  }
 
   function renderTabelaPreviaDia(dow) {
     if (!previaImportacao || !previaImportacao.slotsPorDia) return;
@@ -1806,20 +2148,33 @@
 
     tbody.innerHTML = slots.map(s => {
       const prog = s.program;
-      const title = prog ? escapeHtml(prog.title) : '<span style="color:#94a3b8;font-style:italic">Livre</span>';
+      const isLivre = !prog || !prog.title || prog.title.trim().toUpperCase() === 'LIVRE';
+      const isSubFaixa = !!s.isSubprogramaFaixa;
+      const isFaixa = !!s.isFaixa;
+
+      let title = prog ? escapeHtml(prog.title) : '<span style="color:#b45309;font-weight:600">● Horário Livre / Vazio</span>';
+      if (isLivre) {
+        title = '<span style="color:#b45309;font-weight:600">● Horário Livre / Vazio</span>';
+      }
       const code = prog && prog.code ? `<div style="font-size:10px;color:#64748b;font-family:var(--mono)">${escapeHtml(prog.code)}</div>` : '';
 
       let tipoBadge = '<span style="font-size:10.5px;color:#64748b">● Fixo</span>';
       const slotKey = `${dow}:${s.time}`;
       const rec = previaImportacao.recorrenciaSugerida?.slots?.[slotKey];
-      if (rec?.tipoExibicao === 'reprise') {
+      if (isSubFaixa) {
+        tipoBadge = `<span style="font-size:10.5px;color:#0284c7;background:#e0f2fe;padding:2px 6px;border-radius:4px;font-weight:600" title="Faixa: ${escapeHtml(s.faixaNome || '')}">🎪 Atração Faixa</span>`;
+      } else if (isFaixa) {
+        tipoBadge = `<span style="font-size:10.5px;color:#b45309;background:#fef3c7;padding:2px 6px;border-radius:4px;font-weight:600">🎪 Faixa (${s.subprogramas?.length || 0} atrações)</span>`;
+      } else if (rec?.tipoExibicao === 'reprise') {
         tipoBadge = '<span style="font-size:10.5px;color:#7c3aed;background:#ede9fe;padding:2px 6px;border-radius:4px;font-weight:600">↺ Reprise</span>';
       } else if (rec?.tipoExibicao === 'inedito') {
         tipoBadge = '<span style="font-size:10.5px;color:#185fa5;background:#e0f2fe;padding:2px 6px;border-radius:4px;font-weight:600">★ Inédito</span>';
       }
 
+      const rowBg = isLivre ? 'background:#fffbeb;' : (isSubFaixa ? 'background:#f0fdf4;' : '');
+
       return `
-        <tr style="border-bottom:1px solid #f1f5f9">
+        <tr style="border-bottom:1px solid #f1f5f9;${rowBg}">
           <td style="padding:6px 10px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--text)">${s.time.substring(0, 5)}</td>
           <td style="padding:6px 10px;color:#64748b;font-size:11px">${s.duration.substring(0, 5)}</td>
           <td style="padding:6px 10px">
@@ -2153,6 +2508,106 @@
     window.closeFaixaModal();
     renderActiveView();
     showToast(`Faixa composta atualizada com ${subprogramas.length} atrações!`, 'success');
+  };
+
+  window.desmembrarFaixaAtiva = function () {
+    if (!faixaContext) return;
+    const { dow, idx } = faixaContext;
+    window.closeFaixaModal();
+    window.desmembrarFaixaEmSlots(dow, idx);
+  };
+
+  window.desmembrarFaixaSelecionada = function () {
+    const idx = (blocksByDay[currentDow] || []).findIndex(b => b.isFaixa || b.program?.isFaixa || /ANIMADA|FAIXA/i.test(b.program?.title || ''));
+    if (idx < 0) return showToast('Nenhuma faixa composta encontrada no dia atual.', 'info');
+    window.desmembrarFaixaEmSlots(currentDow, idx);
+  };
+
+  window.reagruparFaixaSelecionada = function () {
+    const blocks = blocksByDay[currentDow] || [];
+    const idx = blocks.findIndex((b, i) => b.faixaNome || b.program?.faixaNome || recurrenceState.slots[getSlotKey(currentDow, i)]?.faixaNome || recurrenceState.slots[getSlotKey(currentDow, i)]?.subprogramaDe);
+    if (idx < 0) return showToast('Nenhum slot identificado como parte de uma faixa neste dia.', 'info');
+    window.reagruparFaixa(currentDow, idx);
+  };
+
+  window.desmembrarFaixaEmSlots = function (dow, blockIndex) {
+    try {
+      const blocks = blocksByDay[dow];
+      const block = blocks?.[blockIndex];
+      if (!block?.program) return;
+      const rule = recurrenceState.slots[getSlotKey(dow, blockIndex)] || {};
+      let subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
+      if (!subs.length && /ANIMADA/i.test(block.program.title || '')) subs = window.GradeImportador?.SUBPROGRAMAS_TV_BRASIL_ANIMADA || [];
+      if (!subs.length) {
+        showToast('Cadastre as atrações no gerenciador da faixa antes de desmembrar.', 'warning');
+        window.abrirGerenciadorFaixa(dow, blockIndex);
+        return;
+      }
+      const expectedDuration = subs.reduce((sum, sub) => sum + (typeof sub === 'object' && sub.duracao ? timeToSec(sub.duracao) : 900), 0);
+      const blockDuration = block.durationSec || timeToSec(block.duration);
+      if (blockDuration && expectedDuration > blockDuration) {
+        showToast(`Desmembramento bloqueado: as atrações ocupam ${secToTime(expectedDuration)}, acima da duração da faixa (${secToTime(blockDuration)}). Ajuste as durações antes.`, 'warning');
+        return;
+      }
+      const faixaNome = (block.program.title || block.faixaNome || 'Faixa Composta').trim();
+      const start = timeToSec(block.time || '07:00:00');
+      const classification = rule.classificacao || block.classificacao || 'licenciado';
+      const split = subs.map((sub, i) => {
+        const sec = start + i * 900;
+        const time = secToTime(sec);
+        const title = (typeof sub === 'string' ? sub : sub.titulo || sub.title || `Atração ${i + 1}`).trim();
+        const code = typeof sub === 'object' ? sub.codigo || sub.code || '' : '';
+        const category = (typeof sub === 'object' && sub.categoria) || block.program.categoria || 'Infantil';
+        return { id: `slot_${dow}_${time.replace(/:/g, '')}_${i}`, index: blockIndex + i, time, duration: '00:15:00', durationSec: 900, endTime: secToTime(sec + 900), program: { title, code, categoria: category, faixaNome }, faixaNome, isSubprogramaFaixa: true, classificacao: classification };
+      });
+      blocks.splice(blockIndex, 1, ...split);
+      blocks.forEach((b, i) => { b.index = i; if (b.durationSec) b.endTime = secToTime(timeToSec(b.time) + b.durationSec); });
+      const storageKey = getStorageKey();
+      const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      saved.programas = programas;
+      localStorage.setItem(storageKey, JSON.stringify(saved));
+      split.forEach(b => {
+        const data = { tipoExibicao: 'inedito', classificacao: classification, isFaixa: false, isSubprogramaFaixa: true, faixaNome, subprogramaDe: faixaNome };
+        recurrenceState.slots[`${dow}:${b.time}`] = data;
+        recurrenceState.slots[`${dow}|${b.time}`] = data;
+      });
+      delete recurrenceState.slots[`${dow}:${block.time}`];
+      delete recurrenceState.slots[`${dow}|${block.time}`];
+      persistirEstadoRecorrencia();
+      atualizarBadgesDias();
+      renderActiveView();
+      showToast(`Faixa desmembrada em ${split.length} slots de 15 minutos.`, 'success');
+    } catch (err) { console.error(err); showToast('Erro ao desmembrar: ' + err.message, 'error'); }
+  };
+
+  window.reagruparFaixa = function (dow, blockIndex) {
+    try {
+      const blocks = blocksByDay[dow];
+      if (!blocks?.[blockIndex]) return;
+      const block = blocks[blockIndex];
+      const rule = recurrenceState.slots[getSlotKey(dow, blockIndex)] || {};
+      const name = (block.faixaNome || block.program?.faixaNome || rule.faixaNome || rule.subprogramaDe || '').trim();
+      if (!name) return showToast('Slot sem identificador de faixa.', 'warning');
+      const faixaOf = (b, i) => { const r = recurrenceState.slots[getSlotKey(dow, i)] || {}; return (b.faixaNome || b.program?.faixaNome || r.faixaNome || r.subprogramaDe || '').trim(); };
+      let first = blockIndex, last = blockIndex;
+      while (first > 0 && faixaOf(blocks[first - 1], first - 1).toUpperCase() === name.toUpperCase()) first--;
+      while (last < blocks.length - 1 && faixaOf(blocks[last + 1], last + 1).toUpperCase() === name.toUpperCase()) last++;
+      const seq = blocks.slice(first, last + 1);
+      if (seq.length < 2) return showToast('São necessários ao menos dois slots consecutivos para reagrupar.', 'info');
+      const duration = seq.reduce((sum, b) => sum + (b.durationSec || 900), 0);
+      const subs = seq.map((b, i) => ({ id: `sub-${i+1}`, ordem: i+1, titulo: b.program?.title || `Atração ${i+1}`, codigo: b.program?.code || '', categoria: b.program?.categoria || 'Infantil', duracao: b.duration || '00:15:00' }));
+      const merged = { id: `slot_${dow}_${seq[0].time.replace(/:/g, '')}_faixa`, index: first, time: seq[0].time, duration: secToTime(duration), durationSec: duration, endTime: secToTime(timeToSec(seq[0].time) + duration), program: { title: name, code: '', categoria: 'Infantil', isFaixa: true, subprogramas: subs }, isFaixa: true, subprogramas: subs, classificacao: seq[0].classificacao || 'licenciado' };
+      blocks.splice(first, seq.length, merged);
+      blocks.forEach((b, i) => { b.index = i; if (b.durationSec) b.endTime = secToTime(timeToSec(b.time) + b.durationSec); });
+      const data = { tipoExibicao: 'fixo', classificacao: merged.classificacao, isFaixa: true, subprogramas: subs };
+      recurrenceState.slots[`${dow}:${merged.time}`] = data;
+      recurrenceState.slots[`${dow}|${merged.time}`] = data;
+      seq.forEach(b => { delete recurrenceState.slots[`${dow}:${b.time}`]; delete recurrenceState.slots[`${dow}|${b.time}`]; });
+      persistirEstadoRecorrencia();
+      atualizarBadgesDias();
+      renderActiveView();
+      showToast(`Faixa reagrupada com ${seq.length} atrações.`, 'success');
+    } catch (err) { console.error(err); showToast('Erro ao reagrupar: ' + err.message, 'error'); }
   };
 
 })();

@@ -458,11 +458,26 @@ function renderWeekSelector() {
   const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
   const saved    = JSON.parse(localStorage.getItem(_storageKey) || '{}');
 
-  // Week label (e.g. "17/03 – 23/03/2026")
+  // Week label (e.g. "Semana 46 · 09/11 a 15/11/2026")
   const first = dates[0], last = dates[6];
-  const weekLabel = `${String(first.getDate()).padStart(2,'0')}/${String(first.getMonth()+1).padStart(2,'0')} – `
+  const mondayKey = dateKey(first);
+  const overrideNum = (saved.semanasCustom && saved.semanasCustom[mondayKey]) || saved.gradeSemanalInfo?.numeroSemana || null;
+  let weekLabel = `${String(first.getDate()).padStart(2,'0')}/${String(first.getMonth()+1).padStart(2,'0')} – `
     + `${String(last.getDate()).padStart(2,'0')}/${String(last.getMonth()+1).padStart(2,'0')}/${last.getFullYear()}`;
-  document.getElementById('week-label').textContent = weekLabel;
+
+  const utils = (typeof window !== 'undefined' && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== 'undefined') ? SemanaUtils : null);
+  if (utils) {
+    const resumo = utils.obterResumoSemana(first, 0, overrideNum);
+    weekLabel = `${resumo.rotuloCurto} · ${String(first.getDate()).padStart(2,'0')}/${String(first.getMonth()+1).padStart(2,'0')} a ${String(last.getDate()).padStart(2,'0')}/${String(last.getMonth()+1).padStart(2,'0')}`;
+  }
+
+  const weekLabelEl = document.getElementById('week-label');
+  if (weekLabelEl) {
+    weekLabelEl.textContent = weekLabel;
+    weekLabelEl.style.cursor = 'pointer';
+    weekLabelEl.title = 'Clique para ajustar o número oficial desta semana (ex: Semana 45 ou Semana 46)';
+    weekLabelEl.onclick = () => editarNumeroSemanaRoteiro(first);
+  }
 
   const container = document.getElementById('day-selector');
   container.innerHTML = dates.map((d, i) => {
@@ -530,6 +545,108 @@ function selectDate(key) {
 }
 
 /** Atualiza o texto do dia e data exibido no topo da interface, ex: "Quinta, 26/03/2026". */
+
+/** Permite ao operador ajustar manualmente o número oficial da semana (ex: Semana 45 EBC vs 46 civil) */
+function editarNumeroSemanaRoteiro(mondayDate) {
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
+  saved.semanasCustom = saved.semanasCustom || {};
+  const mKey = dateKey(mondayDate);
+
+  const utils = (typeof window !== 'undefined' && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== 'undefined') ? SemanaUtils : null);
+  const atual = saved.semanasCustom[mKey] || (utils ? utils.calcularSemanaISO(mondayDate).semana : 46);
+
+  const resp = prompt(
+    `Número oficial da semana que inicia em ${formatDateBR(mondayDate)}:\n(Ex: digite 45 para EBC / TV Brasil ou 46 para calendário geral)`,
+    atual
+  );
+  if (resp === null) return;
+  const num = parseInt(resp.trim(), 10);
+  if (num >= 1 && num <= 53) {
+    saved.semanasCustom[mKey] = num;
+    if (saved.gradeSemanalInfo) {
+      saved.gradeSemanalInfo.numeroSemana = num;
+    }
+    localStorage.setItem(_storageKey, JSON.stringify(saved));
+    renderWeekSelector();
+    toast(`Semana ajustada para Semana ${num}`, 'success');
+  } else if (!resp.trim()) {
+    delete saved.semanasCustom[mKey];
+    localStorage.setItem(_storageKey, JSON.stringify(saved));
+    renderWeekSelector();
+    toast('Semana redefinida para o cálculo padrão', 'info');
+  }
+}
+
+/** Preenche ou alinha o roteiro do dia selecionado com base nos blocos e programas cadastrados na Grade Semanal. */
+function sincronizarRoteiroComGradeSemana() {
+  const dow = _currentDow();
+  const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
+  const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
+  const gradeBlocks = (saved.gradeBlocksByDay || {})[dow] || [];
+  const gradeSimples = loadGrade(dow);
+
+  const temBlocos = Array.isArray(gradeBlocks) && gradeBlocks.some(b => b.program && (b.program.title || b.program.nome || b.program.descricao));
+  const temSimples = gradeSimples && Object.keys(gradeSimples).length > 0;
+
+  if (!temBlocos && !temSimples) {
+    toast(`Nenhuma grade encontrada para ${DAY_NAMES[dow]}. Configure no Editor de Grade.`, 'error');
+    return;
+  }
+
+  if (state.roteiro.length > 0) {
+    const ok = confirm(
+      `O roteiro de hoje já possui ${state.roteiro.length} itens.\n` +
+      `Deseja preencher/alinhar com a Grade Semanal de ${DAY_NAMES[dow]}?`
+    );
+    if (!ok) return;
+  }
+
+  const progs = [];
+
+  if (temBlocos) {
+    gradeBlocks.forEach(b => {
+      const p = b.program || {};
+      const nome = p.title || p.nome || p.descricao;
+      if (!nome) return;
+      const dur = b.duration || p.duration || '00:15:00';
+      const code = p.code || `GRD_${String(b.time || '').replace(/[^0-9]/g, '')}`;
+      progs.push({
+        code,
+        descricao: nome,
+        tempo: dur,
+        midia: p.midia || '0OMN',
+        type: 'RPRO'
+      });
+    });
+  } else {
+    const order = loadGradeOrder(dow);
+    const keys = (order && order.length) ? order : Object.keys(gradeSimples);
+    keys.forEach(k => {
+      progs.push({
+        code: `GRD_${String(gradeSimples[k] || '').replace(/[^0-9]/g, '')}`,
+        descricao: k,
+        tempo: '00:15:00',
+        midia: '0OMN',
+        type: 'RPRO'
+      });
+    });
+  }
+
+  if (!progs.length) {
+    toast(`Nenhum programa alocado na grade de ${DAY_NAMES[dow]}`, 'error');
+    return;
+  }
+
+  const generated = buildRoteiroFromPrograms(progs);
+  state.roteiro = generated;
+  injectPecasFixas();
+  saveState();
+  renderAll();
+  renderWeekSelector();
+  toast(`✓ Roteiro sincronizado com a Grade Semanal (${progs.length} programas)`, 'success');
+}
+
 function updateDateDisplay() {
   const d  = state.currentDate;
   const dd = String(d.getDate()).padStart(2,'0');

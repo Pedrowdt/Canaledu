@@ -758,6 +758,11 @@
             <button class="week-arrow" onclick="changeWeek(+1)" title="Próxima semana">›</button>
           </div>
           <div class="day-selector" id="day-selector"></div>
+          <div style="margin-top:6px;display:flex;gap:4px">
+            <button type="button" class="btn-outline" style="width:100%;font-size:11px;padding:4px 6px;border-color:var(--border2);display:flex;align-items:center;justify-content:center;gap:4px;font-weight:600" onclick="sincronizarRoteiroComGradeSemana()" title="Preencher ou alinhar o roteiro do dia com a Grade Semanal">
+              <span>📅 Sincronizar com Grade</span>
+            </button>
+          </div>
         </div>
         <div class="pecas-search">
           <input type="text" placeholder="Buscar por nome, code ou tempo..." id="pecas-search-input" oninput="typeof renderPecasSidebarDebounced==='function'&&renderPecasSidebarDebounced()">
@@ -1638,6 +1643,7 @@
 <script src="auth.js"></script>
 <script src="canal-log.js"></script>
 <script src="src/core/emissoraContext.js"></script>
+<script src="src/core/semanaUtils.js"></script>
 <script src="pecas-repo.js"></script>
 <!-- cadastro-sync.js NÃO é carregado no Roteiro: fluxo de mão única (só leitura do cadastro). -->
 <script src="assinatura-programa.js"></script>

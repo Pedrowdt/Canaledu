@@ -20,6 +20,7 @@
 <script src="src/core/gradeEditorCore.js"></script>
 <script src="src/core/gradeRecorrenciaCore.js"></script>
 <script src="src/core/gradeImportador.js"></script>
+<script src="src/core/semanaUtils.js"></script>
 <script src="src/ui/admin-painel.js"></script>
 
 <style>
@@ -952,6 +953,18 @@ input, select { font-family: inherit; font-size: 12px; }
   </div>
 </header>
 
+<!-- GRADE WEEK SCOPE BAR -->
+<div class="grade-week-scope-bar" id="grade-week-scope-bar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;gap:12px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="font-weight:700;font-size:12px;color:#1e293b">🗓️ Semana da Grade:</span>
+    <span id="badge-grade-semana-info" style="font-size:12px;padding:3px 10px;border-radius:12px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;font-weight:700">Semana 46 (09/11 a 15/11/2026)</span>
+    <span style="font-size:11px;color:#64748b">Sincronizada com o Roteiro semanal e pronta para gerar a grade oficial.</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px">
+    <button type="button" class="btn-outline" style="padding:4px 10px;font-size:11px;border-color:#0284c7;color:#0369a1;font-weight:600" onclick="ajustarNumeroSemanaGrade()" title="Ajustar número oficial da semana (ex: Semana 45 EBC ou Semana 46 civil)">✏️ Ajustar Número da Semana</button>
+  </div>
+</div>
+
 <!-- DAY TABS BAR -->
 <div class="day-bar">
   <div class="day-tabs" id="day-tabs-container">
@@ -967,6 +980,8 @@ input, select { font-family: inherit; font-size: 12px; }
 
   <div class="day-actions">
     <button class="btn-outline" onclick="abrirModalImportarGrade()" title="Importar grade padrão da TV Brasil ou arquivo CSV" id="btn-importar-grade" style="font-weight:600;border-color:#0284c7;color:#0369a1">📥 Importar Grade</button>
+    <button class="btn-outline" onclick="desmembrarFaixaSelecionada()" title="Desmembrar faixa composta do dia atual em slots individuais de 15 minutos" style="font-weight:600;border-color:#10b981;color:#047857">⚡ Desmembrar Faixa</button>
+    <button class="btn-outline" onclick="reagruparFaixaSelecionada()" title="Reagrupar slots consecutivos de uma faixa em um único bloco composto" style="font-weight:600;border-color:#eab308;color:#854d0e">🔗 Reagrupar Faixa</button>
     <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções por Data <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:4px">0</span></button>
     <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 Exportar PDF</button>
     <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar Dia...</button>
@@ -1369,6 +1384,34 @@ input, select { font-family: inherit; font-size: 12px; }
     <!-- Etapa 1: Seleção de Fonte -->
     <div id="step-selecao-importacao" style="display:flex;flex-direction:column;gap:14px">
 
+      <!-- Opção de desmembrar faixas em slots de 15 minutos -->
+      <div style="padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;display:flex;align-items:center;justify-content:space-between">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#065f46;cursor:pointer;margin:0">
+          <input type="checkbox" id="chk-importar-desmembrar-faixas" checked>
+          <span>⚡ Desmembrar faixas compostas (ex: TV Brasil Animada) em slots individuais de 15 minutos</span>
+        </label>
+        <span style="font-size:11px;color:#047857">Recomendado para roteiros e exibição</span>
+      </div>
+
+            <!-- Card Destaque: TV Brasil Semana 45 (Novembro 2026) -->
+      <div style="border:2px solid #10b981;background:#f0fdf4;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:11px;font-weight:700;background:#059669;color:#fff;padding:2px 8px;border-radius:12px;text-transform:uppercase">Oficial Planilha EBC</span>
+          <span style="font-size:12px;color:#047857;font-weight:600">Semana 45 (09 a 15/11/2026)</span>
+        </div>
+        <div style="font-size:14px;font-weight:700;color:#064e3b">
+          📺 Grade Oficial TV Brasil — Semana 45 Completa (24h)
+        </div>
+        <div style="font-size:12px;color:#334155;line-height:1.4">
+          Extraída diretamente da planilha oficial de Novembro/2026: 7 dias completos, faixa TV Brasil Animada configurada com atrações e temporadas, Sem Censura (ao vivo e episódios gravados) e todas as classificações de cores.
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:4px">
+          <button type="button" class="btn-primary" style="background:#059669;border-color:#059669" onclick="carregarPreviaTvBrasilSemana45()">
+            Visualizar Prévia da Semana 45 ➔
+          </button>
+        </div>
+      </div>
+
       <!-- Card Destaque: TV Brasil Semana 44 -->
       <div style="border:2px solid #38bdf8;background:#f0f9ff;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1391,13 +1434,13 @@ input, select { font-family: inherit; font-size: 12px; }
       <!-- Card Opção: Upload de Arquivo CSV -->
       <div style="border:1px solid var(--border);background:#fafafa;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px">
         <div style="font-size:13px;font-weight:600;color:var(--text)">
-          📄 Ou enviar planilha / arquivo CSV
+          📄 Ou enviar planilha Excel (.xlsx, .xls) ou arquivo CSV
         </div>
         <div style="font-size:11.5px;color:#64748b">
-          Formatos suportados: CSV com colunas <code>dia;horario;duracao;programa;codigo;categoria;tipo</code>.
+          Formatos suportados: planilhas Excel da TV Brasil (.xlsx/.xls) ou CSV com colunas <code>dia;horario;duracao;programa;codigo;categoria;tipo</code>.
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
-          <input type="file" id="input-arquivo-grade-csv" accept=".csv,.txt" style="font-size:12px;flex:1">
+          <input type="file" id="input-arquivo-grade-csv" accept=".xlsx,.xls,.csv,.txt" style="font-size:12px;flex:1">
           <button type="button" class="btn-outline" onclick="processarUploadArquivoCsv()">
             Carregar Prévia
           </button>
@@ -1409,19 +1452,56 @@ input, select { font-family: inherit; font-size: 12px; }
     <!-- Etapa 2: Pré-visualização antes de salvar -->
     <div id="step-previa-importacao" style="display:none;flex-direction:column;gap:12px;flex:1;overflow:hidden">
 
-      <!-- Barra de Resumo e Métricas -->
-      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:10px">
-        <div>
-          <div style="font-size:11px;color:#64748b">Total de Blocos</div>
-          <div style="font-size:16px;font-weight:700;color:var(--text)" id="previa-total-slots">0</div>
+      <!-- Barra de Resumo e Métricas Operacionais da Prévia -->
+      <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:10px">
+        <!-- 1. Duração Total -->
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:#64748b;font-weight:600">Duração Total</span>
+            <span id="previa-duracao-badge" style="font-size:10px;padding:1px 5px;border-radius:4px;background:#dcfce7;color:#15803d;font-weight:700">24h OK</span>
+          </div>
+          <div style="font-size:15px;font-weight:700;color:var(--text)" id="previa-duracao-total-dia">24h 00m</div>
+          <div style="font-size:10.5px;color:#64748b" id="previa-duracao-total-semana">Semana: 168h 00m</div>
         </div>
-        <div>
-          <div style="font-size:11px;color:#64748b">Novos Programas</div>
-          <div style="font-size:16px;font-weight:700;color:#0284c7" id="previa-novos-programas">0</div>
+
+        <!-- 2. Horários Livres -->
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:#64748b;font-weight:600">Horários Livres</span>
+            <span id="previa-livres-badge" style="font-size:10px;padding:1px 5px;border-radius:4px;background:#f1f5f9;color:#64748b;font-weight:700">00:00</span>
+          </div>
+          <div style="font-size:15px;font-weight:700;color:#16a34a" id="previa-horarios-livres-total">0h 00m</div>
+          <div style="font-size:10.5px;color:#64748b" id="previa-horarios-livres-desc">Nenhum slot vago</div>
         </div>
-        <div>
-          <div style="font-size:11px;color:#64748b">Emissora de Destino</div>
-          <div style="font-size:13px;font-weight:600;color:#16a34a" id="previa-emissora-destino">TV Brasil</div>
+
+        <!-- 3. Horários Excedentes -->
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:#64748b;font-weight:600">Horários Excedentes</span>
+            <span id="previa-excedentes-badge" style="font-size:10px;padding:1px 5px;border-radius:4px;background:#f1f5f9;color:#64748b;font-weight:700">00:00</span>
+          </div>
+          <div style="font-size:15px;font-weight:700;color:#16a34a" id="previa-horarios-excedentes-total">0h 00m</div>
+          <div style="font-size:10.5px;color:#64748b" id="previa-horarios-excedentes-desc">0 sobreposições</div>
+        </div>
+
+        <!-- 4. Atrações Não Distribuídas -->
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:11px;color:#64748b;font-weight:600">Atrações Pendentes</span>
+            <span id="previa-atracoes-badge" style="font-size:10px;padding:1px 5px;border-radius:4px;background:#f1f5f9;color:#64748b;font-weight:700">0</span>
+          </div>
+          <div style="font-size:15px;font-weight:700;color:#0284c7" id="previa-atracoes-nao-distribuidas-total">0 pendentes</div>
+          <div style="font-size:10.5px;color:#64748b" id="previa-atracoes-nao-distribuidas-desc">Todas alocadas</div>
+        </div>
+      </div>
+
+      <!-- Barra secundária com Total de Blocos, Novos Programas e Emissora -->
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#fff;border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11.5px">
+        <div style="color:#475569">
+          <strong>Volume:</strong> <span id="previa-total-slots">0 blocos</span> · <span id="previa-novos-programas" style="color:#0284c7;font-weight:600">+0 programas</span>
+        </div>
+        <div style="color:#475569">
+          <strong>Destino:</strong> <span id="previa-emissora-destino" style="color:#16a34a;font-weight:700">TV Brasil</span>
         </div>
       </div>
 
@@ -1453,6 +1533,10 @@ input, select { font-family: inherit; font-size: 12px; }
         </table>
       </div>
 
+      <!-- Painel de Detalhes Operacionais (Lacunas, Sobreposições e Atrações Pendentes) -->
+      <div id="previa-painel-detalhes-operacionais" style="display:none;flex-direction:column;gap:6px;font-size:11.5px;max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:8px;background:#f8fafc"></div>
+
+      <div id="previa-avisos-importacao" style="display:none;font-size:11.5px;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;padding:8px;border-radius:4px"></div>
       <div style="font-size:11.5px;color:#64748b;background:#fefce8;border:1px solid #fef08a;padding:8px;border-radius:4px">
         ⚠️ <strong>Atenção:</strong> Ao confirmar, a grade atual no editor será preenchida com esses blocos e os novos programas serão adicionados ao Acervo. Você ainda poderá revisar e fazer ajustes antes de clicar em <em>Salvar Grade</em>.
       </div>
@@ -1547,7 +1631,8 @@ input, select { font-family: inherit; font-size: 12px; }
       </div>
     </div>
 
-    <div class="modal-actions" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">
+    <div class="modal-actions" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <button type="button" class="btn-primary" style="background:#059669;border-color:#059669;font-weight:700" onclick="desmembrarFaixaAtiva()">⚡ Desmembrar em Slots de 15 min</button>
       <button type="button" class="btn-primary" onclick="confirmarEFecharFaixaModal()">Concluir</button>
     </div>
   </div>
