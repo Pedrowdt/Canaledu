@@ -330,6 +330,35 @@
 
         </div>
 
+        <!-- ABA: SUPERUSUÁRIOS (MULTI-EMISSORA GLOBAL) -->
+        <div id="admin-painel-super" style="display: none;">
+          <div style="background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 14px;">
+            <div style="font-size: 0.88rem; font-weight: 600; color: #fbbf24; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+              <span>👑</span> <span>Superusuários do RoteiroHub</span>
+            </div>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 12px 0; line-height: 1.4;">
+              Superusuários possuem acesso irrestrito e automático a <strong>todas as emissoras</strong> cadastradas no sistema, podendo transitar livremente entre elas e gerenciar configurações globais.
+            </p>
+
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <input id="admin-email-super" type="email" placeholder="email.usuario@ebc.com.br" style="flex: 1; min-width: 220px; background: #1e293b; border: 1px solid #334155; color: #f8fafc; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem;">
+              <button id="admin-btn-salvar-super" type="button" style="background: #eab308; color: #0f172a; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85rem; font-weight: 700; cursor: pointer;">
+                Promover a Superusuário
+              </button>
+            </div>
+            <p id="admin-status-super" style="margin: 8px 0 0 0; font-size: 0.8rem; font-weight: 500;"></p>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <strong style="font-size: 0.86rem; color: #cbd5e1;">Superusuários Ativos</strong>
+            <button id="admin-btn-recarregar-super" type="button" style="background: none; border: 0; color: #38bdf8; cursor: pointer; font-size: 0.82rem;">↻ Atualizar</button>
+          </div>
+
+          <div id="admin-lista-super" style="border: 1px solid #334155; border-radius: 8px; overflow: hidden; background: #0f172a;">
+            <p style="padding: 14px; color: #94a3b8; margin: 0; font-size: 0.85rem;">Carregando superusuários...</p>
+          </div>
+        </div>
+
       </div>
     `;
 
@@ -485,6 +514,7 @@
     const modal = document.getElementById('modal-admin-painel');
     if (!modal) return;
     modal.style.display = 'flex';
+    await atualizarVisibilidadeBotao();
     await carregarListaEmissoras();
     document.getElementById('admin-subtitulo-emissora').textContent = 'Emissora atual: ' + obterEmissoraAtivaNome();
     alternarAba('emissoras');
