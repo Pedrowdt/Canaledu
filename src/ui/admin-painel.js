@@ -46,21 +46,32 @@
     }
 
     try {
+      let ehSuperadmin = false;
+      try {
+        const { data: superRes, error: superErr } = await _supabase.rpc('fn_usuario_eh_superadmin');
+        if (!superErr && superRes === true) ehSuperadmin = true;
+      } catch (_) {}
+
       const { data, error } = await _supabase
         .from('usuarios_emissoras')
         .select('emissora_id')
         .eq('usuario_id', _user.id)
-        .eq('papel', 'admin')
+        .in('papel', ['admin', 'superadmin'])
         .eq('ativo', true)
         .limit(1);
 
-      const ehAdmin = !error && data && data.length > 0;
+      const ehAdmin = ehSuperadmin || (!error && data && data.length > 0);
 
       if (hubCard) {
         hubCard.style.display = ehAdmin ? 'block' : 'none';
       }
       if (btn) {
         btn.style.display = ehAdmin ? 'inline-flex' : 'none';
+      }
+
+      const tabSuper = document.getElementById('admin-tab-super');
+      if (tabSuper) {
+        tabSuper.style.display = ehSuperadmin ? 'inline-block' : 'none';
       }
     } catch (e) {
       if (hubCard) hubCard.style.display = 'none';
@@ -101,6 +112,7 @@
           <button id="admin-tab-membros" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">Equipe da Emissora</button>
           <button id="admin-tab-nova" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">+ Nova Emissora</button>
           <button id="admin-tab-saude" style="padding: 8px 14px; background: none; border: none; color: #94a3b8; font-weight: 600; cursor: pointer; font-size: 0.88rem;">🩺 Saúde do Sistema</button>
+          <button id="admin-tab-super" style="display: none; padding: 8px 14px; background: none; border: none; color: #fbbf24; font-weight: 600; cursor: pointer; font-size: 0.88rem;">👑 Superusuários</button>
         </div>
 
         <!-- ABA: EMISSORAS CADASTRADAS -->
@@ -336,6 +348,12 @@
     };
     document.getElementById('admin-tab-nova').onclick = () => alternarAba('nova');
     document.getElementById('admin-tab-saude').onclick = () => alternarAba('saude');
+    const tabSuperBtn = document.getElementById('admin-tab-super');
+    if (tabSuperBtn) tabSuperBtn.onclick = () => alternarAba('super');
+    const btnSalvarSuper = document.getElementById('admin-btn-salvar-super');
+    if (btnSalvarSuper) btnSalvarSuper.onclick = salvarSuperadmin;
+    const btnRecarregarSuper = document.getElementById('admin-btn-recarregar-super');
+    if (btnRecarregarSuper) btnRecarregarSuper.onclick = carregarSuperadmins;
 
     document.getElementById('admin-btn-salvar-membro').onclick = salvarMembro;
     document.getElementById('admin-form-nova').onsubmit = (e) => {
@@ -407,19 +425,21 @@
     const tabM = document.getElementById('admin-tab-membros');
     const tabN = document.getElementById('admin-tab-nova');
     const tabS = document.getElementById('admin-tab-saude');
+    const tabSu = document.getElementById('admin-tab-super');
     const painelE = document.getElementById('admin-painel-emissoras');
     const painelEd = document.getElementById('admin-painel-editar');
     const painelM = document.getElementById('admin-painel-membros');
     const painelN = document.getElementById('admin-painel-nova');
     const painelS = document.getElementById('admin-painel-saude');
+    const painelSu = document.getElementById('admin-painel-super');
 
-    [tabE, tabEd, tabM, tabN, tabS].forEach(t => {
+    [tabE, tabEd, tabM, tabN, tabS, tabSu].forEach(t => {
       if (t) {
         t.style.borderBottom = 'none';
         t.style.color = '#94a3b8';
       }
     });
-    [painelE, painelEd, painelM, painelN, painelS].forEach(p => {
+    [painelE, painelEd, painelM, painelN, painelS, painelSu].forEach(p => {
       if (p) p.style.display = 'none';
     });
 
@@ -451,6 +471,13 @@
       tabS.style.color = '#a855f7';
       painelS.style.display = 'block';
       carregarDiagnosticoSaude();
+    } else if (aba === 'super') {
+      if (tabSu) {
+        tabSu.style.borderBottom = '2px solid #fbbf24';
+        tabSu.style.color = '#fbbf24';
+      }
+      if (painelSu) painelSu.style.display = 'block';
+      carregarSuperadmins();
     }
   }
 
@@ -1188,6 +1215,90 @@
 
   function escapeHtml(str) {
     return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  async function carregarSuperadmins() {
+    const lista = document.getElementById('admin-lista-super');
+    if (!lista || !_supabase) return;
+    lista.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Carregando superusuários...</p>';
+    try {
+      const { data, error } = await _supabase.rpc('fn_admin_listar_superadmins');
+      if (error) throw error;
+      const superadmins = Array.isArray(data) ? data : [];
+      if (superadmins.length === 0) {
+        lista.innerHTML = '<p style="padding:14px;color:#94a3b8;margin:0;">Nenhum superusuário encontrado.</p>';
+        return;
+      }
+      lista.innerHTML = superadmins.map(s => {
+        const ehProprio = _user && _user.email && _user.email.toLowerCase() === (s.email || '').toLowerCase();
+        return `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid #334155;gap:10px;flex-wrap:wrap;">
+          <div>
+            <div style="font-weight:600;color:#f8fafc;display:flex;align-items:center;gap:6px;">
+              <span>👑</span> <span>${escapeHtml(s.email)}</span>
+              ${ehProprio ? '<span style="font-size:0.7rem;background:#0284c7;color:#fff;padding:1px 6px;border-radius:4px;">Você</span>' : ''}
+            </div>
+            <div style="font-size:0.75rem;color:#94a3b8;">Cadastrado em: ${s.created_at ? new Date(s.created_at).toLocaleDateString('pt-BR') : '—'}</div>
+          </div>
+          <div>
+            ${!ehProprio ? `<button class="admin-remover-super-btn" data-email="${escapeHtml(s.email)}" style="background:#7f1d1d;border:none;color:#fecaca;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.78rem;">Remover</button>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+
+      lista.querySelectorAll('.admin-remover-super-btn').forEach(btn => {
+        btn.onclick = () => removerSuperadmin(btn.dataset.email);
+      });
+    } catch (err) {
+      lista.innerHTML = `<p style="padding:14px;color:#ef4444;margin:0;">Erro ao listar: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function salvarSuperadmin() {
+    const input = document.getElementById('admin-email-super');
+    const status = document.getElementById('admin-status-super');
+    if (!input || !status || !_supabase) return;
+    const email = input.value.trim();
+    if (!email) {
+      status.style.color = '#ef4444';
+      status.textContent = 'Informe o e-mail do usuário.';
+      return;
+    }
+    status.style.color = '#38bdf8';
+    status.textContent = 'Promovendo usuário...';
+    try {
+      const { data, error } = await _supabase.rpc('fn_admin_adicionar_superadmin', { p_email: email });
+      if (error) throw error;
+      if (!data || !data.ok) {
+        status.style.color = '#ef4444';
+        status.textContent = data?.mensagem || 'Não foi possível promover o usuário.';
+        return;
+      }
+      status.style.color = '#10b981';
+      status.textContent = `Usuário ${email} promovido a Superusuário (${data.total_emissoras_vinculadas} emissoras vinculadas)!`;
+      input.value = '';
+      carregarSuperadmins();
+      carregarListaEmissoras();
+      if (window.EmissoraContext && typeof window.EmissoraContext.carregarEmissoras === 'function') {
+        window.EmissoraContext.carregarEmissoras(_supabase, _user?.id);
+      }
+    } catch (err) {
+      status.style.color = '#ef4444';
+      status.textContent = 'Erro ao promover: ' + err.message;
+    }
+  }
+
+  async function removerSuperadmin(email) {
+    if (!confirm(`Deseja revogar o privilégio de Superusuário de ${email}?`)) return;
+    try {
+      const { data, error } = await _supabase.rpc('fn_admin_remover_superadmin', { p_email: email });
+      if (error) throw error;
+      if (data && data.ok) {
+        carregarSuperadmins();
+      }
+    } catch (err) {
+      alert('Erro ao remover: ' + err.message);
+    }
   }
 
   return {

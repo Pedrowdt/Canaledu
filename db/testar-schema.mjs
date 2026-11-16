@@ -386,3 +386,68 @@ const rMembrosCanalEdu = await db.query(`
 `);
 console.log('019 membros do Canal Educação geridos pelo admin:', rMembrosCanalEdu.rows[0].membros);
 console.log('019 validado com sucesso ✓\n');
+
+/// ============================================================
+//  020_superusuarios.sql
+// ============================================================
+await q(readFileSync(new URL('./020_superusuarios.sql', import.meta.url), 'utf8'));
+console.log('020_superusuarios aplicado ✓');
+
+// Cria um segundo usuário no auth.users que inicialmente só tem acesso a uma emissora
+const novoUserId = '00000000-0000-0000-0000-000000000002';
+await q(`insert into auth.users (id, email) values ('${novoUserId}', 'novo_admin@ebc.gov.br') on conflict do nothing;`);
+
+// Simula que ele só foi vinculado a uma única emissora
+const emissoraUnica = (await db.query(`select id from public.emissoras where id <> '00000000-0000-0000-0000-000000000001' limit 1;`)).rows[0].id;
+await q(`
+  insert into public.usuarios_emissoras (usuario_id, emissora_id, papel, ativo)
+  values ('${novoUserId}', '${emissoraUnica}', 'admin', true)
+  on conflict do nothing;
+`);
+
+// O usuário 1 (que é superadmin) promove novo_admin@ebc.gov.br a superadmin
+const rPromover = await db.query(`select public.fn_admin_adicionar_superadmin('novo_admin@ebc.gov.br') as res;`);
+console.log('020 resultado promoção:', rPromover.rows[0].res);
+
+if (!rPromover.rows[0].res.ok) {
+  throw new Error('020 falhou ao promover novo_admin@ebc.gov.br');
+}
+
+// Lista os superadmins
+const rSuperadmins = await db.query(`select public.fn_admin_listar_superadmins() as supers;`);
+console.log('020 superadmins cadastrados:', rSuperadmins.rows[0].supers);
+
+if (!rSuperadmins.rows[0].supers.some(s => s.email === 'novo_admin@ebc.gov.br')) {
+  throw new Error('020 falhou: novo_admin@ebc.gov.br não está na lista de superadmins!');
+}
+
+// Verifica se o novo_admin agora tem vínculos para todas as emissoras ativas
+const rVinculosNovoAdmin = await db.query(`
+  select count(*) as total from public.usuarios_emissoras
+  where usuario_id = '${novoUserId}' and ativo = true and papel = 'superadmin';
+`);
+console.log('020 emissoras vinculadas ao novo superadmin:', rVinculosNovoAdmin.rows[0].total);
+
+const rTotalEmissoras = await db.query(`select count(*) as total from public.emissoras where ativo = true;`);
+if (Number(rVinculosNovoAdmin.rows[0].total) < Number(rTotalEmissoras.rows[0].total)) {
+  throw new Error('020 falhou: superadmin não foi vinculado a todas as emissoras!');
+}
+
+// Testa criação de nova emissora e conferência de auto-vinculação do superadmin
+const rNovaEmissora = await db.query(`
+  select public.fn_admin_criar_emissora('TV Brasil 2', 'tv-brasil-2', '#ff5500') as nova;
+`);
+console.log('020 nova emissora criada:', rNovaEmissora.rows[0].nova);
+
+const novaEmissoraId = rNovaEmissora.rows[0].nova.emissora_id;
+const rVerificaAutoVinculo = await db.query(`
+  select papel from public.usuarios_emissoras
+  where usuario_id = '${novoUserId}' and emissora_id = '${novaEmissoraId}';
+`);
+console.log('020 auto-vínculo na nova emissora:', rVerificaAutoVinculo.rows);
+
+if (rVerificaAutoVinculo.rows[0]?.papel !== 'superadmin') {
+  throw new Error('020 falhou: superadmin não foi auto-vinculado à nova emissora!');
+}
+
+console.log('020 validado com sucesso ✓\n');
