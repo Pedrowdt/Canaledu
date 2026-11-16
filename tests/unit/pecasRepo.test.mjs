@@ -26,6 +26,7 @@ function fakeClient({ relational = true, pecas = [], programas = [], shared = {}
         const chain = {
           limit: async () => ({ data: [], error: null }),
           order() { return chain; },
+          eq(col, val) { calls.filters = calls.filters || []; calls.filters.push({ table, col, val }); return chain; },
           then(res) { return Promise.resolve({ data: rows[table] || [], error: null }).then(res); },
         };
         return chain;
@@ -114,5 +115,21 @@ describe('PecasRepo', () => {
     const out = await Repo.pecasElegiveis({ dow: 3, hora: '12:00' });
     expect(c.calls.rpc[0]).toEqual({ fn: 'fn_pecas_elegiveis', args: { p_dow: 3, p_hora: '12:00' } });
     expect(out[0].code).toBe('1');
+  });
+  it("isola a branch main filtrando exclusivamente por Canal Educação", async () => {
+    const c = fakeClient({
+      pecas: [{ id: "1", code: "90001", descricao: "VH", emissora_id: "00000000-0000-0000-0000-000000000001" }],
+      programas: [{ id: "2", code: "P1", descricao: "PROG", emissora_id: "00000000-0000-0000-0000-000000000001" }],
+    });
+    await Repo.init(c);
+    await Repo.loadAll();
+    const filtrosPecas = (c.calls.filters || []).filter(f => f.table === "pecas");
+    const filtrosProgramas = (c.calls.filters || []).filter(f => f.table === "programas");
+    expect(filtrosPecas).toEqual([
+      { table: "pecas", col: "emissora_id", val: "00000000-0000-0000-0000-000000000001" }
+    ]);
+    expect(filtrosProgramas).toEqual([
+      { table: "programas", col: "emissora_id", val: "00000000-0000-0000-0000-000000000001" }
+    ]);
   });
 });

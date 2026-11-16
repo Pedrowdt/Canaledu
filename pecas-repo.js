@@ -171,19 +171,36 @@
   // atualização apagava da tela do Roteiro as peças que ficaram de fora.
   const PAGINA = 1000;
 
+  // ID fixo da emissora Canal Educação (padrão único atendido pela branch main)
+  const CANAL_EDUCACAO_EMISSORA_ID = '00000000-0000-0000-0000-000000000001';
+
   /** Lê a tabela inteira em páginas. Retorna { linhas, parcial }. */
   async function lerTabelaCompleta(table, aplicarOrdem) {
+    function prepararQuery() {
+      let q = aplicarOrdem(client.from(table).select('*'));
+      // ISOLAMENTO DE PRODUÇÃO: a branch main atende exclusivamente o Canal Educação.
+      // Filtra estritamente por emissora_id para não carregar peças/programas de outras emissoras
+      // inseridas a partir da branch white-label no banco compartilhado.
+      if (typeof q.eq === 'function') {
+        const comFiltro = q.eq('emissora_id', CANAL_EDUCACAO_EMISSORA_ID);
+        if (comFiltro && typeof comFiltro.then === 'function') {
+          q = comFiltro;
+        }
+      }
+      return q;
+    }
+    const qInicial = prepararQuery();
     // Cliente sem `range` (mocks/versões antigas): leitura única, como antes.
-    const suportaRange = typeof aplicarOrdem(client.from(table).select('*')).range === 'function';
+    const suportaRange = typeof qInicial.range === 'function';
     if (!suportaRange) {
-      const { data, error } = await aplicarOrdem(client.from(table).select('*'));
+      const { data, error } = await qInicial;
       if (error) throw error;
       return { linhas: data || [], parcial: false };
     }
 
     const linhas = [];
     for (let inicio = 0; ; inicio += PAGINA) {
-      const { data, error } = await aplicarOrdem(client.from(table).select('*')).range(inicio, inicio + PAGINA - 1);
+      const { data, error } = await prepararQuery().range(inicio, inicio + PAGINA - 1);
       if (error) throw error;
       const pagina = data || [];
       linhas.push(...pagina);
