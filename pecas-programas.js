@@ -779,6 +779,26 @@ function openBatchModal() {
     pecasFields.style.display = isPecas ? 'flex' : 'none';
   }
 
+  const programasFields = document.getElementById('batch-programas-fields');
+  if (programasFields) {
+    programasFields.style.display = isPecas ? 'none' : 'flex';
+  }
+
+  const fFaixaAcao = document.getElementById('batch-f-faixa-acao');
+  if (fFaixaAcao) fFaixaAcao.value = '';
+
+  const fFaixaVal = document.getElementById('batch-f-faixa-valor');
+  if (fFaixaVal) fFaixaVal.value = '';
+
+  const wrapFaixa = document.getElementById('batch-faixa-valor-wrap');
+  if (wrapFaixa) wrapFaixa.style.display = 'none';
+
+  const dlBatchFaixa = document.getElementById('batch-faixa-list');
+  if (dlBatchFaixa) {
+    const faixasUnicas = [...new Set(programas.map(x => (x.faixaOcupada || '').trim()).filter(Boolean))].sort();
+    dlBatchFaixa.innerHTML = faixasUnicas.map(fx => `<option value="${escapeHtml(fx)}">`).join('');
+  }
+
   const fCat = document.getElementById('batch-f-cat');
   if (fCat) fCat.value = '';
 
@@ -829,6 +849,17 @@ function toggleBatchProgramaRelacionadoField(funcao) {
   if (wrap) wrap.style.display = FUNCOES_COM_PROGRAMA.has(funcao) ? 'block' : 'none';
 }
 
+function toggleBatchFaixaInput(acao) {
+  const wrap = document.getElementById('batch-faixa-valor-wrap');
+  if (wrap) {
+    wrap.style.display = acao === 'definir' ? 'block' : 'none';
+    if (acao === 'definir') {
+      const input = document.getElementById('batch-f-faixa-valor');
+      if (input) input.focus();
+    }
+  }
+}
+
 function confirmarEdicaoLote() {
   if (!selectedCodes || selectedCodes.size === 0) {
     alert('Nenhum item selecionado.');
@@ -844,9 +875,23 @@ function confirmarEdicaoLote() {
   const funcaoVal = isPecas ? (document.getElementById('batch-f-funcao')?.value || '') : '';
   const programaRelacionadoVal = isPecas ? (document.getElementById('batch-f-programa-relacionado')?.value?.trim() || '') : '';
 
-  if (!typeVal && !catVal && !pesoAcao && !finalidadeVal && !funcaoVal && !programaRelacionadoVal) {
-    alert('Selecione pelo menos um campo para alterar.');
-    return;
+  const faixaAcao = !isPecas ? (document.getElementById('batch-f-faixa-acao')?.value || '') : '';
+  const faixaVal = !isPecas ? (document.getElementById('batch-f-faixa-valor')?.value?.trim() || '') : '';
+
+  if (isPecas) {
+    if (!typeVal && !catVal && !pesoAcao && !finalidadeVal && !funcaoVal && !programaRelacionadoVal) {
+      alert('Selecione pelo menos um campo para alterar.');
+      return;
+    }
+  } else {
+    if (!typeVal && !faixaAcao) {
+      alert('Selecione pelo menos um campo para alterar.');
+      return;
+    }
+    if (faixaAcao === 'definir' && !faixaVal) {
+      alert('Informe o nome da faixa ocupada a definir.');
+      return;
+    }
   }
 
   let pesoNumerico;
@@ -894,17 +939,25 @@ function confirmarEdicaoLote() {
       atualizado.tipoFinalidade = finalidadeVal;
     }
 
-    if (atualizado.type !== 'EVNH') {
-      atualizado.funcao = '';
-      atualizado.programaRelacionado = '';
-    } else if (funcaoVal === '__limpar__') {
-      atualizado.funcao = '';
-      atualizado.programaRelacionado = '';
-    } else if (funcaoVal) {
-      atualizado.funcao = funcaoVal;
-      atualizado.programaRelacionado = FUNCOES_COM_PROGRAMA.has(funcaoVal) ? programaRelacionadoVal : '';
-    } else if (programaRelacionadoVal) {
-      atualizado.programaRelacionado = programaRelacionadoVal;
+    if (isPecas) {
+      if (atualizado.type !== 'EVNH') {
+        atualizado.funcao = '';
+        atualizado.programaRelacionado = '';
+      } else if (funcaoVal === '__limpar__') {
+        atualizado.funcao = '';
+        atualizado.programaRelacionado = '';
+      } else if (funcaoVal) {
+        atualizado.funcao = funcaoVal;
+        atualizado.programaRelacionado = FUNCOES_COM_PROGRAMA.has(funcaoVal) ? programaRelacionadoVal : '';
+      } else if (programaRelacionadoVal) {
+        atualizado.programaRelacionado = programaRelacionadoVal;
+      }
+    } else {
+      if (faixaAcao === 'definir') {
+        atualizado.faixaOcupada = faixaVal;
+      } else if (faixaAcao === 'limpar') {
+        atualizado.faixaOcupada = '';
+      }
     }
 
     return atualizado;
@@ -926,6 +979,7 @@ if (typeof window !== 'undefined') {
   window.closeBatchModal = closeBatchModal;
   window.toggleBatchPesoInput = toggleBatchPesoInput;
   window.toggleBatchProgramaRelacionadoField = toggleBatchProgramaRelacionadoField;
+  window.toggleBatchFaixaInput = toggleBatchFaixaInput;
   window.confirmarEdicaoLote = confirmarEdicaoLote;
 }
 
@@ -1000,10 +1054,10 @@ function render(){
   const thead = document.getElementById('thead');
   thead.innerHTML = isPecas
     ? `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:34%">Descrição</th><th>Tempo</th><th>Type</th><th>Categoria</th><th>Validade</th><th>Horário</th><th style="width:52px"></th></tr>`
-    : `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:38%">Descrição</th><th>Tempo</th><th>Type</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
+    : `<tr><th style="width:36px;text-align:center"><input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)"></th><th>Code</th><th style="width:30%">Descrição</th><th>Tempo</th><th>Type</th><th>Faixa Ocupada</th><th>Mídia</th><th>Assinatura</th><th style="width:52px"></th></tr>`;
 
   if(filtered.length===0){
-    const colspan = isPecas ? 9 : 8;
+    const colspan = isPecas ? 9 : 9;
     document.getElementById('tbody').innerHTML=`<tr class="empty-row"><td colspan="${colspan}">${q?'Nada encontrado.':(filtroDuplicadosApenas?'Nenhum item duplicado encontrado.':'Nenhum item nesta categoria. Clique em "Novo" para adicionar.')}</td></tr>`;
     if (isPecas) renderSidebar();
     atualizarBarraLote();
@@ -1043,6 +1097,7 @@ function render(){
       <td><div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div></td>
       <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
       <td class="type-cell">${escapeHtml(p.type)}</td>
+      <td style="font-size:11.5px;color:#2B6CB0;font-weight:500">${escapeHtml(p.faixaOcupada || '—')}</td>
       <td class="hor-cell">${escapeHtml(p.midia||'')}</td>
       <td>${assinaturaBadgeHtml(p.assinatura)}</td>
       <td>
@@ -1101,6 +1156,15 @@ function openModal(id){
     document.querySelectorAll('#assinatura-wrap .dia-btn').forEach(b=>{
       b.classList.toggle('active', !!(p?.assinatura||[]).includes(b.dataset.a));
     });
+    const fFaixa = document.getElementById('f-faixa-ocupada');
+    if (fFaixa) {
+      fFaixa.value = p?.faixaOcupada || '';
+    }
+    const dlFaixa = document.getElementById('faixa-ocupada-list');
+    if (dlFaixa) {
+      const faixasUnicas = [...new Set(programas.map(x => (x.faixaOcupada || '').trim()).filter(Boolean))].sort();
+      dlFaixa.innerHTML = faixasUnicas.map(fx => `<option value="${escapeHtml(fx)}">`).join('');
+    }
   }
 
   const warnEl = document.getElementById('f-code-warn');
@@ -1213,9 +1277,11 @@ function saveItem(){
     // da descrição, mesma extração já usada pelo importador de grade em
     // app.js — o cadastro manual ganha o mesmo benefício sem digitar de novo.
     const episodioInfo = parseEpisodioInfo(descricao);
+    const faixaOcupada = (document.getElementById('f-faixa-ocupada')?.value || '').trim();
     p = {
       ...p,
       assinatura: [...document.querySelectorAll('#assinatura-wrap .dia-btn.active')].map(b=>b.dataset.a),
+      faixaOcupada: faixaOcupada,
       programaTitulo: baseProgramTitle(descricao),
       temporada: episodioInfo.temporada,
       episodio: episodioInfo.episodio,
@@ -1436,6 +1502,13 @@ function abrirImportPreview({ fileName, delimiterInfo, rows }) {
     .join(" · ");
   setT("import-colunas-detectadas", colunasStr || "CODE, DESCRIÇÃO");
 
+  const theadPreview = document.getElementById("import-preview-thead");
+  if (theadPreview) {
+    theadPreview.innerHTML = isPecas
+      ? `<tr><th style="padding:6px 10px">#</th><th style="padding:6px 10px">Código</th><th style="padding:6px 10px">Descrição</th><th style="padding:6px 10px">Duração Original</th><th style="padding:6px 10px">Convertido (HH:MM:SS)</th><th style="padding:6px 10px">Tipo</th><th style="padding:6px 10px">Status</th></tr>`
+      : `<tr><th style="padding:6px 10px">#</th><th style="padding:6px 10px">Código</th><th style="padding:6px 10px">Descrição</th><th style="padding:6px 10px">Faixa Ocupada</th><th style="padding:6px 10px">Duração Original</th><th style="padding:6px 10px">Convertido (HH:MM:SS)</th><th style="padding:6px 10px">Tipo</th><th style="padding:6px 10px">Status</th></tr>`;
+  }
+
   const tbody = document.getElementById("import-preview-tbody");
   if (tbody) {
     tbody.innerHTML = (analise.amostra || []).map((item) => {
@@ -1450,6 +1523,7 @@ function abrirImportPreview({ fileName, delimiterInfo, rows }) {
         "<td style=\"padding:6px 10px;color:#888\">" + item.linha + "</td>" +
         "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600\">" + escapeHtml(item.code) + "</td>" +
         "<td style=\"padding:6px 10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\" title=\"" + escapeHtml(item.descricao) + "\">" + escapeHtml(item.descricao) + "</td>" +
+        (!isPecas ? ("<td style=\"padding:6px 10px;color:#2B6CB0;font-weight:500\">" + escapeHtml(item.faixaOcupada || "-") + "</td>") : "") +
         "<td style=\"padding:6px 10px;font-family:monospace;color:#666\">" + escapeHtml(item.tempoOriginal) + "</td>" +
         "<td style=\"padding:6px 10px;font-family:monospace;font-weight:600;color:#2B6CB0\">" + escapeHtml(item.tempoFormatado) + "</td>" +
         "<td style=\"padding:6px 10px;color:#555\">" + escapeHtml(item.type || "-") + "</td>" +

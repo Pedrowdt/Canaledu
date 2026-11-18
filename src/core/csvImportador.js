@@ -170,6 +170,7 @@
       obs:   fi(['OBS', 'OBSERV', 'OBSERVAÇÃO']),
       cat:   fi(['CAT', 'CATEG', 'CATEGORIA']),
       midia: fi(['MIDIA', 'MÍDIA', 'MEDIA']),
+      faixa: fi(['FAIXA OCUPADA', 'FAIXA_OCUPADA', 'FAIXA', 'SLOT', 'HORARIO', 'HORÁRIO', 'FAIXA HORARIA', 'FAIXA HORÁRIA']),
     };
   }
 
@@ -249,6 +250,7 @@
       const rawDesc = String(r[ci.desc] ?? '').trim().replace(/^"+|"+$/g, '');
       const rawTempo = ci.tempo >= 0 ? String(r[ci.tempo] ?? '').trim().replace(/^"+|"+$/g, '') : '';
       const rawType = ci.type >= 0 ? String(r[ci.type] ?? '').trim().replace(/^"+|"+$/g, '') : '';
+      const rawFaixa = ci.faixa >= 0 ? String(r[ci.faixa] ?? '').trim().replace(/^"+|"+$/g, '') : '';
 
       if (!rawCode || !rawDesc) {
         totalInvalidos++;
@@ -280,6 +282,11 @@
           hFim: '',
           freq: '',
         };
+      } else {
+        novoItem = {
+          ...novoItem,
+          faixaOcupada: rawFaixa || '',
+        };
       }
 
       if (jaExiste) {
@@ -296,6 +303,7 @@
         tempoOriginal: rawTempo || '-',
         tempoFormatado,
         type: tipoFinal,
+        faixaOcupada: rawFaixa || '',
         status: jaExiste ? 'duplicado' : 'novo',
       };
 
@@ -315,6 +323,7 @@
         desc: headers[ci.desc],
         tempo: ci.tempo >= 0 ? headers[ci.tempo] : null,
         type: ci.type >= 0 ? headers[ci.type] : null,
+        faixa: ci.faixa >= 0 ? headers[ci.faixa] : null,
       },
       totalLinhas: rows.length - 1,
       totalNovos,

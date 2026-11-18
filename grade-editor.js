@@ -214,6 +214,22 @@
     // Carrega dados da emissora ativa
     await carregarDadosEmissora();
 
+    // Restaura estado retrátil do acervo lateral
+    try {
+      if (localStorage.getItem('grade_sidebar_collapsed') === '1') {
+        const sb = document.getElementById('sidebar-acervo');
+        if (sb) {
+          sb.classList.add('collapsed');
+          const strip = sb.querySelector('.sidebar-collapsed-strip');
+          if (strip) strip.style.display = 'flex';
+          const tbBtn = document.getElementById('btn-toggle-acervo-toolbar');
+          if (tbBtn) tbBtn.textContent = '📂 Abrir Acervo';
+          const sbBtn = document.getElementById('btn-toggle-sidebar');
+          if (sbBtn) sbBtn.textContent = '▶';
+        }
+      }
+    } catch (_) {}
+
     // Atalho de teclado Ctrl+S / Cmd+S para salvar
     window.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -413,11 +429,29 @@
     const countEl = document.getElementById('acervo-count');
     if (!container) return;
 
+    // Popula select e datalist de faixas únicas existentes no acervo
+    const faixasUnicas = [...new Set(programas.map(p => (p.faixaOcupada || p.faixa_ocupada || '').trim()).filter(Boolean))].sort();
+    const filterFaixaSelect = document.getElementById('filter-faixa-acervo');
+    if (filterFaixaSelect && filterFaixaSelect.options.length <= 1) {
+      const curVal = filterFaixaSelect.value;
+      const optionsHtml = ['<option value="">Todas as Faixas</option>'].concat(
+        faixasUnicas.map(fx => `<option value="${escapeHtml(fx)}" ${fx === curVal ? 'selected' : ''}>🎪 ${escapeHtml(fx)}</option>`)
+      );
+      filterFaixaSelect.innerHTML = optionsHtml.join('');
+    }
+    const datalistFaixas = document.getElementById('datalist-faixas-catalogo');
+    if (datalistFaixas) {
+      datalistFaixas.innerHTML = faixasUnicas.map(fx => `<option value="${escapeHtml(fx)}"></option>`).join('');
+    }
+
+    const selectedFaixa = (document.getElementById('filter-faixa-acervo')?.value || '').trim();
     const term = (document.getElementById('search-programas')?.value || '').toLowerCase().trim();
     const filtered = programas.filter(p => {
+      const fx = (p.faixaOcupada || p.faixa_ocupada || '').trim();
+      if (selectedFaixa && fx !== selectedFaixa) return false;
       const t = (p.title || p.nome || p.descricao || '').toLowerCase();
       const c = (p.code || '').toLowerCase();
-      return !term || t.includes(term) || c.includes(term);
+      return !term || t.includes(term) || c.includes(term) || fx.toLowerCase().includes(term);
     });
 
     if (countEl) countEl.textContent = filtered.length;
@@ -432,6 +466,9 @@
       const dur = p.tempo || '00:30:00';
       const code = p.code ? `<span class="tag-duration">${escapeHtml(p.code)}</span>` : '';
       const cat = p.categoria ? `<span style="font-size:10px;color:#888">• ${escapeHtml(p.categoria)}</span>` : '';
+      const fxTag = (p.faixaOcupada || p.faixa_ocupada)
+        ? `<span class="tag-duration" style="background:#fdf2f8;color:#831843;border:1px solid #f472b6;font-weight:600" title="Faixa Ocupada">🎪 ${escapeHtml(p.faixaOcupada || p.faixa_ocupada)}</span>`
+        : '';
 
       return `
         <div class="program-card" draggable="true" data-idx="${idx}"
@@ -439,10 +476,11 @@
           <span class="drag-handle" title="Arrastar para um slot da grade">⠿</span>
           <div class="prog-info">
             <div class="prog-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-            <div class="prog-meta">
+            <div class="prog-meta" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
               <span class="tag-duration">⏱ ${dur}</span>
               ${code}
               ${cat}
+              ${fxTag}
             </div>
           </div>
           <button type="button" class="btn-quick-add" onclick="quickAddToNextSlot(${idx})" title="Adicionar no primeiro slot livre">+</button>
@@ -1024,6 +1062,20 @@
     renderActiveView();
   };
 
+  window.toggleSidebarAcervo = function () {
+    const sb = document.getElementById('sidebar-acervo');
+    if (!sb) return;
+    sb.classList.toggle('collapsed');
+    const isCollapsed = sb.classList.contains('collapsed');
+    const strip = sb.querySelector('.sidebar-collapsed-strip');
+    if (strip) strip.style.display = isCollapsed ? 'flex' : 'none';
+    const tbBtn = document.getElementById('btn-toggle-acervo-toolbar');
+    if (tbBtn) tbBtn.textContent = isCollapsed ? '📂 Abrir Acervo' : '◀ Recolher Acervo';
+    const sbBtn = document.getElementById('btn-toggle-sidebar');
+    if (sbBtn) sbBtn.textContent = isCollapsed ? '▶' : '◀';
+    try { localStorage.setItem('grade_sidebar_collapsed', isCollapsed ? '1' : '0'); } catch (_) {}
+  };
+
   window.goToDayAndSlot = function (dow, slotIdx) {
     window.switchDay(dow);
     setTimeout(() => {
@@ -1051,6 +1103,13 @@
     blocksByDay[currentDow] = window.GradeEditorCore.assignProgramToSlot(
       blocks, emptyIdx, p, { cascade: isCascadeEnabled(), adoptDuration: true }
     );
+    const progFaixa = (p.faixaOcupada || p.faixa_ocupada || '').trim();
+    if (progFaixa) {
+      const slotKey = getSlotKey(currentDow, emptyIdx);
+      if (!recurrenceState.slots[slotKey]) recurrenceState.slots[slotKey] = { tipoExibicao: 'inedito' };
+      recurrenceState.slots[slotKey].faixaNome = progFaixa;
+      recurrenceState.slots[slotKey].subprogramaDe = progFaixa;
+    }
     isDirty = true;
     renderTimeline();
     atualizarBadgesDias();
@@ -1207,6 +1266,13 @@
       blocksByDay[currentDow] = window.GradeEditorCore.assignProgramToSlot(
         blocks, targetIdx, payload.data, { cascade: isCascadeEnabled(), adoptDuration: true }
       );
+      const progFaixa = (payload.data.faixaOcupada || payload.data.faixa_ocupada || '').trim();
+      if (progFaixa) {
+        const slotKey = getSlotKey(currentDow, targetIdx);
+        if (!recurrenceState.slots[slotKey]) recurrenceState.slots[slotKey] = { tipoExibicao: 'inedito' };
+        recurrenceState.slots[slotKey].faixaNome = progFaixa;
+        recurrenceState.slots[slotKey].subprogramaDe = progFaixa;
+      }
       isDirty = true;
       renderTimeline();
       atualizarBadgesDias();
@@ -1396,7 +1462,7 @@
       const subs = rule.subprogramas || block.subprogramas || block.program.subprogramas || [];
       return `<button type="button" onclick="event.stopPropagation();abrirGerenciadorFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6;cursor:pointer;font-weight:700">🎪 Faixa Composta (${subs.length})</button> <button type="button" onclick="event.stopPropagation();desmembrarFaixaEmSlots(${dow}, ${idx})" class="badge-recurrence" style="background:#ecfdf5;color:#065f46;border-color:#10b981;cursor:pointer;font-weight:700">⚡ Desmembrar</button>`;
     }
-    const faixaNome = (rule.faixaNome || block.faixaNome || block.program.faixaNome || rule.subprogramaDe || '').trim();
+    const faixaNome = (rule.faixaNome || block.faixaNome || block.program.faixaNome || block.program.faixaOcupada || rule.subprogramaDe || '').trim();
     if (faixaNome) return `<span class="badge-recurrence" style="background:#fdf2f8;color:#831843;border-color:#f472b6">🎪 ${escapeHtml(faixaNome)}</span> <button type="button" onclick="event.stopPropagation();reagruparFaixa(${dow}, ${idx})" class="badge-recurrence" style="background:#fefce8;color:#854d0e;border-color:#eab308;cursor:pointer;font-weight:700">🔗 Reagrupar</button>`;
     return '';
   }
@@ -1548,6 +1614,12 @@
     });
 
     // Carrega estado de faixa composta
+    // Popula campo de Faixa Ocupada
+    const inputFaixa = document.getElementById('slot-faixa-nome-input');
+    if (inputFaixa) {
+      inputFaixa.value = rule.faixaNome || block.faixaNome || block.program?.faixaNome || block.program?.faixaOcupada || rule.subprogramaDe || '';
+    }
+
     const isFaixaVal = !!(rule.isFaixa || block.isFaixa || block.program.isFaixa);
     const chkFaixa = document.getElementById('slot-is-faixa');
     if (chkFaixa) chkFaixa.checked = isFaixaVal;
@@ -1612,11 +1684,21 @@
       const [dia, horario] = value.split('|');
       origemReprise = { diaSemana: Number(dia), horario };
     }
+    const faixaInput = (document.getElementById('slot-faixa-nome-input')?.value || '').trim();
     recurrenceState.slots[getSlotKey(dow, idx)] = {
       tipoExibicao,
       origemReprise,
-      programaId: getProgramKey(blocksByDay[dow]?.[idx]?.program)
+      programaId: getProgramKey(blocksByDay[dow]?.[idx]?.program),
+      faixaNome: faixaInput || undefined,
+      subprogramaDe: faixaInput || undefined
     };
+    if (blocksByDay[dow]?.[idx]) {
+      blocksByDay[dow][idx].faixaNome = faixaInput || undefined;
+      if (blocksByDay[dow][idx].program) {
+        blocksByDay[dow][idx].program.faixaNome = faixaInput || '';
+        blocksByDay[dow][idx].program.faixaOcupada = faixaInput || '';
+      }
+    }
     persistirEstadoRecorrencia();
     window.closeConfigSlotModal();
     renderActiveView();
@@ -2651,3 +2733,131 @@
   };
 
 })();
+
+
+  /* ══════════════════════════════════════════════════════════
+     VINCULAR FAIXA A INTERVALO (SLOTS DE 15 MIN) & RESOLUÇÃO
+     ══════════════════════════════════════════════════════════ */
+  window.abrirModalVincularFaixa = function () {
+    const modal = document.getElementById('modal-vincular-faixa');
+    if (!modal) return;
+
+    // Popula datalist de faixas
+    const faixasUnicas = [...new Set(programas.map(p => (p.faixaOcupada || p.faixa_ocupada || '').trim()).filter(Boolean))].sort();
+    const datalist = document.getElementById('datalist-faixas-catalogo');
+    if (datalist) {
+      datalist.innerHTML = faixasUnicas.map(fx => `<option value="${escapeHtml(fx)}"></option>`).join('');
+    }
+
+    // Se houver uma faixa selecionada no filtro do acervo, usa como default
+    const filtroFaixa = document.getElementById('filter-faixa-acervo')?.value || '';
+    const inputNome = document.getElementById('vincular-faixa-nome');
+    if (inputNome && !inputNome.value) {
+      inputNome.value = filtroFaixa || (faixasUnicas[0] || 'TV Brasil Animada');
+    }
+
+    window.atualizarInfoProgramasFaixa();
+    modal.style.display = 'flex';
+  };
+
+  window.fecharModalVincularFaixa = function () {
+    const modal = document.getElementById('modal-vincular-faixa');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.atualizarInfoProgramasFaixa = function () {
+    const faixaNome = (document.getElementById('vincular-faixa-nome')?.value || '').trim();
+    const infoEl = document.getElementById('vincular-faixa-info-programas');
+    if (!infoEl) return;
+
+    if (!faixaNome) {
+      infoEl.textContent = 'Digite ou selecione uma faixa para ver os programas cadastrados.';
+      infoEl.style.color = '#64748b';
+      return;
+    }
+
+    const progs = programas.filter(p => (p.faixaOcupada || p.faixa_ocupada || '').trim().toLowerCase() === faixaNome.toLowerCase());
+    if (progs.length === 0) {
+      infoEl.textContent = `Nenhum programa cadastrado com a faixa "${faixaNome}" no Acervo. Os slots serão criados vazios.`;
+      infoEl.style.color = '#d97706';
+    } else {
+      infoEl.textContent = `Encontrados ${progs.length} programa(s) cadastrado(s) para esta faixa no Acervo (${progs.slice(0, 3).map(p => p.title || p.nome || p.descricao).join(', ')}${progs.length > 3 ? '...' : ''}).`;
+      infoEl.style.color = '#15803d';
+    }
+  };
+
+  window.executarVinculacaoFaixa = function () {
+    const faixaNome = (document.getElementById('vincular-faixa-nome')?.value || '').trim();
+    const inicio = (document.getElementById('vincular-faixa-inicio')?.value || '07:30:00').trim();
+    const fim = (document.getElementById('vincular-faixa-fim')?.value || '12:15:00').trim();
+    const classificacao = document.getElementById('vincular-faixa-classificacao')?.value || 'licenciado';
+    const duracaoSlotSec = Number(document.getElementById('vincular-faixa-duracao')?.value || 900);
+    const autopreencher = document.getElementById('vincular-faixa-autopreencher')?.checked ?? true;
+
+    if (!faixaNome) {
+      alert('Informe o nome da faixa.');
+      return;
+    }
+
+    const checkboxes = document.querySelectorAll('input[name="vincular-faixa-dias"]:checked');
+    const dias = Array.from(checkboxes).map(cb => Number(cb.value));
+    if (dias.length === 0) {
+      alert('Selecione pelo menos um dia da semana para aplicar a faixa.');
+      return;
+    }
+
+    let programasFaixa = [];
+    if (autopreencher) {
+      programasFaixa = programas.filter(p => (p.faixaOcupada || p.faixa_ocupada || '').trim().toLowerCase() === faixaNome.toLowerCase());
+    }
+
+    let diasAfetados = 0;
+    dias.forEach(dow => {
+      const currentBlocks = blocksByDay[dow] || window.GradeEditorCore.generateBaseSlots(6, 30);
+      const novosBlocks = window.GradeEditorCore.vincularFaixaIntervalo(currentBlocks, {
+        faixaNome,
+        inicio,
+        fim,
+        duracaoSlotSec,
+        programasFaixa,
+        classificacao,
+      });
+
+      blocksByDay[dow] = novosBlocks;
+
+      novosBlocks.forEach((slot, idx) => {
+        if (slot.faixaNome === faixaNome) {
+          const key = getSlotKey(dow, idx);
+          if (!recurrenceState.slots[key]) recurrenceState.slots[key] = { tipoExibicao: 'inedito' };
+          recurrenceState.slots[key].faixaNome = faixaNome;
+          recurrenceState.slots[key].subprogramaDe = faixaNome;
+          recurrenceState.slots[key].classificacao = classificacao;
+        }
+      });
+
+      diasAfetados++;
+    });
+
+    isDirty = true;
+    persistirEstadoRecorrencia();
+    window.fecharModalVincularFaixa();
+    renderActiveView();
+    atualizarBadgesDias();
+    showToast(`Faixa "${faixaNome}" vinculada a ${diasAfetados} dia(s) em slots de ${duracaoSlotSec / 60} minutos!`, 'success');
+  };
+
+  window.trocarIntervaloGrade = function (intervaloMin) {
+    if (!intervaloMin || (intervaloMin !== 15 && intervaloMin !== 30)) return;
+    const currentBlocks = blocksByDay[currentDow] || [];
+    const hasPrograms = currentBlocks.some(b => b.program && b.program.title);
+    if (hasPrograms) {
+      if (!confirm(`O dia atual (${DOW_NAMES[currentDow]}) contém programas cadastrados. Deseja reestruturar os slots livres para ${intervaloMin} min mantendo os programas atuais?`)) {
+        return;
+      }
+    } else {
+      blocksByDay[currentDow] = window.GradeEditorCore.generateBaseSlots(6, intervaloMin);
+    }
+    isDirty = true;
+    renderActiveView();
+    showToast(`Resolução da grade definida para slots de ${intervaloMin} minutos.`);
+  };

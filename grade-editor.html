@@ -123,31 +123,37 @@ input, select { font-family: inherit; font-size: 12px; }
   font-size: 11px;
 }
 
-/* Day Tabs Bar */
+/* Day Tabs Bar (Responsiva e Compacta) */
 .day-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  padding: 4px 12px;
   background: #fff;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 40px;
 }
 .day-tabs {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 .day-tab {
-  padding: 10px 16px;
+  padding: 6px 10px;
   background: transparent;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   border-bottom: 2px solid transparent;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   transition: all .15s;
+  white-space: nowrap;
 }
 .day-tab:hover { color: var(--text); }
 .day-tab.active {
@@ -156,8 +162,8 @@ input, select { font-family: inherit; font-size: 12px; }
   font-weight: 600;
 }
 .day-tab .badge {
-  font-size: 10px;
-  padding: 1px 6px;
+  font-size: 9.5px;
+  padding: 1px 5px;
   border-radius: 10px;
   background: #eee;
   color: #666;
@@ -170,7 +176,15 @@ input, select { font-family: inherit; font-size: 12px; }
 .day-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.day-actions .btn-outline,
+.day-actions .btn-primary {
+  padding: 4px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+  border-radius: 4px;
 }
 
 /* Layout */
@@ -178,16 +192,64 @@ input, select { font-family: inherit; font-size: 12px; }
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-width: 0;
+  position: relative;
 }
 
-/* Left Sidebar: Acervo de Programas */
+/* Left Sidebar: Acervo de Programas (Retrátil e Compacta) */
 .sidebar-acervo {
-  width: 320px;
+  width: 280px;
   background: #fff;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  transition: width .2s ease, min-width .2s ease;
+  position: relative;
+}
+.sidebar-acervo.collapsed {
+  width: 36px;
+  min-width: 36px;
+  cursor: pointer;
+  background: #f8fafc;
+}
+.sidebar-acervo.collapsed .sidebar-header,
+.sidebar-acervo.collapsed .program-list {
+  display: none !important;
+}
+.sidebar-acervo-collapsed-indicator {
+  display: none;
+  writing-mode: vertical-lr;
+  transform: rotate(180deg);
+  text-align: center;
+  padding: 18px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: .12em;
+  user-select: none;
+  width: 100%;
+}
+.sidebar-acervo.collapsed .sidebar-acervo-collapsed-indicator {
+  display: block;
+}
+.btn-sidebar-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+}
+.btn-sidebar-toggle:hover {
+  background: var(--bg);
+  color: var(--text);
+  border-color: #bbb;
 }
 .sidebar-header {
   padding: 12px 14px;
@@ -549,22 +611,26 @@ input, select { font-family: inherit; font-size: 12px; }
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
-  padding: 12px 14px 24px 14px;
+  padding: 8px 10px 24px 10px;
   scroll-behavior: smooth;
 }
 .week-columns-container {
   display: grid;
-  grid-template-columns: repeat(7, minmax(210px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
   align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 .week-day-col {
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   display: flex;
   flex-direction: column;
   box-shadow: 0 1px 3px rgba(0,0,0,.03);
+  min-width: 0;
+  overflow: hidden;
 }
 .week-day-header {
   position: sticky;
@@ -599,21 +665,23 @@ input, select { font-family: inherit; font-size: 12px; }
   font-weight: 700;
 }
 .week-day-slots {
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .week-slot-card {
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 11px;
+  border-radius: 5px;
+  padding: 4px 6px;
+  font-size: 10.5px;
   transition: all .15s ease;
   position: relative;
   cursor: grab;
   user-select: none;
+  min-width: 0;
+  overflow: hidden;
 }
 .week-slot-card:hover {
   border-color: #cbd5e1;
@@ -623,6 +691,7 @@ input, select { font-family: inherit; font-size: 12px; }
   background: #fafaf8;
   border: 1px dashed #d5d5d0;
   cursor: default;
+  padding: 3px 5px;
 }
 .week-slot-card.drag-over {
   border: 2px dashed var(--primary) !important;
@@ -632,47 +701,52 @@ input, select { font-family: inherit; font-size: 12px; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
+  gap: 2px;
 }
 .week-slot-time {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   color: #334155;
+  white-space: nowrap;
 }
 .week-slot-dur {
-  font-size: 9px;
-  padding: 1px 5px;
+  font-size: 8.5px;
+  padding: 1px 4px;
   background: #f1f5f9;
   border-radius: 3px;
   color: #475569;
   font-family: var(--mono);
+  white-space: nowrap;
 }
 .week-slot-title {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
+  line-height: 1.25;
 }
 .week-slot-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: 3px;
+  padding-top: 3px;
   border-top: 1px solid #f1f5f9;
+  gap: 2px;
 }
 .week-time-stepper {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
 }
 .week-step-btn {
-  padding: 1px 5px;
-  font-size: 10px;
+  padding: 1px 4px;
+  font-size: 9px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 3px;
@@ -717,12 +791,29 @@ input, select { font-family: inherit; font-size: 12px; }
 }
 .matrix-grid {
   display: grid;
-  grid-template-columns: 80px repeat(7, 1fr);
+  grid-template-columns: 65px repeat(7, minmax(0, 1fr));
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+  width: 100%;
+}
+
+@media (max-width: 1200px) {
+  .day-bar { padding: 4px 8px; }
+  .day-tab { padding: 5px 8px; font-size: 11px; }
+  .day-actions .btn-outline, .day-actions .btn-primary { padding: 4px 6px; font-size: 10.5px; }
+}
+
+@media (max-width: 960px) {
+  .week-columns-container {
+    grid-template-columns: repeat(7, minmax(130px, 1fr));
+  }
+  .matrix-grid {
+    grid-template-columns: 60px repeat(7, minmax(110px, 1fr));
+    overflow-x: auto;
+  }
 }
 .matrix-header {
   background: #1a1d29;
@@ -953,22 +1044,22 @@ input, select { font-family: inherit; font-size: 12px; }
   </div>
 </header>
 
-<!-- GRADE WEEK SCOPE BAR -->
-<div class="grade-week-scope-bar" id="grade-week-scope-bar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;gap:12px;flex-wrap:wrap">
-  <div style="display:flex;align-items:center;gap:10px">
-    <span style="font-weight:700;font-size:12px;color:#1e293b">🗓️ Semana da Grade:</span>
-    <span id="badge-grade-semana-info" style="font-size:12px;padding:3px 10px;border-radius:12px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;font-weight:700">Semana 46 (09/11 a 15/11/2026)</span>
-    <span style="font-size:11px;color:#64748b">Sincronizada com o Roteiro semanal e pronta para gerar a grade oficial.</span>
+<!-- GRADE WEEK SCOPE BAR (Compacta) -->
+<div class="grade-week-scope-bar" id="grade-week-scope-bar" style="display:flex;align-items:center;justify-content:space-between;padding:4px 12px;background:#f8fafc;border-bottom:1px solid #e2e8f0;gap:8px;flex-wrap:wrap;font-size:11px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <span style="font-weight:700;color:#1e293b">🗓️ Semana da Grade:</span>
+    <span id="badge-grade-semana-info" style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;font-weight:700">Semana 46 (09/11 a 15/11/2026)</span>
+    <span style="font-size:10.5px;color:#64748b">Sincronizada com o Roteiro semanal.</span>
   </div>
-  <div style="display:flex;align-items:center;gap:8px">
-    <button type="button" class="btn-outline" style="padding:4px 10px;font-size:11px;border-color:#0284c7;color:#0369a1;font-weight:600" onclick="ajustarNumeroSemanaGrade()" title="Ajustar número oficial da semana (ex: Semana 45 EBC ou Semana 46 civil)">✏️ Ajustar Número da Semana</button>
+  <div style="display:flex;align-items:center;gap:6px">
+    <button type="button" class="btn-outline" style="padding:2px 8px;font-size:10.5px;border-color:#0284c7;color:#0369a1;font-weight:600" onclick="ajustarNumeroSemanaGrade()" title="Ajustar número oficial da semana (ex: Semana 45 EBC ou Semana 46 civil)">✏️ Ajustar Número</button>
   </div>
 </div>
 
-<!-- DAY TABS BAR -->
+<!-- DAY TABS BAR (Responsiva e Compacta) -->
 <div class="day-bar">
   <div class="day-tabs" id="day-tabs-container">
-    <button class="day-tab active" data-dow="week" onclick="switchViewMode('week')">▦ Semana Toda (Padrão)</button>
+    <button class="day-tab active" data-dow="week" onclick="switchViewMode('week')">▦ Semana Toda</button>
     <button class="day-tab" data-dow="1" onclick="switchDay(1)">Segunda <span class="badge" id="badge-seg">0</span></button>
     <button class="day-tab" data-dow="2" onclick="switchDay(2)">Terça <span class="badge" id="badge-ter">0</span></button>
     <button class="day-tab" data-dow="3" onclick="switchDay(3)">Quarta <span class="badge" id="badge-qua">0</span></button>
@@ -979,40 +1070,38 @@ input, select { font-family: inherit; font-size: 12px; }
   </div>
 
   <div class="day-actions">
-    <button class="btn-outline" onclick="abrirModalImportarGrade()" title="Importar grade padrão da TV Brasil ou arquivo CSV" id="btn-importar-grade" style="font-weight:600;border-color:#0284c7;color:#0369a1">📥 Importar Grade</button>
-    <button class="btn-outline" onclick="desmembrarFaixaSelecionada()" title="Desmembrar faixa composta do dia atual em slots individuais de 15 minutos" style="font-weight:600;border-color:#10b981;color:#047857">⚡ Desmembrar Faixa</button>
-    <button class="btn-outline" onclick="reagruparFaixaSelecionada()" title="Reagrupar slots consecutivos de uma faixa em um único bloco composto" style="font-weight:600;border-color:#eab308;color:#854d0e">🔗 Reagrupar Faixa</button>
-    <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções por Data <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:4px">0</span></button>
-    <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 Exportar PDF</button>
-    <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar Dia...</button>
+    <button class="btn-outline" onclick="abrirModalImportarGrade()" title="Importar grade padrão da TV Brasil ou arquivo CSV/XLSX" id="btn-importar-grade" style="font-weight:600;border-color:#0284c7;color:#0369a1">📥 Importar</button>
+    <button class="btn-outline" onclick="abrirModalVincularFaixa()" title="Vincular intervalo a uma faixa (ex: 07:30 às 12:15) dividida em slots de 15 minutos e preenchida pelo acervo" id="btn-vincular-faixa" style="font-weight:600;border-color:#f472b6;color:#9d174d">🎪 Vincular Faixa (15 min)</button>
+    <button class="btn-outline" onclick="desmembrarFaixaSelecionada()" title="Desmembrar faixa composta do dia atual em slots individuais de 15 minutos" style="font-weight:600;border-color:#10b981;color:#047857">⚡ Desmembrar</button>
+    <button class="btn-outline" onclick="reagruparFaixaSelecionada()" title="Reagrupar slots consecutivos de uma faixa em um único bloco composto" style="font-weight:600;border-color:#eab308;color:#854d0e">🔗 Reagrupar</button>
+    <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:3px">0</span></button>
+    <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 PDF</button>
+    <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar</button>
     <button class="btn-outline" onclick="compactarGrade()" title="Eliminar intervalos vazios e compactar sequência">⚡ Compactar</button>
-    <button class="btn-outline" onclick="limparDiaAtual()" title="Limpar todos os slots deste dia">🗑️ Limpar Dia</button>
-    <button class="btn-primary" onclick="salvarGrade()" title="Salvar e publicar grade para o Roteiro (Ctrl+S)">💾 Salvar Grade</button>
+    <button class="btn-outline" onclick="limparDiaAtual()" title="Limpar todos os slots deste dia">🗑️ Limpar</button>
+    <button class="btn-primary" onclick="salvarGrade()" title="Salvar e publicar grade para o Roteiro (Ctrl+S)" style="font-weight:700">💾 Salvar Grade</button>
   </div>
 </div>
 
-
-<!-- LEGENDA OFICIAL DE CLASSIFICAÇÃO TV BRASIL -->
-<div class="grade-legend-bar" id="grade-legend-bar" style="display:flex;align-items:center;gap:12px;padding:8px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:11px;color:#334155;flex-wrap:wrap">
-  <span style="font-weight:700;color:#0f172a;display:flex;align-items:center;gap:4px">
-    <span>🏷️ Legenda Oficial TV Brasil:</span>
+<!-- LEGENDA OFICIAL DE CLASSIFICAÇÃO TV BRASIL (Compacta) -->
+<div class="grade-legend-bar" id="grade-legend-bar" style="display:flex;align-items:center;gap:8px;padding:4px 12px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:10.5px;color:#334155;flex-wrap:wrap">
+  <span style="font-weight:700;color:#0f172a">🏷️ Legenda:</span>
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#eaf8dc;border:1px solid #92D050;color:#143808;font-weight:600">
+    <span style="width:8px;height:8px;border-radius:2px;background:#92D050;display:inline-block"></span> Produções TV Brasil
   </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#eaf8dc;border:1px solid #92D050;color:#143808;font-weight:600">
-    <span style="width:10px;height:10px;border-radius:2px;background:#92D050;display:inline-block"></span> Produções TV Brasil
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#fefce8;border:1px solid #eab308;color:#4d4000;font-weight:600">
+    <span style="width:8px;height:8px;border-radius:2px;background:#FFFF00;border:1px solid #ca8a04;display:inline-block"></span> Ao Vivo
   </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#fefce8;border:1px solid #eab308;color:#4d4000;font-weight:600">
-    <span style="width:10px;height:10px;border-radius:2px;background:#FFFF00;border:1px solid #ca8a04;display:inline-block"></span> Ao Vivo
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#ffffff;border:1px solid #cbd5e1;color:#1e293b;font-weight:600">
+    <span style="width:8px;height:8px;border-radius:2px;background:#FFFFFF;border:1px solid #cbd5e1;display:inline-block"></span> Conteúdos Licenciados
   </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#ffffff;border:1px solid #cbd5e1;color:#1e293b;font-weight:600">
-    <span style="width:10px;height:10px;border-radius:2px;background:#FFFFFF;border:1px solid #cbd5e1;display:inline-block"></span> Conteúdos Licenciados
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#f0f5fa;border:1px solid #8faadc;color:#1e3a5f;font-weight:600">
+    <span style="width:8px;height:8px;border-radius:2px;background:#B8CCE4;display:inline-block"></span> Produções RNCP
   </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#f0f5fa;border:1px solid #8faadc;color:#1e3a5f;font-weight:600">
-    <span style="width:10px;height:10px;border-radius:2px;background:#B8CCE4;display:inline-block"></span> Produções RNCP
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#f1f5f9;border:1px solid #94a3b8;color:#334155;font-weight:600">
+    <span style="width:8px;height:8px;border-radius:2px;background:#D9D9D9;display:inline-block"></span> Reprises Madrugada
   </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#f1f5f9;border:1px solid #94a3b8;color:#334155;font-weight:600">
-    <span style="width:10px;height:10px;border-radius:2px;background:#D9D9D9;display:inline-block"></span> Reprises Madrugada
-  </span>
-  <span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:4px;background:#fdf2f8;border:1px solid #f472b6;color:#831843;font-weight:600">
+  <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border-radius:3px;background:#fdf2f8;border:1px solid #f472b6;color:#831843;font-weight:600">
     <span>🎪 Faixas Compostas</span>
   </span>
 </div>
@@ -1020,14 +1109,25 @@ input, select { font-family: inherit; font-size: 12px; }
 <!-- WORKSPACE -->
 <div class="app-container">
   <!-- SIDEBAR: ACERVO DE PROGRAMAS -->
-  <aside class="sidebar-acervo">
+  <aside class="sidebar-acervo" id="sidebar-acervo">
+    <div class="sidebar-collapsed-strip" onclick="toggleSidebarAcervo()" title="Clique para expandir o Acervo de Programas" style="display:none">
+      <div class="sidebar-acervo-collapsed-indicator">📂 ACERVO</div>
+    </div>
     <div class="sidebar-header">
       <div class="sidebar-header-top">
-        <h2>Acervo (<span id="acervo-count">0</span>)</h2>
+        <div style="display:flex;align-items:center;gap:6px">
+          <h2>Acervo (<span id="acervo-count">0</span>)</h2>
+          <button type="button" class="btn-sidebar-toggle" onclick="toggleSidebarAcervo()" title="Recolher / Ocultar Acervo lateral" id="btn-toggle-sidebar">◀</button>
+        </div>
         <div style="display:flex;gap:4px">
           <button class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="abrirModalFilasEpisodios()" title="Gerenciar fila de episódios">🎬 Filas</button>
           <button class="btn-outline" style="padding:2px 6px;font-size:11px" onclick="abrirNovoProgramaRapido()">+ Novo</button>
         </div>
+      </div>
+      <div style="margin-bottom:6px">
+        <select id="filter-faixa-acervo" class="search-input" style="padding:4px 8px;font-size:12px;background:#fff;border:1px solid var(--border);border-radius:4px;width:100%" onchange="filtrarProgramas()">
+          <option value="">🎪 Todas as Faixas</option>
+        </select>
       </div>
       <input type="text" class="search-input" id="search-programas" placeholder="Buscar título ou código..." oninput="filtrarProgramas()">
     </div>
@@ -1067,16 +1167,17 @@ input, select { font-family: inherit; font-size: 12px; }
   <!-- WEEK MATRIX VIEW (SEMANA TODA) -->
   <div class="week-matrix" id="week-matrix-view">
     <div class="week-view-toolbar">
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:13px;font-weight:700;color:#1e293b" id="week-view-heading">Grade Semanal Completa</span>
-        <span style="font-size:11px;color:#64748b" id="week-view-subtitle">Segunda a Domingo · Slots flexíveis com Drag and Drop</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12.5px;font-weight:700;color:#1e293b" id="week-view-heading">Grade Semanal Completa</span>
+        <span style="font-size:11px;color:#64748b" id="week-view-subtitle">Segunda a Domingo · 7 dias em paralelo</span>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <label class="cascade-toggle" title="Ao alterar o tempo de um bloco, os seguintes são automaticamente deslocados">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <button type="button" class="btn-outline" style="font-size:11px;padding:3px 8px;font-weight:600" onclick="toggleSidebarAcervo()" id="btn-toggle-acervo-toolbar" title="Alternar visibilidade do Acervo de Programas">◀ Recolher Acervo</button>
+        <label class="cascade-toggle" title="Ao alterar o tempo de um bloco, os seguintes são automaticamente deslocados" style="padding:2px 8px;font-size:11px">
           <input type="checkbox" id="toggle-cascade-week" checked onchange="sincronizarCascadeToggle(this.checked)">
-          <span>Ajuste em cascata</span>
+          <span>Cascata</span>
         </label>
-        <button class="btn-outline" style="font-size:11px;padding:3px 8px" onclick="toggleSubViewSemana()" id="btn-toggle-subview">Modo Tabela</button>
+        <button type="button" class="btn-outline" style="font-size:11px;padding:3px 8px" onclick="toggleSubViewSemana()" id="btn-toggle-subview">Modo Tabela</button>
       </div>
     </div>
 
@@ -1226,6 +1327,15 @@ input, select { font-family: inherit; font-size: 12px; }
             <span>Auto (detectar)</span>
           </label>
         </div>
+      </div>
+
+      <!-- Faixa Ocupada / Nome da Faixa -->
+      <div style="border-top:1px solid var(--border);padding-top:12px">
+        <label style="display:block;font-size:11px;font-weight:700;color:#831843;margin-bottom:4px">
+          🎪 Faixa Ocupada (ex: TV Brasil Animada):
+        </label>
+        <input type="text" id="slot-faixa-nome-input" list="datalist-faixas-catalogo" class="search-input" placeholder="Ex: TV Brasil Animada" style="background:#fff">
+        <datalist id="datalist-faixas-catalogo"></datalist>
       </div>
 
       <!-- Faixa Composta (ex: TV Brasil Animada) -->
@@ -1634,6 +1744,85 @@ input, select { font-family: inherit; font-size: 12px; }
     <div class="modal-actions" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:8px">
       <button type="button" class="btn-primary" style="background:#059669;border-color:#059669;font-weight:700" onclick="desmembrarFaixaAtiva()">⚡ Desmembrar em Slots de 15 min</button>
       <button type="button" class="btn-primary" onclick="confirmarEFecharFaixaModal()">Concluir</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL VINCULAR FAIXA (SLOTS DE 15 MIN) -->
+<div class="modal" id="modal-vincular-faixa" style="display:none" onclick="if(event.target===this)fecharModalVincularFaixa()">
+  <div class="modal-dialog" style="max-width:520px;background:#fff;border-radius:8px;padding:20px;box-shadow:0 10px 25px rgba(0,0,0,0.15)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid #e2e8f0;padding-bottom:10px">
+      <h3 style="margin:0;font-size:16px;color:#0f172a;display:flex;align-items:center;gap:6px">🎪 Vincular Faixa a Intervalo (15 min)</h3>
+      <button type="button" class="btn-outline" style="padding:2px 8px;font-size:12px" onclick="fecharModalVincularFaixa()">✕</button>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#334155">Nome da Faixa:</label>
+        <input type="text" id="vincular-faixa-nome" list="datalist-faixas-catalogo" class="search-input" placeholder="Ex: TV Brasil Animada" style="width:100%;box-sizing:border-box" oninput="atualizarInfoProgramasFaixa()">
+        <div id="vincular-faixa-info-programas" style="font-size:11px;margin-top:4px;color:#64748b"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#334155">Horário Início:</label>
+          <input type="text" id="vincular-faixa-inicio" class="search-input" value="07:30:00" style="width:100%;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#334155">Horário Término:</label>
+          <input type="text" id="vincular-faixa-fim" class="search-input" value="12:15:00" style="width:100%;box-sizing:border-box">
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#334155">Resolução do Slot:</label>
+          <select id="vincular-faixa-duracao" class="search-input" style="width:100%;box-sizing:border-box">
+            <option value="900" selected>15 minutos (Padrão Faixas)</option>
+            <option value="1800">30 minutos</option>
+            <option value="600">10 minutos</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:#334155">Classificação:</label>
+          <select id="vincular-faixa-classificacao" class="search-input" style="width:100%;box-sizing:border-box">
+            <option value="licenciado" selected>Conteúdo Licenciado (Branco)</option>
+            <option value="propria">Produção Própria TV Brasil (Verde)</option>
+            <option value="aovivo">Ao Vivo (Amarelo)</option>
+            <option value="reprise">Reprise Madrugada (Cinza)</option>
+            <option value="rnpc">Produção RNCP (Laranja)</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:#334155">Aplicar nos dias da semana:</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px">
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="1" checked> Seg</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="2" checked> Ter</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="3" checked> Qua</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="4" checked> Qui</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="5" checked> Sex</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="6"> Sáb</label>
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer"><input type="checkbox" name="vincular-faixa-dias" value="0"> Dom</label>
+        </div>
+      </div>
+
+      <div style="background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0">
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;color:#0f172a;font-weight:600">
+          <input type="checkbox" id="vincular-faixa-autopreencher" checked>
+          <span>Distribuir automaticamente os programas cadastrados nesta faixa</span>
+        </label>
+        <div style="font-size:11px;color:#64748b;margin-left:22px;margin-top:2px">
+          Preenche os slots de 15 min na ordem do catálogo. Se houver mais slots que programas, os excedentes ficam livres.
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px">
+      <button type="button" class="btn-outline" onclick="fecharModalVincularFaixa()">Cancelar</button>
+      <button type="button" class="btn-primary" onclick="executarVinculacaoFaixa()" style="font-weight:700;background:#9d174d;border-color:#831843">⚡ Vincular e Fatiar Grade</button>
     </div>
   </div>
 </div>

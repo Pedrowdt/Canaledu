@@ -417,6 +417,11 @@ tbody tr:hover{background:#f5f5f3}
            praticamente todo programa importado é "RPRO", ver comentário no .js).
            Este campo é a base para a futura automação de inserção de VH no Roteiro. -->
       <div id="programa-only-fields" style="display:none">
+        <div class="field" style="margin-bottom:12px">
+          <label>Faixa Ocupada <span style="font-weight:400;opacity:.7">(ex: TV Brasil Animada, Manhã, Faixa das 16h)</span></label>
+          <input id="f-faixa-ocupada" list="faixa-ocupada-list" placeholder="Digite ou selecione a faixa ocupada...">
+          <datalist id="faixa-ocupada-list"></datalist>
+        </div>
         <div class="field">
           <!-- Esta tag é DECISÓRIA no Roteiro: define qual VH de assinatura
                (ASSINATURA_INFANTIL/_JOVEM/_ADULTO) a automação insere ao fim do
@@ -538,6 +543,23 @@ tbody tr:hover{background:#f5f5f3}
           <datalist id="batch-programa-relacionado-list"></datalist>
         </div>
       </div>
+
+      <!-- Campos de programas -->
+      <div id="batch-programas-fields" style="display:none;flex-direction:column;gap:14px">
+        <!-- Faixa Ocupada -->
+        <div class="field">
+          <label>Faixa Ocupada</label>
+          <select id="batch-f-faixa-acao" onchange="toggleBatchFaixaInput(this.value)">
+            <option value="">— Não alterar —</option>
+            <option value="definir">Definir faixa ocupada</option>
+            <option value="limpar">Limpar / Remover faixa ocupada</option>
+          </select>
+          <div id="batch-faixa-valor-wrap" style="display:none;margin-top:8px">
+            <input id="batch-f-faixa-valor" list="batch-faixa-list" placeholder="Digite ou selecione a faixa ocupada...">
+            <datalist id="batch-faixa-list"></datalist>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center">
       <button class="btn-cancel" onclick="closeBatchModal()">Cancelar</button>
@@ -641,7 +663,7 @@ tbody tr:hover{background:#f5f5f3}
         </div>
         <div style="max-height:220px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
           <table style="width:100%;border-collapse:collapse;font-size:11.5px;text-align:left">
-            <thead style="background:#f4f5f7;position:sticky;top:0;font-size:10.5px;color:#666">
+            <thead id="import-preview-thead" style="background:#f4f5f7;position:sticky;top:0;font-size:10.5px;color:#666">
               <tr>
                 <th style="padding:6px 10px">#</th>
                 <th style="padding:6px 10px">Código</th>

@@ -451,3 +451,42 @@ if (rVerificaAutoVinculo.rows[0]?.papel !== 'superadmin') {
 }
 
 console.log('020 validado com sucesso ✓\n');
+
+// ============================================================
+// 021 — Programas: faixa_ocupada e suporte a lote/importação
+// ============================================================
+console.log('--- Testando migration 021_programas_faixa_ocupada.sql ---');
+const sql021 = readFileSync(new URL('./021_programas_faixa_ocupada.sql', import.meta.url), 'utf8');
+await db.exec(sql021);
+
+const rColFaixa = await db.query(`
+  select column_name, data_type
+  from information_schema.columns
+  where table_schema = 'public' and table_name = 'programas' and column_name = 'faixa_ocupada';
+`);
+console.log('021 coluna faixa_ocupada:', rColFaixa.rows);
+if (!rColFaixa.rows.length) {
+  throw new Error('021 falhou: coluna faixa_ocupada não existe em public.programas!');
+}
+
+// Testa salvar programa com faixa_ocupada via RPC
+const rSalvarComFaixa = await db.query(`
+  select public.fn_salvar_programas(
+    '[{"code":"PRG_TEST_FX","descricao":"PROGRAMA TESTE FAIXA","tempo":"00:15:00","type":"RPRO","faixa_ocupada":"TV Brasil Animada","midia":"0OMN"}]'::jsonb,
+    '{}'::text[],
+    '00000000-0000-0000-0000-000000000001'::uuid
+  );
+`);
+console.log('021 salvar via RPC com faixa_ocupada:', rSalvarComFaixa.rows);
+
+const rCheckSalvo = await db.query(`
+  select code, descricao, faixa_ocupada from public.programas
+  where code = 'PRG_TEST_FX';
+`);
+console.log('021 registro salvo com faixa:', rCheckSalvo.rows);
+if (rCheckSalvo.rows[0]?.faixa_ocupada !== 'TV Brasil Animada') {
+  throw new Error('021 falhou: faixa_ocupada não foi persistida corretamente pela RPC!');
+}
+
+console.log('021 validado com sucesso ✓\n');
+

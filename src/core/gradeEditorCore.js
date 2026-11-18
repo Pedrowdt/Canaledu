@@ -116,13 +116,26 @@
     const progDurationSec = programData.tempo ? timeToSec(programData.tempo) : 0;
     const adoptDuration = options.adoptDuration !== false && progDurationSec >= 300; // >= 5 min
 
+    const faixaOcupada = (programData.faixaOcupada || programData.faixa_ocupada || '').trim();
+
     slot.program = {
       title: programData.title || programData.nome || programData.descricao || 'SEM TÍTULO',
       code: programData.code || '',
       tempo: programData.tempo || slot.duration,
       categoria: programData.categoria || '',
       cor: programData.cor || null,
+      type: programData.type || '',
+      faixaOcupada: faixaOcupada,
+      faixaNome: faixaOcupada || slot.program?.faixaNome || '',
+      programaTitulo: programData.programaTitulo || programData.programa_titulo || '',
+      temporada: programData.temporada ?? null,
+      episodio: programData.episodio ?? null,
+      bloco: programData.bloco ?? null,
     };
+
+    if (faixaOcupada) {
+      slot.faixaNome = faixaOcupada;
+    }
 
     if (adoptDuration) {
       return adjustBlockDuration(cloned, blockIndex, progDurationSec, { cascade: options.cascade !== false });
@@ -251,6 +264,7 @@
 
       const cleanTitle = cur.title.replace(/\s*\[\d+ª\]$/, '').trim();
       const meta = catalogMap.get(cleanTitle.toUpperCase()) || {};
+      const faixaOcupada = (meta.faixaOcupada || meta.faixa_ocupada || meta.faixa || '').trim();
 
       resultBlocks.push({
         id: `slot_${i}_${startTime.replace(/:/g, '')}`,
@@ -259,14 +273,22 @@
         duration: secToTime(durationSec),
         durationSec: durationSec,
         endTime: addSeconds(startTime, durationSec),
+        faixaNome: faixaOcupada || undefined,
         program: {
           title: cur.title,
           code: meta.code || '',
           tempo: meta.tempo || secToTime(durationSec),
           categoria: meta.categoria || meta.faixa || '',
+          cor: meta.cor || null,
+          type: meta.type || '',
+          faixaOcupada: faixaOcupada,
+          faixaNome: faixaOcupada,
+          programaTitulo: meta.programaTitulo || meta.programa_titulo || '',
+          temporada: meta.temporada ?? null,
+          episodio: meta.episodio ?? null,
+          bloco: meta.bloco ?? null,
         },
-      });
-    }
+      });    }
 
     return resultBlocks;
   }
@@ -356,6 +378,139 @@
     return { headers, rows, days, sortedTimes };
   }
 
+
+  /**
+   * Vincula um intervalo de horários da grade a uma Faixa (ex: 07:30 às 12:15 -> TV Brasil Animada),
+   * dividindo o intervalo em slots de 15 minutos e opcionalmente preenchendo-os com os programas do catálogo.
+   */
+  function vincularFaixaIntervalo(blocks, options = {}) {
+    if (!Array.isArray(blocks)) return blocks;
+    const {
+      faixaNome = '',
+      inicio = '07:30:00',
+      fim = '12:15:00',
+      duracaoSlotSec = 900, // 15 minutos padrão
+      programasFaixa = [],
+      classificacao = 'licenciado',
+    } = options;
+
+    if (!faixaNome || !inicio || !fim) return blocks;
+
+    const startSec = timeToSec(inicio);
+    const endSec = timeToSec(fim);
+    const totalSec = endSec >= startSec ? (endSec - startSec) : ((TOTAL_DAY_SEC - startSec) + endSec);
+    if (totalSec <= 0) return blocks;
+
+    const numSlots = Math.floor(totalSec / duracaoSlotSec);
+    if (numSlots <= 0) return blocks;
+
+    // Gera os novos slots de 15 minutos da faixa
+    const novosSlotsFaixa = [];
+    let curSec = startSec;
+    for (let i = 0; i < numSlots; i++) {
+      const timeStr = secToTime(curSec);
+      const nextSec = (curSec + duracaoSlotSec) % TOTAL_DAY_SEC;
+      const endStr = secToTime(curSec + duracaoSlotSec);
+
+      const prog = programasFaixa[i] || null;
+      let programObj = null;
+      if (prog) {
+        programObj = {
+          title: prog.title || prog.nome || prog.descricao || ('Atração ' + (i + 1)),
+          code: prog.code || '',
+          tempo: prog.tempo || secToTime(duracaoSlotSec),
+          categoria: prog.categoria || 'Infantil',
+          type: prog.type || 'RPRO',
+          faixaOcupada: faixaNome,
+          faixaNome: faixaNome,
+          programaTitulo: prog.programaTitulo || prog.programa_titulo || '',
+          temporada: prog.temporada ?? null,
+          episodio: prog.episodio ?? null,
+          bloco: prog.bloco ?? null,
+        };
+      }
+
+      novosSlotsFaixa.push({
+        id: `slot_faixa_${timeStr.replace(/:/g, '')}_${i}`,
+        index: i,
+        time: timeStr,
+        duration: secToTime(duracaoSlotSec),
+        durationSec: duracaoSlotSec,
+        endTime: endStr,
+        faixaNome: faixaNome,
+        classificacao: classificacao,
+        program: programObj,
+      });
+
+      curSec = nextSec;
+    }
+
+    // Se houver resto entre (startSec + numSlots * duracaoSlotSec) e endSec
+    const remSec = totalSec % duracaoSlotSec;
+    if (remSec > 0) {
+      const timeStr = secToTime(curSec);
+      const endStr = secToTime(curSec + remSec);
+      novosSlotsFaixa.push({
+        id: `slot_faixa_${timeStr.replace(/:/g, '')}_rem`,
+        index: novosSlotsFaixa.length,
+        time: timeStr,
+        duration: secToTime(remSec),
+        durationSec: remSec,
+        endTime: endStr,
+        faixaNome: faixaNome,
+        classificacao: classificacao,
+        program: null,
+      });
+    }
+
+    // Substitui os blocos que estavam dentro de [normStart, normEnd)
+    const antes = [];
+    const depois = [];
+    const normStart = gradeSeconds(inicio);
+    const normEnd = gradeSeconds(fim);
+
+    for (const b of blocks) {
+      const bStart = gradeSeconds(b.time);
+      const bDur = b.durationSec || (b.duration ? timeToSec(b.duration) : duracaoSlotSec);
+      const bEnd = bStart + bDur;
+
+      if (bEnd <= normStart) {
+        antes.push(b);
+      } else if (bStart >= normEnd) {
+        depois.push(b);
+      } else {
+        if (bStart < normStart) {
+          const splitDur = normStart - bStart;
+          antes.push({
+            ...b,
+            duration: secToTime(splitDur),
+            durationSec: splitDur,
+            endTime: secToTime(timeToSec(b.time) + splitDur),
+          });
+        }
+        if (bEnd > normEnd) {
+          const splitDur = bEnd - normEnd;
+          const splitTime = secToTime(timeToSec(fim));
+          depois.push({
+            ...b,
+            id: `slot_${splitTime.replace(/:/g, '')}_post`,
+            time: splitTime,
+            duration: secToTime(splitDur),
+            durationSec: splitDur,
+            endTime: secToTime(timeToSec(splitTime) + splitDur),
+          });
+        }
+      }
+    }
+
+    const resultadoFinal = [...antes, ...novosSlotsFaixa, ...depois];
+    resultadoFinal.forEach((b, idx) => {
+      b.index = idx;
+    });
+
+    return resultadoFinal;
+  }
+
   return {
     START_SECONDS,
     DEFAULT_INTERVAL_MIN,
@@ -373,5 +528,6 @@
     moveOrSwapSlot,
     buildWeeklyTable,
     gradeToBlocks,
+    vincularFaixaIntervalo,
   };
 });

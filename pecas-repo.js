@@ -88,6 +88,7 @@
       type: r.type || 'RPRO',
       assinatura: r.assinatura ? [r.assinatura] : [],
       ativo: r.ativo !== false,
+      faixaOcupada: r.faixa_ocupada || r.faixaOcupada || '',
       // MVP-CADASTRO.md, Fase 1 — ver db/007_funcao_peca.sql.
       programaTitulo: r.programa_titulo || '',
       temporada: r.temporada ?? null,
@@ -107,6 +108,7 @@
       midia: p.midia || '0OMN',
       type: p.type || 'RPRO',
       assinatura: FAIXAS.includes(faixa) ? faixa : null,
+      faixa_ocupada: p.faixaOcupada ? String(p.faixaOcupada).trim() : null,
       ativo: p.ativo !== false,
       programa_titulo: p.programaTitulo || null,
       temporada: p.temporada ?? null,
