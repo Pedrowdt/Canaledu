@@ -822,6 +822,7 @@ async function sincronizarManualmente() {
   }
   if (btnTop) {
     btnTop.disabled = true;
+    btnTop.classList.add("sync-spinning");
   }
 
   try {
@@ -841,11 +842,15 @@ async function sincronizarManualmente() {
       renderAll();
     }
 
+    const totalPecas = (typeof state !== "undefined" && Array.isArray(state.pecas)) ? state.pecas.length : 0;
+    const totalProgs = (typeof state !== "undefined" && Array.isArray(state.programas)) ? state.programas.length : 0;
+    const infoCount = (totalPecas || totalProgs) ? ` (${totalPecas} peças ativas, ${totalProgs} programas)` : "";
+
     setSyncStatus("Sincronizado ✓ · " + currentUser.email);
     if (typeof toast === "function") {
-      toast("Sincronização com a nuvem concluída com sucesso!", "success");
+      toast("Sincronização com a nuvem concluída com sucesso!" + infoCount, "success");
     }
-    return { ok: true };
+    return { ok: true, pecas: totalPecas, programas: totalProgs };
   } catch (err) {
     console.error("[cloud-sync] Erro na sincronização manual:", err);
     setSyncStatus("Falha ao sincronizar");
@@ -860,6 +865,7 @@ async function sincronizarManualmente() {
     }
     if (btnTop) {
       btnTop.disabled = false;
+      btnTop.classList.remove("sync-spinning");
     }
     atualizarAdminSyncInfo();
   }

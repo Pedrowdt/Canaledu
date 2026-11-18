@@ -24,6 +24,9 @@
 <script src="src/ui/admin-painel.js"></script>
 
 <style>
+@keyframes sync-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.sync-spinning{display:inline-block;animation:sync-spin .8s linear infinite}
+
 :root {
   --primary: #185FA5;
   --primary-hover: #134e89;
@@ -1031,6 +1034,9 @@ input, select { font-family: inherit; font-size: 12px; }
 
   <div class="topnav-right">
     <span class="sync-indicator" id="sync-status">Pronto</span>
+    <button type="button" class="btn-sync-topbar" id="btn-sync-grade" onclick="window.sincronizarGradeManualmente && window.sincronizarGradeManualmente()" title="Sincronizar grade e acervo de programas com a nuvem" style="display:inline-flex;align-items:center;gap:5px;padding:3px 10px;font-size:12px;border:1px solid #2f6fe0;border-radius:4px;background:rgba(47,111,224,0.25);color:#fff;cursor:pointer;font-weight:500">
+      <span class="sync-icon">🔄</span> <span>Sincronizar</span>
+    </button>
 
     <!-- Seletor de Emissora Ativa -->
     <div id="emissora-wrap" style="display:none;align-items:center;gap:4px">

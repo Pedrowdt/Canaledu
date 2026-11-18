@@ -394,6 +394,38 @@
     setSyncStatus('Pronto');
   }
 
+
+  window.sincronizarGradeManualmente = async function () {
+    if (!supabaseClient || !currentUser) {
+      showToast('Sincronização não disponível (usuário não autenticado)', 'error');
+      return { ok: false, error: 'Não autenticado' };
+    }
+
+    const btnSync = document.getElementById('btn-sync-grade');
+    const icon = btnSync ? btnSync.querySelector('.sync-icon') : null;
+    if (btnSync) btnSync.disabled = true;
+    if (icon) icon.classList.add('sync-spinning');
+    setSyncStatus('Sincronizando...');
+
+    try {
+      if (isDirty && typeof window.salvarGrade === 'function') {
+        await window.salvarGrade();
+      }
+      await carregarDadosEmissora();
+      setSyncStatus('Sincronizado ✓');
+      showToast(`Grade e acervo (${programas.length} programas) sincronizados com sucesso!`, 'success');
+      return { ok: true, programas: programas.length };
+    } catch (err) {
+      console.error('[grade-editor] Erro na sincronização manual:', err);
+      setSyncStatus('Falha ao sincronizar');
+      showToast('Falha ao sincronizar com a nuvem: ' + (err.message || String(err)), 'error');
+      return { ok: false, error: err };
+    } finally {
+      if (btnSync) btnSync.disabled = false;
+      if (icon) icon.classList.remove('sync-spinning');
+    }
+  };
+
   window.trocarEmissoraGrade = async function (novaId) {
     if (isDirty) {
       if (!confirm('Você tem alterações não salvas nesta grade. Deseja salvar antes de trocar de emissora?')) {

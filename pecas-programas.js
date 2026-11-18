@@ -519,6 +519,45 @@ async function pushToCloud() {
   }
 }
 
+
+// =====================================================
+// SINCRONIZAÇÃO MANUAL
+// =====================================================
+async function sincronizarCadastroManualmente() {
+  if (!supabaseClient || !currentUser) {
+    showToast("Sincronização não disponível (usuário não autenticado)", true);
+    return { ok: false, error: "Não autenticado" };
+  }
+
+  const btnSync = document.getElementById("btn-sync-pecas");
+  const icon = btnSync ? btnSync.querySelector(".sync-icon") : null;
+  if (btnSync) btnSync.disabled = true;
+  if (icon) icon.classList.add("sync-spinning");
+  setSyncStatus("Sincronizando...");
+
+  try {
+    if (pushTimer || pushInFlight) {
+      await flushPendingSync();
+    }
+    await loadFromCloud();
+    render();
+    setSyncStatus("Sincronizado ✓");
+    showToast(`Cadastro sincronizado com a nuvem! ${pecas.length} peças e ${programas.length} programas carregados.`, false);
+    return { ok: true, pecas: pecas.length, programas: programas.length };
+  } catch (err) {
+    console.error("[pecas-programas] Erro na sincronização manual:", err);
+    setSyncStatus("Falha ao sincronizar");
+    showToast("Falha ao sincronizar com a nuvem: " + (err.message || String(err)), true);
+    return { ok: false, error: err };
+  } finally {
+    if (btnSync) btnSync.disabled = false;
+    if (icon) icon.classList.remove("sync-spinning");
+  }
+}
+if (typeof window !== "undefined") {
+  window.sincronizarCadastroManualmente = sincronizarCadastroManualmente;
+}
+
 function scheduleSync() {
   // Grava o rascunho ANTES do debounce — se a página recarregar nos
   // próximos 700ms (ou a qualquer momento antes do envio confirmar), essa
@@ -1001,7 +1040,24 @@ function executarAcaoLote(acao) {
     render();
     scheduleSync();
     if (window.toast) window.toast(`${qtd} itens excluídos.`);
+  } else if (acao === 'ativar') {
+    const atualizados = items().map(x => {
+      if (selectedCodes.has(x.code)) {
+        return { ...x, ativo: true };
+      }
+      return x;
+    });
+    setItems(atualizados);
+    limparSelecao();
+    render();
+    scheduleSync();
+    const msg = `${qtd} ite${qtd === 1 ? 'm ativado' : 'ns ativados'} (agora visíveis no Roteiro).`;
+    if (window.toast) window.toast(msg);
+    showToast(msg, false);
   } else if (acao === 'desativar') {
+    if (!confirm(`Tem certeza que deseja desativar ${qtd} ite${qtd === 1 ? 'm' : 'ns'}? Peças desativadas não aparecem no Roteiro.`)) {
+      return;
+    }
     const atualizados = items().map(x => {
       if (selectedCodes.has(x.code)) {
         return { ...x, ativo: false };
@@ -1012,13 +1068,24 @@ function executarAcaoLote(acao) {
     limparSelecao();
     render();
     scheduleSync();
-    if (window.toast) window.toast(`${qtd} itens desativados.`);
+    const msg = `${qtd} ite${qtd === 1 ? 'm desativado' : 'ns desativados'}.`;
+    if (window.toast) window.toast(msg);
+    showToast(msg, false);
   }
 }
 
 // =====================================================
 // RENDER PRINCIPAL
 // =====================================================
+let filtroStatusAtivo = 'ALL'; // 'ALL' | 'ATIVOS' | 'INATIVOS'
+function setStatusFilter(val) {
+  filtroStatusAtivo = val;
+  render();
+}
+if (typeof window !== 'undefined') {
+  window.setStatusFilter = setStatusFilter;
+}
+
 function render(){
   const isPecas = activeTab === 'pecas';
   const q=document.getElementById('search').value.toLowerCase();
@@ -1042,6 +1109,8 @@ function render(){
 
   const filtered=list.filter(p=>{
     if(filtroDuplicadosApenas && !duplicateCodes.has(p.code)) return false;
+    if(filtroStatusAtivo === 'ATIVOS' && p.ativo === false) return false;
+    if(filtroStatusAtivo === 'INATIVOS' && p.ativo !== false) return false;
     if(isPecas && activeCat!=='ALL' && p.categoria!==activeCat)return false;
     if(q)return (p.code||'').toLowerCase().includes(q)||(p.descricao||'').toLowerCase().includes(q)||(p.type||'').toLowerCase().includes(q);
     return true;
@@ -1067,7 +1136,9 @@ function render(){
   document.getElementById('tbody').innerHTML=filtered.map(p=> {
     const isChecked = selectedCodes.has(p.code) ? 'checked' : '';
     const isDupl = duplicateCodes.has(p.code);
-    const rowStyle = isDupl ? 'background:#FFFDF5;' : '';
+    const isAtivo = p.ativo !== false;
+    const inativoBadge = !isAtivo ? '<span style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca;font-size:10px;padding:1px 5px;border-radius:3px;font-weight:600;margin-left:4px" title="Inativo: este item não é exibido no Roteiro">Inativo</span>' : '';
+    const rowStyle = isDupl ? 'background:#FFFDF5;' : (!isAtivo ? 'opacity:0.8;background:#fafaf9;' : '');
     const duplBadge = isDupl ? '<span style="background:#FFE58F;color:#874D00;font-size:10px;padding:1px 4px;border-radius:3px;margin-left:4px">duplicado</span>' : '';
 
     return isPecas ? `
@@ -1075,7 +1146,7 @@ function render(){
       <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
       <td>
-        <div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div>
+        <div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}${inativoBadge}</div>
         ${p.obs?`<div class="desc-obs">${escapeHtml(p.obs)}</div>`:''}
         ${funcaoBadgeHtml(p)}
       </td>
@@ -1094,7 +1165,7 @@ function render(){
     <tr style="${rowStyle}">
       <td style="text-align:center"><input type="checkbox" class="batch-checkbox" value="${escapeHtml(p.code)}" ${isChecked} onchange="toggleSelectRow('${escapeHtml(p.code)}', this.checked)"></td>
       <td class="code-cell">${escapeHtml(p.code)}</td>
-      <td><div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}</div></td>
+      <td><div class="desc-main">${escapeHtml(p.descricao)}${duplBadge}${inativoBadge}</div></td>
       <td class="tempo-cell">${escapeHtml(p.tempo)}</td>
       <td class="type-cell">${escapeHtml(p.type)}</td>
       <td style="font-size:11.5px;color:#2B6CB0;font-weight:500">${escapeHtml(p.faixaOcupada || '—')}</td>
@@ -1123,6 +1194,8 @@ function openModal(id){
 
   document.getElementById('modal-title').textContent = p ? `Editar ${isPecas?'peça':'programa'}` : `Nov${isPecas?'a peça':'o programa'}`;
   document.getElementById('save-btn').textContent = p ? 'Salvar' : 'Adicionar';
+  const ativoEl = document.getElementById('f-ativo');
+  if (ativoEl) ativoEl.checked = p ? (p.ativo !== false) : true;
   document.getElementById('f-code').value = p?.code || '';
   document.getElementById('f-midia').value = p?.midia || '0OMN';
   document.getElementById('f-desc').value = p?.descricao || '';
@@ -1236,11 +1309,15 @@ function saveItem(){
     return;
   }
 
+  const ativoEl = document.getElementById('f-ativo');
+  const ativo = ativoEl ? ativoEl.checked : true;
+
   let p = {
     id: editingId || uid(), code, descricao,
     tempo: document.getElementById('f-tempo').value || '00:00:00',
     midia: document.getElementById('f-midia').value || '0OMN',
     type: document.getElementById('f-type').value,
+    ativo: ativo,
   };
 
   if (isPecas) {
