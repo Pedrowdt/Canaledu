@@ -232,6 +232,35 @@
   table.roteiro tbody tr.dragging { opacity: 0.4; }
   table.roteiro td { padding: 6px 12px; font-size: 12px; vertical-align: middle; }
   .col-seq { width: 36px; font-family: var(--mono); font-size: 10px; color: var(--border2); }
+  .roteiro-dropzone-end {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    margin: 12px 14px 28px;
+    border: 1px dashed var(--border2);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.02);
+    transition: all .15s ease;
+    user-select: none;
+    cursor: default;
+  }
+  .roteiro-dropzone-end:hover {
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .roteiro-dropzone-end.drag-over {
+    border-color: var(--accent);
+    background: rgba(79, 142, 247, 0.12);
+    color: var(--accent);
+  }
+  .roteiro-dropzone-end .dropzone-icon {
+    font-size: 14px;
+    font-weight: 700;
+  }
   .col-code { width: 120px; font-family: var(--mono); font-size: 11px; color: var(--muted); }
   .col-desc { }
   .col-dur { width: 72px; font-family: var(--mono); font-size: 11px; text-align: right; color: var(--muted); }
@@ -852,7 +881,10 @@
           <button class="btn btn-sm" onclick="replaceCurrentInRoteiro()" style="border-color:var(--accent);color:var(--accent)" title="Substituir somente a ocorrência atual (destacada em azul)">↻ Substituir esta</button>
           <button class="btn btn-sm" onclick="replaceAllInRoteiro()" style="border-color:var(--cyan);color:var(--cyan)">↻ Substituir todas</button>
         </div>
-        <div class="roteiro-table-wrap">
+        <div class="roteiro-table-wrap"
+          ondragover="dragOverTableWrap(event)"
+          ondrop="dragDropTableWrap(event)"
+          ondragleave="dragLeaveTableWrap(event)">
           <table class="roteiro">
             <thead>
               <tr>
@@ -873,6 +905,13 @@
             ondragleave="dragLeave(event)">
             <div class="icon">📋</div>
             <p>Roteiro vazio. Arraste peças da lateral ou clique em "+ Adicionar peça".</p>
+          </div>
+          <div id="roteiro-dropzone-end" class="roteiro-dropzone-end" style="display:none"
+            ondragover="dragOver(event, state.roteiro ? state.roteiro.length : 0)"
+            ondrop="dragDrop(event, state.roteiro ? state.roteiro.length : 0)"
+            ondragleave="dragLeave(event)">
+            <span class="dropzone-icon">＋</span>
+            <span>Solte aqui para adicionar ao final do roteiro</span>
           </div>
         </div>
         <!-- Barra de acessibilidade e atalhos de teclado do roteiro -->

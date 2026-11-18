@@ -689,16 +689,19 @@ function renderRoteiro() {
   atualizarBotaoUndo();
   const tbody = document.getElementById('roteiro-tbody');
   const empty = document.getElementById('roteiro-empty');
+  const dropzoneEnd = document.getElementById('roteiro-dropzone-end');
 
   if (state.roteiro.length === 0) {
     tbody.innerHTML = '';
-    empty.style.display = 'flex';
+    if (empty) empty.style.display = 'flex';
+    if (dropzoneEnd) dropzoneEnd.style.display = 'none';
     document.getElementById('total-items').textContent = '0';
     document.getElementById('total-dur').textContent   = '00:00:00';
     renderStats();
     return;
   }
-  empty.style.display = 'none';
+  if (empty) empty.style.display = 'none';
+  if (dropzoneEnd) dropzoneEnd.style.display = 'flex';
 
   const grade = loadGrade();
   // Build accent-insensitive lookup map: normalizedKey → { key, time }
@@ -1160,6 +1163,8 @@ function dragEnd(e) {
   if (typeof document !== 'undefined') {
     document.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
     document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    const dz = document.getElementById('roteiro-dropzone-end');
+    if (dz && dz.classList) dz.classList.remove('drag-over');
   }
 }
 
@@ -1216,10 +1221,18 @@ function dragDrop(e, i) {
   }
 
   const fromIdx = (memDrag && memDrag.index != null) ? memDrag.index : dragIdx;
+  const targetIdx = (typeof i === 'number' && !isNaN(i))
+    ? Math.max(0, Math.min(i, state.roteiro.length))
+    : state.roteiro.length;
 
-  if (source === 'roteiro' && fromIdx !== null && fromIdx !== i) {
+  if (typeof document !== 'undefined') {
+    const dz = document.getElementById('roteiro-dropzone-end');
+    if (dz && dz.classList) dz.classList.remove('drag-over');
+  }
+
+  if (source === 'roteiro' && fromIdx !== null && fromIdx !== targetIdx) {
     const item = state.roteiro.splice(fromIdx, 1)[0];
-    state.roteiro.splice(i, 0, item);
+    state.roteiro.splice(targetIdx, 0, item);
     dragIdx = null;
     if (typeof window !== 'undefined') window._currentDrag = null;
     recalcTimes();
@@ -1237,15 +1250,15 @@ function dragDrop(e, i) {
       }
 
       const cleanItem = {...peca, usado: undefined, qtd: undefined, restricao: undefined};
-      const targetItem = state.roteiro[i];
+      const targetItem = state.roteiro[targetIdx];
       const isSlot = targetItem && (targetItem.type === '__SLOT__' || targetItem._break || targetItem.code === '__BREAK__');
 
       if (isSlot) {
         // Substitui o slot de break pela peça/chamada arrastada
-        state.roteiro.splice(i, 1, cleanItem);
+        state.roteiro.splice(targetIdx, 1, cleanItem);
       } else {
-        // Insere na posição i (antes do item)
-        state.roteiro.splice(i, 0, cleanItem);
+        // Insere na posição targetIdx (ou no final do roteiro)
+        state.roteiro.splice(targetIdx, 0, cleanItem);
       }
 
       // Se a peça faz parte das Peças do Dia, incrementa o contador de uso
@@ -1287,6 +1300,47 @@ function dragFromSidebar(e, code) {
     try { e.dataTransfer.setData('peca-code', cleanCode); } catch (_) {}
     try { e.dataTransfer.setData('text/plain', cleanCode); } catch (_) {}
   }
+}
+
+/** Permite arrastar sobre a área geral da tabela do roteiro (container) */
+function dragOverTableWrap(e) {
+  if (e.target && (e.target.closest('tr') || e.target.closest('#roteiro-empty') || e.target.closest('#roteiro-dropzone-end'))) {
+    return;
+  }
+  e.preventDefault();
+  if (e.dataTransfer) {
+    const isRoteiroMove = (dragIdx !== null) || (typeof window !== 'undefined' && window._currentDrag?.source === 'roteiro');
+    e.dataTransfer.dropEffect = isRoteiroMove ? 'move' : 'copy';
+  }
+  if (typeof document !== 'undefined') {
+    const dz = document.getElementById('roteiro-dropzone-end');
+    if (dz && dz.style.display !== 'none' && dz.classList) {
+      dz.classList.add('drag-over');
+    }
+  }
+}
+
+/** Remove destaque visual da drop zone ao sair do container da tabela */
+function dragLeaveTableWrap(e) {
+  if (typeof document !== 'undefined') {
+    if (!e.relatedTarget || (e.currentTarget && !e.currentTarget.contains(e.relatedTarget))) {
+      const dz = document.getElementById('roteiro-dropzone-end');
+      if (dz && dz.classList) dz.classList.remove('drag-over');
+    }
+  }
+}
+
+/** Permite soltar diretamente no espaço vazio do container da tabela, inserindo no final do roteiro */
+function dragDropTableWrap(e) {
+  if (e.target && (e.target.closest('tr') || e.target.closest('#roteiro-empty') || e.target.closest('#roteiro-dropzone-end'))) {
+    return;
+  }
+  e.preventDefault();
+  if (typeof document !== 'undefined') {
+    const dz = document.getElementById('roteiro-dropzone-end');
+    if (dz && dz.classList) dz.classList.remove('drag-over');
+  }
+  dragDrop(e, state.roteiro ? state.roteiro.length : 0);
 }
 
 // =====================================================

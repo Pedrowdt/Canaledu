@@ -490,3 +490,69 @@ if (rCheckSalvo.rows[0]?.faixa_ocupada !== 'TV Brasil Animada') {
 
 console.log('021 validado com sucesso ✓\n');
 
+
+// ============================================================
+// 022 — Tipos de Peças e Funções Multiemissora (EBC)
+// ============================================================
+console.log('--- Testando migration 022_tipos_pecas_e_funcoes_multiemissora.sql ---');
+const sql022 = readFileSync(new URL('./022_tipos_pecas_e_funcoes_multiemissora.sql', import.meta.url), 'utf8');
+await db.exec(sql022);
+
+// 1. Testa se as novas funções de vinheta existem no enum
+const rEnums = await db.query(`
+  select enumlabel
+  from pg_enum
+  where enumtypid = 'public.peca_funcao'::regtype
+  order by enumsortorder;
+`);
+const labels = rEnums.rows.map(r => r.enumlabel);
+console.log('022 labels enum peca_funcao:', labels);
+for (const esperado of ['vh_vai_comecar', 'vh_voltamos_ja', 'vh_voltamos_com', 'vh_realizacao', 'vh_ainda_hoje']) {
+  if (!labels.includes(esperado)) {
+    throw new Error(`022 falhou: valor '${esperado}' não encontrado em peca_funcao!`);
+  }
+}
+
+// 2. Testa os tipos cadastrados para as emissoras
+const rGov = await db.query(`select * from public.fn_tipos_pecas_emissora((select id from public.emissoras where slug = 'canal-gov'))`);
+console.log('022 tipos Canal Gov:', rGov.rows.map(r => r.codigo));
+if (!rGov.rows.some(r => r.codigo === 'GVNH') || !rGov.rows.some(r => r.codigo === 'GGV')) {
+  throw new Error('022 falhou: tipos do Canal Gov incompletos!');
+}
+
+const rRede = await db.query(`select * from public.fn_tipos_pecas_emissora((select id from public.emissoras where slug = 'tv-brasil'))`);
+console.log('022 tipos TV Brasil Rede:', rRede.rows.map(r => r.codigo));
+if (!rRede.rows.some(r => r.codigo === 'RPRO') || !rRede.rows.some(r => r.codigo === 'PROGRAMETE')) {
+  throw new Error('022 falhou: tipos da TV Brasil Rede incompletos!');
+}
+
+const rInter = await db.query(`select * from public.fn_tipos_pecas_emissora((select id from public.emissoras where slug = 'tv-brasil-int'))`);
+console.log('022 tipos TV Brasil Internacional:', rInter.rows.map(r => r.codigo));
+if (!rInter.rows.some(r => r.codigo === 'IPRO')) {
+  throw new Error('022 falhou: tipos da TV Brasil Internacional incompletos!');
+}
+
+// 3. Salvar peça usando nova função (ex: vh_realizacao no Gov)
+const govId = (await db.query(`select id from public.emissoras where slug = 'canal-gov'`)).rows[0].id;
+await db.exec(`
+  insert into public.usuarios_emissoras (usuario_id, emissora_id, papel, ativo)
+  values ('00000000-0000-0000-0000-000000000001', '${govId}', 'admin', true)
+  on conflict do nothing;
+`);
+
+const rSalvarGov = await db.query(`
+  select public.fn_salvar_pecas(
+    '[{"code":"11814","descricao":"VH REALIZACAO GOV","tempo":"00:00:05","type":"GVNH","funcao":"vh_realizacao"}]'::jsonb,
+    '{}'::text[],
+    '${govId}'::uuid
+  ) as res;
+`);
+console.log('022 salvar peça Canal Gov via RPC:', rSalvarGov.rows[0].res);
+
+const rPecaGov = await db.query(`select code, type, funcao from public.pecas where code = '11814'`);
+console.log('022 conferência da peça gravada:', rPecaGov.rows[0]);
+if (rPecaGov.rows[0]?.funcao !== 'vh_realizacao') {
+  throw new Error('022 falhou: funcao vh_realizacao não foi gravada corretamente!');
+}
+
+console.log('022 validado com sucesso ✓\n');

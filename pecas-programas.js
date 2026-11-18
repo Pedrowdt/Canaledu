@@ -64,13 +64,18 @@ function parseEpisodioInfo(desc) {
 const FUNCOES_COM_PROGRAMA = new Set([
   'assinatura_infantil', 'assinatura_jovem', 'assinatura_adulto', 'assinatura_padrao',
   'vh_a_seguir', 'vh_daqui_a_pouco', 'vh_voce_esta_assistindo',
+  'vh_vai_comecar', 'vh_voltamos_ja', 'vh_voltamos_com', 'vh_ainda_hoje',
 ]);
 
 const FUNCAO_LABEL = {
   assinatura_infantil: 'Assinatura Infantil', assinatura_jovem: 'Assinatura Jovem',
   assinatura_adulto: 'Assinatura Adulto', assinatura_padrao: 'Assinatura Padrão',
   vh_a_seguir: 'A seguir', vh_daqui_a_pouco: 'Daqui a pouco',
-  vh_voce_esta_assistindo: 'Você está assistindo', classificacao_indicativa: 'Classificação indicativa',
+  vh_voce_esta_assistindo: 'Você está assistindo',
+  vh_vai_comecar: 'Vai começar', vh_voltamos_ja: 'Voltamos já',
+  vh_voltamos_com: 'Voltamos com', vh_realizacao: 'Realização',
+  vh_ainda_hoje: 'Ainda hoje',
+  classificacao_indicativa: 'Classificação indicativa',
   cartela_oficial: 'Cartela oficial', vinheta_id: 'Vinheta ID', transicao: 'Transição', outro: 'Outro',
 };
 

@@ -47,6 +47,7 @@ function loadAppEnv() {
     'confirm',
     `${srcSemBoot}\nreturn {
       findPeca, dragStart, dragOver, dragLeave, dragDrop, dragEnd, dragFromSidebar, renderRoteiro,
+      dragOverTableWrap, dragLeaveTableWrap, dragDropTableWrap,
       __test_getState: () => state,
       __test_setState: (v) => { Object.assign(state, v); },
       __test_getDragIdx: () => dragIdx,
@@ -279,6 +280,33 @@ describe('Drag and Drop de Chamadas e Peças no Roteiro', () => {
 
       expect(state.roteiro.map(r => r.code)).toEqual(['ITEM_B', 'ITEM_C', 'ITEM_A']);
       expect(app.__test_getDragIdx()).toBeNull();
+    });
+
+    it('ao soltar na dropzone com o indice do final da lista, insere no final', () => {
+      state.roteiro = [
+        { code: 'PGM01', descricao: 'BLOCO 1', tempo: '00:15:00', type: 'RPRO' },
+      ];
+
+      const event = makeDropEvent('sidebar', '1001');
+      app.dragDrop(event, state.roteiro.length);
+
+      expect(state.roteiro).toHaveLength(2);
+      expect(state.roteiro[0].code).toBe('PGM01');
+      expect(state.roteiro[1].code).toBe('1001');
+    });
+
+    it('ao soltar no container da tabela (dragDropTableWrap), anexa peca ao final do roteiro', () => {
+      state.roteiro = [
+        { code: 'PGM01', descricao: 'BLOCO 1', tempo: '00:15:00', type: 'RPRO' },
+      ];
+
+      const event = makeDropEvent('sidebar', 'DIA99');
+      event.target = { closest: () => null };
+
+      app.dragDropTableWrap(event);
+
+      expect(state.roteiro).toHaveLength(2);
+      expect(state.roteiro[1].code).toBe('DIA99');
     });
   });
 

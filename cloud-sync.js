@@ -214,6 +214,15 @@ function addLogoutUI(email) {
 // CARREGA OS SCRIPTS DO APP NA ORDEM ORIGINAL
 // (só depois que os dados da nuvem já estão no localStorage)
 // =====================================================
+function getScriptSrcWithVersion(src) {
+  const version = (typeof window !== 'undefined' && window.APP_VERSION)
+    ? String(window.APP_VERSION).trim()
+    : '';
+  if (!version) return src;
+  const sep = src.includes('?') ? '&' : '?';
+  return `${src}${sep}v=${encodeURIComponent(version)}`;
+}
+
 function loadScriptsSequentially() {
   return SCRIPTS_TO_LOAD.reduce(
     (promise, src) =>
@@ -221,7 +230,7 @@ function loadScriptsSequentially() {
         () =>
           new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = src;
+            s.src = getScriptSrcWithVersion(src);
             s.onload = resolve;
             s.onerror = () => reject(new Error('Falha ao carregar ' + src));
             document.body.appendChild(s);
@@ -891,7 +900,9 @@ function atualizarAdminSyncInfo() {
 }
 
 if (typeof window !== "undefined") {
+  window.getScriptSrcWithVersion = getScriptSrcWithVersion;
   window.CloudSync = {
+    getScriptSrcWithVersion,
     sincronizarManualmente,
     atualizarAdminSyncInfo,
     pushToCloud,

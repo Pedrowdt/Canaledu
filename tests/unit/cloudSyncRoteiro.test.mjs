@@ -97,6 +97,7 @@ function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite, emis
       fetchAndMergeCloudData, flushPendingSync, marcarSyncPendente,
       marcarSyncConfirmado, haSyncPendente, patchLocalStorage,
       sincronizarManualmente,
+      getScriptSrcWithVersion,
       __test_setCurrentUser,
     };`;
   const factory = new Function(
@@ -111,7 +112,7 @@ function loadCloudSync({ localStorage, sharedRow, userRow, onUserDataWrite, emis
     g.WORKSPACE_ID, g.EmissoraContext
   );
   cs.__test_setCurrentUser({ id: 'user-1', email: 'user@teste.com' });
-  return { cs, localStorage: ls };
+  return { cs, localStorage: ls, window: g };
 }
 
 describe('marca de sincronização pendente (sobrevive a um reload de página)', () => {
@@ -367,5 +368,26 @@ describe('sincronizarManualmente — sincronização sob demanda via botão', ()
     expect(payloadUserData.roteiros['2026-08-27']).toEqual([{ code: 'EDICAO_LOCAL' }]);
     // A marca de pendência foi limpa após o envio
     expect(cs.haSyncPendente()).toBe(false);
+  });
+});
+
+describe('blindagem de cache — getScriptSrcWithVersion', () => {
+  it('adiciona parâmetro ?v=<APP_VERSION> quando APP_VERSION está definido', () => {
+    const { cs, window } = loadCloudSync();
+    window.APP_VERSION = '2.10.1';
+    expect(cs.getScriptSrcWithVersion('app.js')).toBe('app.js?v=2.10.1');
+    expect(cs.getScriptSrcWithVersion('pecas_dia.js')).toBe('pecas_dia.js?v=2.10.1');
+  });
+
+  it('preserva parâmetros de query existentes adicionando &v=<APP_VERSION>', () => {
+    const { cs, window } = loadCloudSync();
+    window.APP_VERSION = '2.10.1';
+    expect(cs.getScriptSrcWithVersion('app.js?debug=1')).toBe('app.js?debug=1&v=2.10.1');
+  });
+
+  it('retorna a url inalterada se APP_VERSION não estiver definido', () => {
+    const { cs, window } = loadCloudSync();
+    delete window.APP_VERSION;
+    expect(cs.getScriptSrcWithVersion('app.js')).toBe('app.js');
   });
 });
