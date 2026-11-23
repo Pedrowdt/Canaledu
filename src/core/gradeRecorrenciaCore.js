@@ -50,6 +50,8 @@
       programaId: programaId ? String(programaId) : null,
       programaNome: String(programaNome || '').trim(),
       tipoExibicao: Object.values(TIPOS_SLOT).includes(tipoExibicao) ? tipoExibicao : TIPOS_SLOT.INEDITO,
+      mestreSlotId: config.mestreSlotId || config.repriseDeSlotId || null,
+      episodio: config.episodio || null,
       origemReprise: null
     };
 
@@ -600,6 +602,401 @@
     };
   }
 
+
+  // =========================================================================
+  // Etapa 3.1: Motor de Herança de Episódios Inéditos, Reprises e Blocos
+  // =========================================================================
+
+  function timeToSec(t) {
+    if (!t) return 0;
+    const parts = String(t).split(":").map(Number);
+    if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
+    return 0;
+  }
+
+  function secToTime(segundos = 0) {
+    const s = Math.max(0, Math.floor(segundos));
+    const h = String(Math.floor(s / 3600)).padStart(2, "0");
+    const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+    const sec = String(s % 60).padStart(2, "0");
+    return `${h}:${m}:${sec}`;
+  }
+
+  function normalizarBlocosEpisodio(blocos = [], duracaoTotal = "00:26:00", codigoBase = "") {
+    if (Array.isArray(blocos) && blocos.length > 0) {
+      return blocos.map((b, idx) => ({
+        bloco: typeof b.bloco === "number" ? b.bloco : idx + 1,
+        duracao: b.duracao ? String(b.duracao).trim() : "00:10:00",
+        code: b.code ? String(b.code).trim() : (codigoBase ? `${codigoBase}_B${idx + 1}` : `B${idx + 1}`),
+        titulo: b.titulo ? String(b.titulo).trim() : `Bloco ${idx + 1}`,
+        midia: b.midia ? String(b.midia).trim() : "0OMN"
+      }));
+    }
+
+    return [{
+      bloco: 1,
+      duracao: duracaoTotal || "00:26:00",
+      code: codigoBase ? `${codigoBase}_B1` : "PROG_B1",
+      titulo: "Bloco 1",
+      midia: "0OMN"
+    }];
+  }
+
+  function normalizarEpisodio(episodio = {}, configPadrao = {}) {
+    if (!episodio || typeof episodio !== "object") {
+      episodio = {};
+    }
+
+    const duracaoTotal = episodio.duracaoTotal || episodio.duracao || configPadrao.duracao || "00:26:00";
+    const codigoBase = String(episodio.codigo || configPadrao.codigo || "").trim();
+
+    return {
+      id: episodio.id || `ep-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      codigo: codigoBase,
+      titulo: String(episodio.titulo || configPadrao.titulo || "Episódio Sem Título").trim(),
+      temporada: episodio.temporada != null ? episodio.temporada : (configPadrao.temporada || null),
+      episodioNumero: episodio.episodioNumero != null ? episodio.episodioNumero : (episodio.numero || configPadrao.episodioNumero || null),
+      duracaoTotal,
+      classificacaoIndicativa: episodio.classificacaoIndicativa || configPadrao.classificacaoIndicativa || "L",
+      faixaOcupada: episodio.faixaOcupada || configPadrao.faixaOcupada || "",
+      sinopse: episodio.sinopse || "",
+      blocos: normalizarBlocosEpisodio(episodio.blocos, duracaoTotal, codigoBase)
+    };
+  }
+
+  function vincularSlotReprise(slotReprise = {}, slotMestre = {}) {
+    const vinculado = {
+      ...slotReprise,
+      tipoExibicao: TIPOS_SLOT.REPRISE,
+      mestreSlotId: slotMestre.id || null,
+      origemReprise: {
+        diaSemana: Number(slotMestre.diaSemana != null ? slotMestre.diaSemana : 1),
+        horario: String(slotMestre.horario || "").trim()
+      },
+      programaId: slotMestre.programaId || slotReprise.programaId || null,
+      programaNome: slotMestre.programaNome || slotReprise.programaNome || "",
+      classificacao: slotMestre.classificacao || slotReprise.classificacao || null,
+      faixaOcupada: slotMestre.faixaOcupada || slotReprise.faixaOcupada || null
+    };
+
+    if (slotMestre.episodio) {
+      vinculado.episodio = JSON.parse(JSON.stringify(slotMestre.episodio));
+      vinculado.episodioHerdado = true;
+    }
+
+    return vinculado;
+  }
+
+  function iterarSlotsGrade(gradeSemana, callbackModificador) {
+    if (!gradeSemana) return gradeSemana;
+
+    if (Array.isArray(gradeSemana)) {
+      return gradeSemana.map(callbackModificador);
+    }
+
+    if (gradeSemana.dias && Array.isArray(gradeSemana.dias)) {
+      return {
+        ...gradeSemana,
+        dias: gradeSemana.dias.map(d => ({
+          ...d,
+          slots: Array.isArray(d.slots) ? d.slots.map(callbackModificador) : []
+        }))
+      };
+    }
+
+    const resultado = {};
+    for (const [chave, slots] of Object.entries(gradeSemana)) {
+      if (Array.isArray(slots)) {
+        resultado[chave] = slots.map(callbackModificador);
+      } else {
+        resultado[chave] = slots;
+      }
+    }
+    return resultado;
+  }
+
+  function coletarTodosSlots(gradeSemana) {
+    if (!gradeSemana) return [];
+    if (Array.isArray(gradeSemana)) return gradeSemana;
+    if (gradeSemana.dias && Array.isArray(gradeSemana.dias)) {
+      return gradeSemana.dias.flatMap(d => d.slots || []);
+    }
+    const todos = [];
+    for (const slots of Object.values(gradeSemana)) {
+      if (Array.isArray(slots)) {
+        todos.push(...slots);
+      }
+    }
+    return todos;
+  }
+
+  function propagarHerancaGradeSemana(gradeSemana) {
+    const todosSlots = coletarTodosSlots(gradeSemana);
+
+    const mestresPorId = new Map();
+    const mestresPorOrigem = new Map();
+    const mestresPorPrograma = new Map();
+
+    for (const s of todosSlots) {
+      if (s.tipoExibicao === TIPOS_SLOT.INEDITO) {
+        if (s.id) mestresPorId.set(s.id, s);
+        if (s.diaSemana != null && s.horario) {
+          mestresPorOrigem.set(`${s.diaSemana}-${s.horario}`, s);
+        }
+        const progKey = s.programaId || s.programaNome;
+        if (progKey && !mestresPorPrograma.has(progKey)) {
+          mestresPorPrograma.set(progKey, s);
+        }
+      }
+    }
+
+    return iterarSlotsGrade(gradeSemana, (slot) => {
+      if (slot.tipoExibicao !== TIPOS_SLOT.REPRISE) {
+        return slot;
+      }
+
+      if (slot.bloquearHeranca) {
+        return slot;
+      }
+
+      let mestre = null;
+      if (slot.mestreSlotId && mestresPorId.has(slot.mestreSlotId)) {
+        mestre = mestresPorId.get(slot.mestreSlotId);
+      } else if (slot.origemReprise) {
+        const chave = `${slot.origemReprise.diaSemana}-${slot.origemReprise.horario}`;
+        if (mestresPorOrigem.has(chave)) {
+          mestre = mestresPorOrigem.get(chave);
+        }
+      }
+
+      if (!mestre) {
+        const progKey = slot.programaId || slot.programaNome;
+        if (progKey && mestresPorPrograma.has(progKey)) {
+          mestre = mestresPorPrograma.get(progKey);
+        }
+      }
+
+      if (!mestre) {
+        return slot;
+      }
+
+      const slotAtualizado = {
+        ...slot,
+        isReprise: true,
+        mestreSlotId: mestre.id,
+        origemReprise: {
+          diaSemana: Number(mestre.diaSemana != null ? mestre.diaSemana : 1),
+          horario: String(mestre.horario || "").trim()
+        },
+        origemResumo: {
+          diaSemana: mestre.diaSemana,
+          horario: mestre.horario,
+          programaNome: mestre.programaNome
+        }
+      };
+
+      if (mestre.episodio) {
+        slotAtualizado.episodio = JSON.parse(JSON.stringify(mestre.episodio));
+        slotAtualizado.episodioHerdado = true;
+      }
+
+      if (mestre.classificacao && !slotAtualizado.classificacao) {
+        slotAtualizado.classificacao = mestre.classificacao;
+      }
+      if (mestre.faixaOcupada && !slotAtualizado.faixaOcupada) {
+        slotAtualizado.faixaOcupada = mestre.faixaOcupada;
+      }
+
+      return slotAtualizado;
+    });
+  }
+
+  function atribuirEpisodioSlotMestre(gradeSemana, mestreSlotId, dadosEpisodio) {
+    const epNormalizado = normalizarEpisodio(dadosEpisodio);
+
+    const gradeComMestre = iterarSlotsGrade(gradeSemana, (slot) => {
+      if (slot.id === mestreSlotId) {
+        return {
+          ...slot,
+          tipoExibicao: TIPOS_SLOT.INEDITO,
+          episodio: epNormalizado,
+          classificacao: dadosEpisodio.classificacaoIndicativa || slot.classificacao || "L",
+          faixaOcupada: dadosEpisodio.faixaOcupada || slot.faixaOcupada || ""
+        };
+      }
+      return slot;
+    });
+
+    return propagarHerancaGradeSemana(gradeComMestre);
+  }
+
+  function desmembrarSlotEmItensRoteiro(slotResolvido, opcoes = {}) {
+    if (!slotResolvido) return [];
+
+    const duracaoBreak = opcoes.duracaoBreakPadrao || "00:03:00";
+    const tipoPrograma = opcoes.tipoPrograma || "RPRO";
+    const tipoBreak = opcoes.tipoBreak || "BREAK";
+    const incluirBreaks = opcoes.incluirBreaks !== false;
+
+    if (slotResolvido.episodio && Array.isArray(slotResolvido.episodio.blocos) && slotResolvido.episodio.blocos.length > 0) {
+      const itens = [];
+      const totalBlocos = slotResolvido.episodio.blocos.length;
+
+      slotResolvido.episodio.blocos.forEach((b, idx) => {
+        const numBloco = b.bloco || (idx + 1);
+        itens.push({
+          type: tipoPrograma,
+          code: b.code || `${slotResolvido.episodio.codigo || "PROG"}_B${numBloco}`,
+          midia: b.midia || "0OMN",
+          tempo: b.duracao || "00:10:00",
+          descricao: `${slotResolvido.programaNome || slotResolvido.episodio.titulo} - Bloco ${numBloco}`,
+          bloco: numBloco,
+          totalBlocos,
+          programaId: slotResolvido.programaId || null,
+          programaNome: slotResolvido.programaNome || "",
+          temporada: slotResolvido.episodio.temporada || null,
+          episodioNumero: slotResolvido.episodio.episodioNumero || null,
+          isReprise: Boolean(slotResolvido.isReprise)
+        });
+
+        if (numBloco < totalBlocos && incluirBreaks) {
+          itens.push({
+            type: tipoBreak,
+            code: `BREAK_${numBloco}`,
+            midia: "0OMN",
+            tempo: duracaoBreak,
+            descricao: `Intervalo ${numBloco}`,
+            ehBreak: true,
+            numeroBreak: numBloco
+          });
+        }
+      });
+
+      return itens;
+    }
+
+    return [{
+      type: tipoPrograma,
+      code: slotResolvido.episodio?.codigo || slotResolvido.codigo || "PROG",
+      midia: "0OMN",
+      tempo: slotResolvido.episodio?.duracaoTotal || slotResolvido.duracao || "00:26:00",
+      descricao: slotResolvido.programaNome || slotResolvido.episodio?.titulo || "Programa",
+      bloco: 1,
+      totalBlocos: 1,
+      programaId: slotResolvido.programaId || null,
+      programaNome: slotResolvido.programaNome || "",
+      temporada: slotResolvido.episodio?.temporada || null,
+      episodioNumero: slotResolvido.episodio?.episodioNumero || null,
+      isReprise: Boolean(slotResolvido.isReprise)
+    }];
+  }
+
+  function validarConsistenciaReprises(gradeSemana) {
+    const todosSlots = coletarTodosSlots(gradeSemana);
+    const mestresPorId = new Map();
+    const mestresPorOrigem = new Map();
+    const mestresPorPrograma = new Map();
+
+    let totalIneditos = 0;
+    let totalReprises = 0;
+    let totalFixos = 0;
+    let ineditosComEpisodio = 0;
+    let reprisesVinculadas = 0;
+    let reprisesComEpisodio = 0;
+
+    for (const s of todosSlots) {
+      if (s.tipoExibicao === TIPOS_SLOT.INEDITO) {
+        totalIneditos++;
+        if (s.episodio) ineditosComEpisodio++;
+        if (s.id) mestresPorId.set(s.id, s);
+        if (s.diaSemana != null && s.horario) {
+          mestresPorOrigem.set(`${s.diaSemana}-${s.horario}`, s);
+        }
+        const progKey = s.programaId || s.programaNome;
+        if (progKey && !mestresPorPrograma.has(progKey)) {
+          mestresPorPrograma.set(progKey, s);
+        }
+      } else if (s.tipoExibicao === TIPOS_SLOT.REPRISE) {
+        totalReprises++;
+      } else {
+        totalFixos++;
+      }
+    }
+
+    const erros = [];
+    const alertas = [];
+
+    for (const rep of todosSlots) {
+      if (rep.tipoExibicao !== TIPOS_SLOT.REPRISE) continue;
+
+      let mestre = null;
+      if (rep.mestreSlotId && mestresPorId.has(rep.mestreSlotId)) {
+        mestre = mestresPorId.get(rep.mestreSlotId);
+      } else if (rep.origemReprise) {
+        const chave = `${rep.origemReprise.diaSemana}-${rep.origemReprise.horario}`;
+        if (mestresPorOrigem.has(chave)) {
+          mestre = mestresPorOrigem.get(chave);
+        }
+      }
+
+      if (!mestre) {
+        const progKey = rep.programaId || rep.programaNome;
+        if (progKey && mestresPorPrograma.has(progKey)) {
+          mestre = mestresPorPrograma.get(progKey);
+        }
+      }
+
+      if (!mestre) {
+        erros.push({
+          tipo: "reprise_sem_mestre",
+          slotId: rep.id,
+          programaNome: rep.programaNome,
+          horario: rep.horario,
+          diaSemana: rep.diaSemana,
+          mensagem: `Reprise "${rep.programaNome || rep.id}" não possui slot inédito mestre correspondente na semana.`
+        });
+      } else {
+        reprisesVinculadas++;
+        if (rep.episodio || mestre.episodio) {
+          reprisesComEpisodio++;
+        }
+
+        // Checagem de cronologia (aviso se reprise precede mestre)
+        if (rep.diaSemana != null && mestre.diaSemana != null) {
+          const normRep = rep.diaSemana === 0 ? 7 : Number(rep.diaSemana);
+          const normMestre = mestre.diaSemana === 0 ? 7 : Number(mestre.diaSemana);
+          const horaRepSec = timeToSec(rep.horario);
+          const horaMestreSec = timeToSec(mestre.horario);
+
+          if (normRep < normMestre || (normRep === normMestre && horaRepSec < horaMestreSec)) {
+            alertas.push({
+              tipo: "reprise_precede_inedito",
+              slotId: rep.id,
+              mestreSlotId: mestre.id,
+              mensagem: `A reprise de "${rep.programaNome || rep.id}" está agendada antes da estreia inédita na semana.`
+            });
+          }
+        }
+      }
+    }
+
+    return {
+      valido: erros.length === 0,
+      erros,
+      alertas,
+      estatisticas: {
+        totalSlots: todosSlots.length,
+        totalIneditos,
+        totalReprises,
+        totalFixos,
+        reprisesVinculadas,
+        reprisesComEpisodio,
+        ineditosComEpisodio
+      }
+    };
+  }
+
   return {
     TIPOS_SLOT,
     TIPOS_EXCECAO,
@@ -613,8 +1010,6 @@
     removerSubprograma,
     reordenarSubprogramas,
     criarSlotRecorrente,
-    TIPOS_EXCECAO,
-    criarSlotRecorrente,
     adicionarEpisodioFila,
     ordenarFila,
     obterProximoEpisodio,
@@ -622,6 +1017,16 @@
     removerExcecao,
     obterExcecao,
     resolverGradeDoDia,
-    resolverGradeSemana
+    resolverGradeSemana,
+    // Etapa 3.1: Herança de Inéditos e Reprises
+    timeToSec,
+    secToTime,
+    normalizarBlocosEpisodio,
+    normalizarEpisodio,
+    vincularSlotReprise,
+    propagarHerancaGradeSemana,
+    atribuirEpisodioSlotMestre,
+    desmembrarSlotEmItensRoteiro,
+    validarConsistenciaReprises
   };
 });

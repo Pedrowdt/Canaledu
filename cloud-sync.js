@@ -351,6 +351,9 @@ async function fetchAndMergeCloudData(user) {
   if (merged.gradeSemanalInfo && merged.gradeByDay && !merged.gradeByDay._info) {
     merged.gradeByDay._info = merged.gradeSemanalInfo;
   }
+  // Preserva metadados de publicação da grade e versões sincronizadas por data
+  merged.gradePublicadaInfo = localRaw.gradePublicadaInfo || userRow?.grade_publicada || null;
+  merged._metaGradePorData  = localRaw._metaGradePorData || {};
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
@@ -667,6 +670,9 @@ async function inicializarEmissorasRoteiro() {
       }
       if (ativa) {
         atualizarBrandingEmissora(ativa);
+        if (typeof EmissoraContext.carregarTiposEmissora === 'function') {
+          await EmissoraContext.carregarTiposEmissora(supabaseClient, ativa.id, ativa.slug || ativa.nome);
+        }
         if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
           PecasRepo.setEmissoraId(ativa.id);
         }
@@ -695,7 +701,12 @@ async function trocarEmissoraNoRoteiro(novaEmissoraId) {
     EmissoraContext.setEmissoraAtivaId(novaEmissoraId);
     const emissoras = EmissoraContext.getEmissorasCache();
     const ativa = emissoras.find(e => e.id === novaEmissoraId);
-    if (ativa) atualizarBrandingEmissora(ativa);
+    if (ativa) {
+      atualizarBrandingEmissora(ativa);
+      if (typeof EmissoraContext.carregarTiposEmissora === 'function') {
+        await EmissoraContext.carregarTiposEmissora(supabaseClient, ativa.id, ativa.slug || ativa.nome);
+      }
+    }
   }
   if (window.PecasRepo && typeof PecasRepo.setEmissoraId === "function") {
     PecasRepo.setEmissoraId(novaEmissoraId);

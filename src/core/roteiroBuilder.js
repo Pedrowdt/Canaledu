@@ -23,10 +23,13 @@ function normProgKey(desc) {
   return normalizeKey(baseProgramTitle(desc || ''));
 }
 
-/** VH de classificação indicativa — só regras, sem catálogo. */
-function getVhClassificacao(regras) {
+/** VH de classificação indicativa — do catálogo (se cadastrado) ou regras (fallback). */
+function getVhClassificacao(regras, catalogo) {
+  if (regras && regras.vhClassificacao && regras.vhClassificacao.ativo === false) return null;
+  if (catalogo && catalogo.vhClassificacao) {
+    return { ...catalogo.vhClassificacao };
+  }
   const cfg = (regras && regras.vhClassificacao) || {};
-  if (cfg.ativo === false) return null;
   return {
     code: cfg.code || '85283',
     descricao: cfg.descricao || 'VH CLASSIFICAÇAO INDICATIVA LIVRE',
@@ -58,6 +61,44 @@ function findVhAssistindo(desc, regras, catalogo) {
     if ((vh.keywords || []).some((k) => normalizeKey(k) === key)) return { ...vh };
   }
   return null;
+}
+
+function findVhInMap(mapa, desc, ativo = true) {
+  if (ativo === false || !mapa || !mapa.length) return null;
+  const key = normProgKey(desc);
+  if (key) {
+    for (const vh of mapa) {
+      if ((vh.keywords || []).some((k) => k !== '__GENERICA__' && normalizeKey(k) === key)) {
+        return { ...vh };
+      }
+    }
+  }
+  for (const vh of mapa) {
+    if ((vh.keywords || []).includes('__GENERICA__')) {
+      return { ...vh };
+    }
+  }
+  return null;
+}
+
+function findVhVaiComecar(desc, regras, catalogo) {
+  if (regras && regras.vhVaiComecarAtivo === false) return null;
+  return findVhInMap((catalogo && catalogo.vhVaiComecarMap) || [], desc);
+}
+
+function findVhVoltamosJa(desc, regras, catalogo) {
+  if (regras && regras.vhVoltamosJaAtivo === false) return null;
+  return findVhInMap((catalogo && catalogo.vhVoltamosJaMap) || [], desc);
+}
+
+function findVhVoltamosCom(desc, regras, catalogo) {
+  if (regras && regras.vhVoltamosComAtivo === false) return null;
+  return findVhInMap((catalogo && catalogo.vhVoltamosComMap) || [], desc);
+}
+
+function findVhRealizacao(desc, regras, catalogo) {
+  if (regras && regras.vhRealizacaoAtivo === false) return null;
+  return findVhInMap((catalogo && catalogo.vhRealizacaoMap) || [], desc);
 }
 
 /**
@@ -260,15 +301,15 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
     // por episódio (1ª aparição) e depois por número do bloco.
     blocks = sortBlocks(blocks);
 
-    // ── Antes do 1º bloco: VH A SEGUIR ──
-    const vhSeguir = findVhSeguir(blocks[0].descricao, r, catalogo);
-    if (vhSeguir) { roteiro.push({ ...vhSeguir }); cumSec += timeToSec(vhSeguir.tempo); }
+    // ── Antes do 1º bloco: VH A SEGUIR ou VH VAI COMEÇAR ──
+    const vhIntro = findVhSeguir(blocks[0].descricao, r, catalogo) || findVhVaiComecar(blocks[0].descricao, r, catalogo);
+    if (vhIntro) { roteiro.push({ ...vhIntro }); cumSec += timeToSec(vhIntro.tempo); }
 
     // ── Blocos + breaks ──
     blocks.forEach((block, bIdx) => {
       const blN = getBlockNumber(block.descricao);
       if (!(blN >= 2 && blN <= 5)) {
-        const vhClassif = getVhClassificacao(r);
+        const vhClassif = getVhClassificacao(r, catalogo);
         if (vhClassif) { roteiro.push({ ...vhClassif }); cumSec += timeToSec(vhClassif.tempo); }
       }
 
@@ -281,16 +322,19 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
         const sameEpisode = getEpisodeId(block.descricao) === getEpisodeId(nextBlock.descricao);
 
         if (sameEpisode) {
-          const vhAss = findVhAssistindo(block.descricao, r, catalogo);
-          if (vhAss) { roteiro.push({ ...vhAss }); cumSec += timeToSec(vhAss.tempo); }
+          const vhSaida = findVhVoltamosJa(block.descricao, r, catalogo) || findVhAssistindo(block.descricao, r, catalogo);
+          if (vhSaida) { roteiro.push({ ...vhSaida }); cumSec += timeToSec(vhSaida.tempo); }
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — chamada ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
-          if (vhAss) { roteiro.push({ ...vhAss }); cumSec += timeToSec(vhAss.tempo); }
+          const vhRetorno = findVhVoltamosCom(block.descricao, r, catalogo) || findVhAssistindo(block.descricao, r, catalogo);
+          if (vhRetorno) { roteiro.push({ ...vhRetorno }); cumSec += timeToSec(vhRetorno.tempo); }
         } else {
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — chamada ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
           roteiro.push({ code: '__BREAK__', descricao: '[ BREAK — interprograma ]', tempo: '00:00:00', midia: '0OMN', type: '__SLOT__', _break: true });
         }
       } else {
+        const realizacao = findVhRealizacao(block.descricao, r, catalogo);
+        if (realizacao) { roteiro.push({ ...realizacao }); cumSec += timeToSec(realizacao.tempo); }
         const ass = pickAssinatura(block, r, programasCadastro);
         if (ass) { roteiro.push(ass); cumSec += timeToSec(ass.tempo); }
       }
@@ -302,4 +346,4 @@ export function buildRoteiroFromPrograms(programs, regras, grade, pecasFixas, ca
   return injectPecasFixas(roteiro, pecasFixas);
 }
 
-export { getVhClassificacao, findVhSeguir, findVhAssistindo, pickAssinatura, injectPecasFixas, faixaDoCadastro };
+export { getVhClassificacao, findVhSeguir, findVhAssistindo, findVhVaiComecar, findVhVoltamosJa, findVhVoltamosCom, findVhRealizacao, pickAssinatura, injectPecasFixas, faixaDoCadastro };

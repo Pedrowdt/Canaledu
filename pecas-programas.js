@@ -79,15 +79,90 @@ const FUNCAO_LABEL = {
   cartela_oficial: 'Cartela oficial', vinheta_id: 'Vinheta ID', transicao: 'Transição', outro: 'Outro',
 };
 
+let tiposAtivosEmissora = [];
+
+function isVinhetaType(tipo) {
+  if (typeof EmissoraContext !== 'undefined' && typeof EmissoraContext.isVinhetaType === 'function') {
+    return EmissoraContext.isVinhetaType(tipo, tiposAtivosEmissora);
+  }
+  return ['EVNH', 'GVNH', 'VH', 'VINHETA'].includes(String(tipo || '').trim().toUpperCase());
+}
+
+function isProgramaType(tipo) {
+  if (typeof EmissoraContext !== 'undefined' && typeof EmissoraContext.isProgramaType === 'function') {
+    return EmissoraContext.isProgramaType(tipo, tiposAtivosEmissora);
+  }
+  return ['RPRO', 'GPRO', 'IPRO', 'PGM'].includes(String(tipo || '').trim().toUpperCase());
+}
+
+async function carregarTiposDaEmissoraAtiva(emissoraId, slugOrNome) {
+  if (typeof EmissoraContext !== 'undefined' && typeof EmissoraContext.carregarTiposEmissora === 'function') {
+    try {
+      tiposAtivosEmissora = await EmissoraContext.carregarTiposEmissora(supabaseClient, emissoraId, slugOrNome);
+    } catch (_) {
+      tiposAtivosEmissora = EmissoraContext.getTiposPadrao(slugOrNome);
+    }
+  } else {
+    tiposAtivosEmissora = [];
+  }
+  return tiposAtivosEmissora;
+}
+
+function preencherSelectTipos(selectEl, valorAtual, isPecas) {
+  if (!selectEl) return;
+  const tipos = (Array.isArray(tiposAtivosEmissora) && tiposAtivosEmissora.length > 0)
+    ? tiposAtivosEmissora
+    : (typeof EmissoraContext !== 'undefined' && typeof EmissoraContext.getTiposEmissoraAtiva === 'function'
+      ? EmissoraContext.getTiposEmissoraAtiva()
+      : [
+          { codigo: 'ECHE', nome: 'Chamada de Estreia' },
+          { codigo: 'ECHM', nome: 'Chamada Comum / Manutenção' },
+          { codigo: 'RCOM', nome: 'Comercial' },
+          { codigo: 'RPOL', nome: 'Político' },
+          { codigo: 'EINT', nome: 'Interprograma' },
+          { codigo: 'EVNH', nome: 'Vinheta' },
+          { codigo: 'RPRO', nome: 'Programa' },
+        ]);
+  const codigosVistos = new Set();
+  let html = '';
+  if (valorAtual && !tipos.some(t => t.codigo === valorAtual)) {
+    html += `<option value="${escapeHtml(valorAtual)}">${escapeHtml(valorAtual)} (legado/personalizado)</option>`;
+    codigosVistos.add(valorAtual);
+  }
+  const pecasTipos = tipos.filter(t => !isProgramaType(t.codigo));
+  const progTipos = tipos.filter(t => isProgramaType(t.codigo));
+  for (const t of (isPecas ? [...pecasTipos, ...progTipos] : [...progTipos, ...pecasTipos])) {
+    if (codigosVistos.has(t.codigo)) continue;
+    codigosVistos.add(t.codigo);
+    html += `<option value="${escapeHtml(t.codigo)}">${escapeHtml(t.nome ? `${t.codigo} — ${t.nome}` : t.codigo)}</option>`;
+  }
+  selectEl.innerHTML = html;
+  if (valorAtual && codigosVistos.has(valorAtual)) selectEl.value = valorAtual;
+  else selectEl.value = isPecas ? (pecasTipos[0]?.codigo || tipos[0]?.codigo || 'ECHE') : (progTipos[0]?.codigo || 'RPRO');
+}
+
+function preencherSelectTiposLote(selectEl, isPecas) {
+  if (!selectEl) return;
+  const tipos = (Array.isArray(tiposAtivosEmissora) && tiposAtivosEmissora.length > 0)
+    ? tiposAtivosEmissora
+    : (typeof EmissoraContext !== 'undefined' && typeof EmissoraContext.getTiposEmissoraAtiva === 'function'
+      ? EmissoraContext.getTiposEmissoraAtiva()
+      : []);
+  selectEl.innerHTML = `<option value="">— Não alterar —</option>` + tipos.map(t =>
+    `<option value="${escapeHtml(t.codigo)}">${escapeHtml(t.codigo + (t.nome ? ` (${t.nome})` : ''))}</option>`
+  ).join('');
+  selectEl.value = '';
+}
+
 /** Mostra/esconde os campos de função da vinheta — só fazem sentido para type=EVNH. */
 function toggleFuncaoFields() {
-  const isEvnh = document.getElementById('f-type').value === 'EVNH';
-  document.getElementById('funcao-fields').style.display = isEvnh ? 'block' : 'none';
-  if (isEvnh) {
-    // Sugestões do datalist: título-base de cada programa cadastrado, sem duplicatas.
+  const isVh = isVinhetaType(document.getElementById('f-type')?.value);
+  const box = document.getElementById('funcao-fields');
+  if (box) box.style.display = isVh ? 'block' : 'none';
+  if (isVh) {
     const titulos = [...new Set(programas.map(p => baseProgramTitle(p.descricao)).filter(Boolean))].sort();
-    document.getElementById('programa-relacionado-list').innerHTML =
-      titulos.map(t => `<option value="${escapeHtml(t)}">`).join('');
+    const list = document.getElementById('programa-relacionado-list');
+    if (list) list.innerHTML = titulos.map(t => `<option value="${escapeHtml(t)}">`).join('');
     toggleProgramaRelacionadoField();
   }
 }
@@ -312,6 +387,7 @@ async function trocarEmissoraAtiva(novaEmissoraId) {
     const lista = EmissoraContext.getEmissorasCache();
     const ativa = lista.find(e => e.id === novaEmissoraId);
     atualizarBrandingPecas(ativa);
+    if (ativa) await carregarTiposDaEmissoraAtiva(ativa.id, ativa.slug || ativa.nome);
   }
   if (!novaEmissoraId) return;
   if (window.EmissoraContext) {
@@ -328,6 +404,7 @@ async function trocarEmissoraAtiva(novaEmissoraId) {
     programas = Array.isArray(dados.programas) ? dados.programas : [];
     deletedPecas = [];
     deletedProgramas = [];
+    if (activeCat !== 'ALL' && !allCategoryKeys().includes(activeCat)) activeCat = 'ALL';
     render();
   } catch (e) {
     console.error('[Peças e Programas] Erro ao trocar emissora:', e);
@@ -368,6 +445,7 @@ async function startApp(user) {
           PecasRepo.setEmissoraId(ativa.id);
         }
         atualizarBrandingPecas(ativa);
+        await carregarTiposDaEmissoraAtiva(ativa.id, ativa.slug || ativa.nome);
                 if (window.AdminPainel && supabaseClient && currentUser) {
           window.AdminPainel.init(supabaseClient, currentUser);
         }
@@ -632,12 +710,23 @@ function switchTab(tab) {
 // vindas de importações antigas do banco de peças).
 // =====================================================
 function allCategoryKeys() {
-  const known = Object.keys(CATS);
-  const extra = [...new Set(pecas.map(p => p.categoria).filter(c => c && !known.includes(c)))];
-  return [...known, ...extra];
+  const ativa = typeof EmissoraContext !== 'undefined' ? EmissoraContext.getEmissoraAtiva() : null;
+  const slug = (ativa ? (ativa.slug || ativa.nome) : '').toLowerCase();
+  const isEducacao = !slug || slug.includes('educa');
+  const known = isEducacao ? Object.keys(CATS) : [];
+  const fromCats = [...new Set(pecas.map(p => p.categoria).filter(Boolean))];
+  const fromTypes = [...new Set(pecas.filter(p => !p.categoria && p.type).map(p => p.type))];
+  const fromConfig = !isEducacao && Array.isArray(tiposAtivosEmissora) ? tiposAtivosEmissora.map(t => t.codigo) : [];
+  return [...new Set([...known, ...fromCats, ...fromTypes, ...fromConfig])];
 }
 function catMeta(cat) {
-  return CATS[cat] || { label: cat, short: cat, text: '#555', bg: '#eee', border: '#ccc', dot: '#aaa' };
+  if (CATS[cat]) return CATS[cat];
+  const tipo = (Array.isArray(tiposAtivosEmissora) ? tiposAtivosEmissora : []).find(t => t.codigo === cat || t.sigla === cat);
+  if (tipo) {
+    const cor = tipo.cor || '#3b82f6';
+    return { label: tipo.nome || tipo.codigo, short: tipo.sigla || tipo.codigo, text: cor, bg: '#f8fafc', border: cor, dot: cor };
+  }
+  return { label: cat, short: cat, text: '#555', bg: '#eee', border: '#ccc', dot: '#aaa' };
 }
 
 // kStatus/kBadgeHtml assumem `ds` em AAAA-MM-DD (o cadastro grava sempre
@@ -678,7 +767,7 @@ function assinaturaBadgeHtml(list){
 }
 /** Selo pequeno mostrando a função da vinheta (MVP-CADASTRO.md, Fase 1) — só aparece quando cadastrada; sem isso, célula fica vazia (nada muda para peças que não usam o campo novo). */
 function funcaoBadgeHtml(p){
-  if (p.type !== 'EVNH' || !p.funcao) return '';
+  if (!isVinhetaType(p.type) || !p.funcao) return '';
   const label = FUNCAO_LABEL[p.funcao] || p.funcao;
   const rel = p.programaRelacionado ? ` · ${escapeHtml(p.programaRelacionado)}` : '';
   return `<div style="font-size:9px;color:var(--muted,#888);margin-top:2px">📋 ${escapeHtml(label)}${rel}</div>`;
@@ -697,19 +786,19 @@ function horLabel(p){
 // =====================================================
 function renderSidebar(){
   const keys = allCategoryKeys();
-  const counts = keys.reduce((a,k)=>({...a,[k]:pecas.filter(p=>p.categoria===k).length}),{});
-  const alerts = pecas.filter(p=>{const s=kStatus(p.validade);return s&&s.kind!=='ok';}).length;
-
-  let html=`<button class="cat-btn ${activeCat==='ALL'?'active':''}" onclick="setCat('ALL')">
-    <span>Todas</span><span class="cat-count">${pecas.length}</span></button>`;
-  for(const k of keys){
+  const counts = keys.reduce((a, k) => ({ ...a, [k]: pecas.filter(p => p.categoria === k || (!p.categoria && p.type === k)).length }), {});
+  const alerts = pecas.filter(p => { const s = kStatus(p.validade); return s && s.kind !== 'ok'; }).length;
+  const ativa = typeof EmissoraContext !== 'undefined' ? EmissoraContext.getEmissoraAtiva() : null;
+  const slug = (ativa ? (ativa.slug || ativa.nome) : '').toLowerCase();
+  const isEducacao = !slug || slug.includes('educa');
+  const visibleKeys = isEducacao ? keys : keys.filter(k => (counts[k] || 0) > 0 || tiposAtivosEmissora.some(t => t.codigo === k));
+  let html = `<button class="cat-btn ${activeCat === 'ALL' ? 'active' : ''}" onclick="setCat('ALL')"><span>Todas</span><span class="cat-count">${pecas.length}</span></button>`;
+  for (const k of visibleKeys) {
     const c = catMeta(k);
-    html+=`<button class="cat-btn ${activeCat===k?'active':''}" onclick="setCat('${k}')">
-      <span><span class="cat-dot" style="background:${c.dot}"></span>${c.label}</span>
-      <span class="cat-count">${counts[k]||0}</span></button>`;
+    html += `<button class="cat-btn ${activeCat === k ? 'active' : ''}" onclick="setCat('${k}')"><span><span class="cat-dot" style="background:${c.dot}"></span>${escapeHtml(c.label)}</span><span class="cat-count">${counts[k] || 0}</span></button>`;
   }
-  document.getElementById('sidebar-cats').innerHTML=html;
-  document.getElementById('alert-box').innerHTML=alerts>0?`<div class="alert-box">⚠ ${alerts} com validade crítica</div>`:'';
+  document.getElementById('sidebar-cats').innerHTML = html;
+  document.getElementById('alert-box').innerHTML = alerts > 0 ? `<div class="alert-box">⚠ ${alerts} com validade crítica</div>` : '';
 }
 function setCat(c){activeCat=c;render();}
 // =====================================================
@@ -816,7 +905,7 @@ function openBatchModal() {
   }
 
   const fType = document.getElementById('batch-f-type');
-  if (fType) fType.value = '';
+  preencherSelectTiposLote(fType, isPecas);
 
   const pecasFields = document.getElementById('batch-pecas-fields');
   if (pecasFields) {
@@ -1020,6 +1109,13 @@ function confirmarEdicaoLote() {
 
 if (typeof window !== 'undefined') {
   window.openBatchModal = openBatchModal;
+  window.isVinhetaType = isVinhetaType;
+  window.isProgramaType = isProgramaType;
+  window.preencherSelectTipos = preencherSelectTipos;
+  window.preencherSelectTiposLote = preencherSelectTiposLote;
+  window.carregarTiposDaEmissoraAtiva = carregarTiposDaEmissoraAtiva;
+  window.allCategoryKeys = allCategoryKeys;
+  window.catMeta = catMeta;
   window.closeBatchModal = closeBatchModal;
   window.toggleBatchPesoInput = toggleBatchPesoInput;
   window.toggleBatchProgramaRelacionadoField = toggleBatchProgramaRelacionadoField;
@@ -1116,7 +1212,7 @@ function render(){
     if(filtroDuplicadosApenas && !duplicateCodes.has(p.code)) return false;
     if(filtroStatusAtivo === 'ATIVOS' && p.ativo === false) return false;
     if(filtroStatusAtivo === 'INATIVOS' && p.ativo !== false) return false;
-    if(isPecas && activeCat!=='ALL' && p.categoria!==activeCat)return false;
+    if (isPecas && activeCat !== 'ALL' && p.categoria !== activeCat && !( !p.categoria && p.type === activeCat)) return false;
     if(q)return (p.code||'').toLowerCase().includes(q)||(p.descricao||'').toLowerCase().includes(q)||(p.type||'').toLowerCase().includes(q);
     return true;
   });
@@ -1205,10 +1301,20 @@ function openModal(id){
   document.getElementById('f-midia').value = p?.midia || '0OMN';
   document.getElementById('f-desc').value = p?.descricao || '';
   document.getElementById('f-tempo').value = p?.tempo || '00:00:00';
-  document.getElementById('f-type').value = p?.type || (isPecas ? 'ECHE' : 'RPRO');
+  const fType = document.getElementById('f-type');
+  preencherSelectTipos(fType, p?.type, isPecas);
 
   if (isPecas) {
-    document.getElementById('f-cat').value = p?.categoria || 'CHAMADA_QUENTE';
+    const catSelect = document.getElementById('f-cat');
+    const ativa = typeof EmissoraContext !== 'undefined' ? EmissoraContext.getEmissoraAtiva() : null;
+    const slug = (ativa ? (ativa.slug || ativa.nome) : '').toLowerCase();
+    const isEducacao = !slug || slug.includes('educa');
+    if (catSelect && !isEducacao && tiposAtivosEmissora.length) {
+      catSelect.innerHTML = tiposAtivosEmissora.map(t => `<option value="${escapeHtml(t.codigo)}">${escapeHtml(t.codigo + ' — ' + (t.nome || t.codigo))}</option>`).join('');
+    }
+    const categoryValue = isEducacao ? (p?.categoria || 'CHAMADA_QUENTE') : (p?.categoria || p?.type || tiposAtivosEmissora[0]?.codigo || '');
+    if (catSelect) catSelect.value = categoryValue;
+
     document.getElementById('f-validade').value = p?.validade || '';
     document.getElementById('f-finalidade').value = p?.tipoFinalidade || p?.finalidade || '';
     document.getElementById('f-data-alvo').value = p?.dataEstreia || p?.dataAlvo || '';
@@ -1326,6 +1432,9 @@ function saveItem(){
   };
 
   if (isPecas) {
+    const ativa = typeof EmissoraContext !== 'undefined' ? EmissoraContext.getEmissoraAtiva() : null;
+    const slug = (ativa ? (ativa.slug || ativa.nome) : '').toLowerCase();
+    const isEducacao = !slug || slug.includes('educa');
     const dias=[...document.querySelectorAll('.dia-btn.active')].map(b=>normalizeDia(b.dataset.d));
     const showH=document.getElementById('f-showh').checked;
     const funcao = document.getElementById('f-funcao').value;
@@ -1335,7 +1444,7 @@ function saveItem(){
     const dataAlvoEl = document.getElementById('f-data-alvo');
     p = {
       ...p,
-      categoria: document.getElementById('f-cat').value,
+      categoria: isEducacao ? document.getElementById('f-cat').value : p.type,
       validade: document.getElementById('f-validade').value || '',
       tipoFinalidade: finalidadeEl ? finalidadeEl.value : '',
       dataEstreia: dataAlvoEl ? dataAlvoEl.value : '',
@@ -1348,8 +1457,8 @@ function saveItem(){
       // Só faz sentido para type=EVNH — em qualquer outro type o campo fica
       // escondido no formulário, então grava vazio para não sobrar lixo de
       // uma edição anterior (ex.: trocou de EVNH para ECHE).
-      funcao: p.type === 'EVNH' ? funcao : '',
-      programaRelacionado: (p.type === 'EVNH' && FUNCOES_COM_PROGRAMA.has(funcao))
+      funcao: isVinhetaType(p.type) ? funcao : '',
+      programaRelacionado: (isVinhetaType(p.type) && FUNCOES_COM_PROGRAMA.has(funcao))
         ? document.getElementById('f-programa-relacionado').value.trim() : '',
     };
   }

@@ -19,6 +19,7 @@
 <script src="src/core/emissoraContext.js"></script>
 <script src="src/core/gradeEditorCore.js"></script>
 <script src="src/core/gradeRecorrenciaCore.js"></script>
+<script src="src/core/gradeRoteiroSyncCore.js"></script>
 <script src="src/core/gradeImportador.js"></script>
 <script src="src/core/semanaUtils.js"></script>
 <script src="src/ui/admin-painel.js"></script>
@@ -775,8 +776,16 @@ input, select { font-family: inherit; font-size: 12px; }
 }
 
 @media print {
-  body { background: #fff !important; }
-  .topnav, .day-bar, .sidebar-acervo, .timeline-controls, #gate, #toast, .week-slot-actions, .btn-quick-add, .week-view-toolbar {
+  @page {
+    size: A4 landscape;
+    margin: 6mm;
+  }
+  body {
+    background: #fff !important;
+    font-size: 10px !important;
+    color: #000 !important;
+  }
+  .topnav, .day-bar, .sidebar-acervo, .timeline-controls, #gate, #toast, .week-slot-actions, .btn-quick-add, .week-view-toolbar, .btn-slot-gear, .btn-slot-clear, .btn-outline {
     display: none !important;
   }
   .app-container { display: block !important; height: auto !important; }
@@ -1081,6 +1090,7 @@ input, select { font-family: inherit; font-size: 12px; }
     <button class="btn-outline" onclick="desmembrarFaixaSelecionada()" title="Desmembrar faixa composta do dia atual em slots individuais de 15 minutos" style="font-weight:600;border-color:#10b981;color:#047857">⚡ Desmembrar</button>
     <button class="btn-outline" onclick="reagruparFaixaSelecionada()" title="Reagrupar slots consecutivos de uma faixa em um único bloco composto" style="font-weight:600;border-color:#eab308;color:#854d0e">🔗 Reagrupar</button>
     <button class="btn-outline" onclick="abrirModalExcecoes()" title="Configurar exceções pontuais por data (sem alterar a grade semanal)" id="btn-excecoes-grade" style="font-weight:600;border-color:#8b5cf6;color:#7c3aed">⚡ Exceções <span class="badge" id="badge-excecoes-count" style="background:#ede9fe;color:#7c3aed;margin-left:3px">0</span></button>
+    <button class="btn-outline" onclick="abrirModalAuditoriaGrade()" title="Auditar consistência de inéditos e reprises vinculadas na semana" id="btn-auditoria-grade" style="font-weight:600;border-color:#059669;color:#047857">🔍 Auditoria</button>
     <button class="btn-outline" onclick="exportarGradePDF()" title="Exportar a grade semanal oficial em formato PDF (Paisagem)" style="font-weight:600;border-color:#185FA5;color:#185FA5">📄 PDF</button>
     <button class="btn-outline" onclick="openCopyDayModal()" title="Copiar esta programação para outros dias">📋 Copiar</button>
     <button class="btn-outline" onclick="compactarGrade()" title="Eliminar intervalos vazios e compactar sequência">⚡ Compactar</button>
@@ -1294,12 +1304,63 @@ input, select { font-family: inherit; font-size: 12px; }
         <label style="display:block;font-size:11px;font-weight:700;color:#5b21b6;margin-bottom:6px">
           Vincular ao Horário Inédito de Origem (mesma semana):
         </label>
-        <select id="select-origem-reprise" class="search-input" style="background:#fff">
+        <select id="select-origem-reprise" class="search-input" style="background:#fff" onchange="atualizarPreviewRepriseOrigem()">
           <!-- Opções preenchidas dinamicamente -->
         </select>
+        <div id="reprise-origem-preview" style="font-size:11px;color:#4c1d95;margin-top:6px;background:#ede9fe;padding:6px 8px;border-radius:4px;display:none">
+          📺 <span id="reprise-preview-texto"></span>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;font-size:11px;color:#5b21b6">
+          <input type="checkbox" id="slot-bloquear-heranca" onchange="toggleBloquearHerancaSlot()">
+          <span style="font-weight:600">⚡ Bloquear herança automática (definir episódio avulso para esta reprise)</span>
+        </label>
         <p style="font-size:10.5px;color:#6d28d9;margin-top:6px">
           💡 A reprise acompanhará automaticamente qualquer episódio que for ao ar no horário inédito escolhido.
         </p>
+      </div>
+
+      <!-- Dados do Episódio e Blocos Estruturados -->
+      <div id="section-dados-episodio" style="border-top:1px solid var(--border);padding-top:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label style="font-size:11px;font-weight:700;color:#0369a1">
+            📺 Episódio da Semana (Inédito ou Atribuído):
+          </label>
+          <button type="button" class="btn-outline" style="padding:1px 6px;font-size:10px" onclick="limparEpisodioSlotAtual()">Limpar Episódio</button>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:6px">
+          <div>
+            <label style="display:block;font-size:10px;color:#64748b">Título do Episódio:</label>
+            <input type="text" id="slot-ep-titulo" class="search-input" placeholder="Ex: O Mistério da Floresta" style="background:#fff">
+          </div>
+          <div>
+            <label style="display:block;font-size:10px;color:#64748b">Código / ID:</label>
+            <input type="text" id="slot-ep-codigo" class="search-input" placeholder="Ex: P123_EP05" style="background:#fff">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px">
+          <div>
+            <label style="display:block;font-size:10px;color:#64748b">Temporada:</label>
+            <input type="number" id="slot-ep-temporada" class="search-input" min="1" placeholder="Ex: 1" style="background:#fff">
+          </div>
+          <div>
+            <label style="display:block;font-size:10px;color:#64748b">Episódio Nº:</label>
+            <input type="number" id="slot-ep-numero" class="search-input" min="1" placeholder="Ex: 5" style="background:#fff">
+          </div>
+          <div>
+            <label style="display:block;font-size:10px;color:#64748b">Duração Total:</label>
+            <input type="text" id="slot-ep-duracao" class="search-input" placeholder="00:26:00" style="background:#fff">
+          </div>
+        </div>
+        <!-- Blocos do Episódio -->
+        <div style="margin-top:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:10.5px;font-weight:700;color:#334155">Dividir em Blocos (Roteiro / Breaks):</span>
+            <button type="button" class="btn-outline" style="padding:1px 6px;font-size:10px" onclick="adicionarBlocoEpisodioSlot()">+ Adicionar Bloco</button>
+          </div>
+          <div id="container-blocos-episodio" style="display:flex;flex-direction:column;gap:4px">
+            <!-- Blocos preenchidos dinamicamente -->
+          </div>
+        </div>
       </div>
 
       <!-- Classificação Oficial TV Brasil -->
@@ -1368,6 +1429,26 @@ input, select { font-family: inherit; font-size: 12px; }
     <div class="modal-actions">
       <button class="btn-outline" onclick="closeConfigSlotModal()">Cancelar</button>
       <button class="btn-primary" onclick="salvarConfigSlot()">Salvar Configuração</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: AUDITORIA DA GRADE SEMANAL -->
+<div class="overlay" id="modal-auditoria-grade" style="display:none" onclick="if(event.target===this)closeModalAuditoriaGrade()">
+  <div class="modal-box" style="max-width:680px;max-height:85vh;display:flex;flex-direction:column">
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>🔍 Auditoria de Inéditos, Reprises e Consistência</span>
+      <button type="button" onclick="closeModalAuditoriaGrade()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#64748b">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+      Auditoria da programação semanal: cobertura de episódios, coerência de reprises e detecção de horários órfãos.
+    </div>
+    <div id="auditoria-conteudo" style="overflow-y:auto;padding-right:4px;display:flex;flex-direction:column;gap:12px">
+      <!-- Preenchido via renderAuditoriaGrade() -->
+    </div>
+    <div class="modal-actions" style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">
+      <button type="button" class="btn-primary" style="background:#059669" onclick="executarPropagacaoHerancaManual()">⚡ Propagar Herança Agora</button>
+      <button type="button" class="btn-outline" onclick="closeModalAuditoriaGrade()">Fechar</button>
     </div>
   </div>
 </div>

@@ -387,6 +387,8 @@
       }
     }
 
+    // Resolve episódios herdados ao abrir a grade, sem alterar slots bloqueados.
+    aplicarHerancaNaGradeUI();
     renderAcervo();
     atualizarBadgesDias();
     atualizarRotulosSemanaGrade();
@@ -685,6 +687,7 @@
                 <div style="flex:1;min-width:0">
                   <div class="week-slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
                   ${b.program.code ? `<div style="font-size:9px;color:#64748b;font-family:var(--mono)">${escapeHtml(b.program.code)}</div>` : ''}
+                  <div style="font-size:9.5px;color:#0369a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(b.episodio || recurrenceState.slots[getSlotKey(d, idx)]?.episodio)?.titulo ? `📺 ${escapeHtml((b.episodio || recurrenceState.slots[getSlotKey(d, idx)]?.episodio).titulo)}` : ''}</div>
                   <div style="display:flex;align-items:center;gap:4px;margin-top:2px">${renderRecurrenceBadge(d, idx)}<button type="button" class="btn-slot-gear" onclick="abrirConfigSlot(${d}, ${idx})" title="Configurar inédito ou reprise vinculada">⚙</button></div>
                 </div>
               </div>
@@ -876,26 +879,44 @@
   /* ══════════════════════════════════════════════════════════
      EXPORTAÇÃO OFICIAL DA GRADE EM PDF
      ══════════════════════════════════════════════════════════ */
+  function hexToRgb(hex) {
+    if (!hex || typeof hex !== 'string') return [24, 95, 165];
+    const clean = hex.replace('#', '').trim();
+    if (clean.length === 3) {
+      const r = parseInt(clean[0] + clean[0], 16);
+      const g = parseInt(clean[1] + clean[1], 16);
+      const b = parseInt(clean[2] + clean[2], 16);
+      return [isNaN(r) ? 24 : r, isNaN(g) ? 95 : g, isNaN(b) ? 165 : b];
+    }
+    if (clean.length >= 6) {
+      const r = parseInt(clean.substring(0, 2), 16);
+      const g = parseInt(clean.substring(2, 4), 16);
+      const b = parseInt(clean.substring(4, 6), 16);
+      return [isNaN(r) ? 24 : r, isNaN(g) ? 95 : g, isNaN(b) ? 165 : b];
+    }
+    return [24, 95, 165];
+  }
+
   window.exportarGradePDF = function () {
     const emissoras = window.EmissoraContext ? window.EmissoraContext.getEmissorasCache() : [];
     const ativaId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
     const ativa = emissoras.find(e => e.id === ativaId);
     const nomeEmissora = (ativa?.nome || 'Canal Educação').toUpperCase();
     const slugEmissora = (ativa?.slug || 'emissora').toLowerCase();
+    const corPrimariaRgb = hexToRgb(ativa?.cor_primaria || '#185FA5');
 
     // Se jsPDF estiver disponível via CDN
     const hasJsPdf = typeof window.jspdf !== 'undefined' && typeof window.jspdf.jsPDF !== 'undefined';
 
     if (!hasJsPdf) {
-      // Fallback para impressão nativa formatada em paisagem
       showToast('Abrindo diálogo de impressão / Salvar como PDF...', 'info');
       window.print();
       return;
     }
 
     try {
+      showToast('Gerando PDF oficial da grade semanal...', 'info');
       const { jsPDF } = window.jspdf;
-      // Paisagem (landscape), formato A4
       const doc = new jsPDF({
         orientation: 'landscape',
         unit: 'mm',
@@ -904,75 +925,144 @@
 
       const dataHoje = new Date().toLocaleDateString('pt-BR');
       const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const resumoSemana = typeof obterResumoSemanaAtiva === 'function' ? obterResumoSemanaAtiva() : null;
+      const labelSemana = resumoSemana?.labelSemana || ('Semana ' + (resumoSemana?.numeroSemana || ''));
+      const datasSemana = (resumoSemana?.inicioFormatado && resumoSemana?.fimFormatado)
+        ? `${resumoSemana.inicioFormatado} a ${resumoSemana.fimFormatado}`
+        : '';
 
-      // Cabeçalho Oficial
-      doc.setFillColor(24, 95, 165); // Azul #185FA5
-      doc.rect(10, 8, 277, 14, 'F');
+      // Calcula resumo executivo consolidado para o cabeçalho
+      const resumoExecutivo = window.GradeEditorCore?.calcularResumoExecutivoGrade
+        ? window.GradeEditorCore.calcularResumoExecutivoGrade(blocksByDay, { recurrenceState })
+        : null;
+
+      // 1. Faixa Superior / Banner Oficial com Branding da Emissora
+      doc.setFillColor(...corPrimariaRgb);
+      doc.rect(8, 6, 281, 14, 'F');
 
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.text(`${nomeEmissora} — GRADE SEMANAL DE PROGRAMAÇÃO`, 14, 17);
+      doc.setFontSize(12);
+      doc.text(`${nomeEmissora} — GRADE SEMANAL DE PROGRAMAÇÃO`, 12, 15);
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text(`Emitido em ${dataHoje} às ${horaHoje}`, 245, 17);
+      doc.setFontSize(7.5);
+      const textoSub = `${labelSemana}${datasSemana ? ' (' + datasSemana + ')' : ''} · Emitido em ${dataHoje} às ${horaHoje}`;
+      doc.text(textoSub, 285 - doc.getTextWidth(textoSub), 15);
 
-      // Tabela de Programação com Autotable
-      const tableData = window.GradeEditorCore.buildWeeklyTable(blocksByDay, { intervalMinutes: 15 });
+      // 2. Barra de Legenda e Resumo Executivo
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(8, 21.5, 281, 6, 'FD');
+
+      doc.setFontSize(6.2);
+      doc.setTextColor(51, 65, 85);
+      doc.setFont('helvetica', 'bold');
+      doc.text('LEGENDA:', 11, 25.5);
+      doc.setFont('helvetica', 'normal');
+      doc.text('[INÉDITO] Estreia   ·   [REP] Reprise vinculada   ·   🎪 Faixa Temática   ·   📺 Episódio atribuído   ·   ↳ Continuação', 25, 25.5);
+
+      if (resumoExecutivo) {
+        const statsText = `${resumoExecutivo.totalSlots} blocos (${resumoExecutivo.horasProgramadas}h) · ${resumoExecutivo.totalIneditos} inéditos · ${resumoExecutivo.totalReprises} reprises (${resumoExecutivo.taxaVinculoReprises}% vinculadas) · ${resumoExecutivo.totalComEpisodio} com ep.`;
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(15, 23, 42);
+        doc.text(statsText, 285 - doc.getTextWidth(statsText), 25.5);
+      }
+
+      // 3. Tabela de Programação com Autotable (dimensões calibradas para A4 Paisagem)
+      const tableData = window.GradeEditorCore.buildWeeklyTable(blocksByDay, {
+        intervalMinutes: 15,
+        incluirMetadados: true,
+        recurrenceState: recurrenceState
+      });
 
       doc.autoTable({
         head: [tableData.headers],
         body: tableData.rows,
-        startY: 25,
-        margin: { left: 10, right: 10, bottom: 10 },
+        startY: 29,
+        margin: { left: 8, right: 8, top: 16, bottom: 10 },
+        showHead: 'everyPage',
         styles: {
-          fontSize: 6.5,
-          cellPadding: 1.5,
+          fontSize: 5.6,
+          cellPadding: 0.9,
           font: 'helvetica',
           overflow: 'linebreak',
-          lineColor: [220, 220, 220],
+          lineColor: [226, 232, 240],
           lineWidth: 0.1,
+          valign: 'top',
         },
         headStyles: {
-          fillColor: [26, 29, 41],
+          fillColor: [30, 41, 59],
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           halign: 'center',
-          fontSize: 7.5,
+          fontSize: 6.8,
         },
         columnStyles: {
           0: { cellWidth: 16, halign: 'center', fontStyle: 'bold', fillColor: [248, 250, 252] },
-          1: { cellWidth: 37 },
-          2: { cellWidth: 37 },
-          3: { cellWidth: 37 },
-          4: { cellWidth: 37 },
-          5: { cellWidth: 37 },
-          6: { cellWidth: 37 },
-          7: { cellWidth: 37 },
+          1: { cellWidth: 37.8 },
+          2: { cellWidth: 37.8 },
+          3: { cellWidth: 37.8 },
+          4: { cellWidth: 37.8 },
+          5: { cellWidth: 37.8 },
+          6: { cellWidth: 37.8 },
+          7: { cellWidth: 37.8 },
         },
         alternateRowStyles: {
-          fillColor: [252, 252, 253],
+          fillColor: [253, 254, 255],
+        },
+        didParseCell: function (data) {
+          if (data.section === 'body' && data.column.index > 0) {
+            const text = String(data.cell.raw || '');
+            if (text.includes('[INÉDITO]')) {
+              data.cell.styles.fillColor = [240, 253, 244];
+              data.cell.styles.textColor = [22, 101, 52];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (text.includes('[REP')) {
+              data.cell.styles.fillColor = [245, 243, 255];
+              data.cell.styles.textColor = [107, 33, 168];
+            } else if (text.startsWith('↳')) {
+              data.cell.styles.textColor = [148, 163, 184];
+              data.cell.fontSize = 5.0;
+            }
+          }
         },
         didDrawPage: function (data) {
-          // Rodapé
-          const pageCount = doc.internal.getNumberOfPages();
-          doc.setFontSize(7);
-          doc.setTextColor(130, 130, 130);
-          doc.text(
-            `Página ${data.pageNumber} de ${pageCount} · Sistema Roteiro White-Label · ${nomeEmissora}`,
-            14,
-            202
-          );
+          if (data.pageNumber > 1) {
+            doc.setFillColor(...corPrimariaRgb);
+            doc.rect(8, 4, 281, 7, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(8);
+            doc.text(`${nomeEmissora} — GRADE SEMANAL (${labelSemana})`, 11, 8.8);
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(6.5);
+            const miniData = `Emitido em ${dataHoje} às ${horaHoje}`;
+            doc.text(miniData, 285 - doc.getTextWidth(miniData), 8.8);
+          }
         },
       });
+
+      // 4. Numeração e Rodapé Oficial Preciso em Todas as Páginas
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(6.2);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          `Sistema RoteiroHub White-Label · ${nomeEmissora} · Grade Oficial de Programação`,
+          8,
+          205
+        );
+        const pagTexto = `Página ${i} de ${totalPages} · Emitido em ${dataHoje} ${horaHoje}`;
+        doc.text(pagTexto, 289 - doc.getTextWidth(pagTexto), 205);
+      }
 
       const filename = `GRADE_SEMANAL_${slugEmissora.toUpperCase()}_${dataHoje.replace(/\//g, '-')}.pdf`;
       doc.save(filename);
       showToast(`PDF da grade exportado com sucesso: ${filename}`, 'success');
     } catch (err) {
       console.error('Falha ao exportar PDF via jsPDF:', err);
-      // Fallback para impressão
       window.print();
     }
   };
@@ -1624,6 +1714,126 @@
     window.abrirModalExcecoes('', block?.time || '08:00:00');
   };
 
+  // Converte a matriz visual para o formato puro aceito pelo motor de herança.
+  function obterGradeHerancaUI() {
+    const grade = {};
+    [0,1,2,3,4,5,6].forEach(d => {
+      grade[d] = (blocksByDay[d] || []).map((block, idx) => {
+        const rule = recurrenceState.slots[getSlotKey(d, idx)] || {};
+        const prog = block.program || {};
+        return {
+          id: `slot-${d}-${idx}`, diaSemana: Number(d), horario: block.time,
+          tipoExibicao: rule.tipoExibicao || 'fixo', programaId: getProgramKey(prog),
+          programaNome: prog.title || prog.nome || '', episodio: block.episodio || rule.episodio || null,
+          origemReprise: rule.origemReprise || block.origemReprise || null,
+          mestreSlotId: rule.mestreSlotId || block.mestreSlotId || null,
+          bloquearHeranca: !!(rule.bloquearHeranca || block.bloquearHeranca),
+          classificacao: rule.classificacao || block.classificacao || null,
+          faixaOcupada: rule.faixaNome || block.faixaNome || prog.faixaOcupada || null
+        };
+      });
+    });
+    return grade;
+  }
+
+  function aplicarHerancaNaGradeUI() {
+    if (!window.GradeRecorrenciaCore?.propagarHerancaGradeSemana) return obterGradeHerancaUI();
+    const grade = window.GradeRecorrenciaCore.propagarHerancaGradeSemana(obterGradeHerancaUI());
+    [0,1,2,3,4,5,6].forEach(d => {
+      (grade[d] || []).forEach((slot, idx) => {
+        const block = blocksByDay[d]?.[idx];
+        if (!block) return;
+        if (slot.episodio) block.episodio = slot.episodio;
+        block.mestreSlotId = slot.mestreSlotId || block.mestreSlotId;
+        const rule = recurrenceState.slots[getSlotKey(d, idx)];
+        if (rule) {
+          if (slot.episodio) rule.episodio = slot.episodio;
+          if (slot.mestreSlotId) rule.mestreSlotId = slot.mestreSlotId;
+          if (slot.origemReprise) rule.origemReprise = slot.origemReprise;
+        }
+      });
+    });
+    return grade;
+  }
+
+  function lerEpisodioDoFormulario() {
+    const titulo = (document.getElementById('slot-ep-titulo')?.value || '').trim();
+    const codigo = (document.getElementById('slot-ep-codigo')?.value || '').trim();
+    const temporada = document.getElementById('slot-ep-temporada')?.value;
+    const numero = document.getElementById('slot-ep-numero')?.value;
+    const duracao = (document.getElementById('slot-ep-duracao')?.value || '').trim();
+    const blocos = [...document.querySelectorAll('#container-blocos-episodio .linha-bloco-episodio')].map((row, i) => ({
+      bloco: i + 1,
+      duracao: (row.querySelector('.input-bloco-duracao')?.value || '').trim(),
+      code: (row.querySelector('.input-bloco-codigo')?.value || '').trim()
+    })).filter(b => b.duracao);
+    if (!titulo && !codigo && !blocos.length) return null;
+    const episodio = { titulo: titulo || 'Episódio', codigo: codigo || null,
+      temporada: temporada ? Number(temporada) : null, episodioNumero: numero ? Number(numero) : null,
+      duracaoTotal: duracao || null, blocos };
+    return window.GradeRecorrenciaCore?.normalizarEpisodio
+      ? window.GradeRecorrenciaCore.normalizarEpisodio(episodio) : episodio;
+  }
+
+  window.adicionarBlocoEpisodioSlot = function (dados = {}) {
+    const container = document.getElementById('container-blocos-episodio');
+    if (!container) return;
+    const n = container.children.length + 1;
+    const row = document.createElement('div');
+    row.className = 'linha-bloco-episodio';
+    row.style.cssText = 'display:grid;grid-template-columns:36px 110px 1fr auto;gap:5px;align-items:center';
+    const label = document.createElement('strong'); label.textContent = `B${n}`;
+    const duration = document.createElement('input'); duration.className = 'search-input input-bloco-duracao'; duration.placeholder = '00:13:00'; duration.value = dados.duracao || '';
+    const code = document.createElement('input'); code.className = 'search-input input-bloco-codigo'; code.placeholder = 'Código do bloco'; code.value = dados.code || '';
+    [duration, code].forEach(el => { el.style.cssText = 'background:#fff;padding:2px 6px;font-size:11px'; });
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn-outline'; remove.textContent = '×'; remove.title = 'Remover bloco';
+    remove.onclick = () => row.remove();
+    row.append(label, duration, code, remove); container.appendChild(row);
+  };
+
+  window.limparEpisodioSlotAtual = function () {
+    ['slot-ep-titulo','slot-ep-codigo','slot-ep-temporada','slot-ep-numero','slot-ep-duracao'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+    const container=document.getElementById('container-blocos-episodio'); if(container) container.innerHTML='';
+  };
+
+  window.atualizarPreviewRepriseOrigem = function () {
+    const val=document.getElementById('select-origem-reprise')?.value || '';
+    const preview=document.getElementById('reprise-origem-preview');
+    const text=document.getElementById('reprise-preview-texto');
+    if(!preview || !text) return;
+    const [d,h]=val.split('|');
+    const idx=(blocksByDay[Number(d)]||[]).findIndex(b=>b.time===h);
+    const b=idx >= 0 ? blocksByDay[Number(d)][idx] : null;
+    const ep=b?.episodio || (idx >= 0 ? recurrenceState.slots[getSlotKey(Number(d),idx)]?.episodio : null);
+    preview.style.display=val.includes('|') ? 'block' : 'none';
+    text.textContent=ep?.titulo ? `Episódio do inédito: ${ep.titulo}${ep.codigo ? ` · ${ep.codigo}` : ''}` : 'O horário inédito ainda não tem episódio cadastrado; a reprise acompanhará quando for preenchido.';
+  };
+
+  window.abrirModalAuditoriaGrade = function () {
+    renderAuditoriaGrade(); const modal=document.getElementById('modal-auditoria-grade'); if(modal) modal.style.display='flex';
+  };
+  window.closeModalAuditoriaGrade = function () { const modal=document.getElementById('modal-auditoria-grade'); if(modal) modal.style.display='none'; };
+
+  function renderAuditoriaGrade() {
+    const container=document.getElementById('auditoria-conteudo'); if(!container) return;
+    const core=window.GradeRecorrenciaCore;
+    if(!core?.validarConsistenciaReprises) { container.textContent='Auditoria indisponível.'; return; }
+    const rel=core.validarConsistenciaReprises(obterGradeHerancaUI());
+    const s=rel.estatisticas;
+    const cards=[['Slots',s.totalSlots],['Inéditos',`${s.ineditosComEpisodio}/${s.totalIneditos} com episódio`],['Reprises',`${s.reprisesVinculadas}/${s.totalReprises} vinculadas`],['Fixos',s.totalFixos]];
+    const summary=document.createElement('div'); summary.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px';
+    cards.forEach(([name,value])=>{const card=document.createElement('div');card.style.cssText='padding:10px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;text-align:center';const strong=document.createElement('strong');strong.textContent=String(value);const small=document.createElement('div');small.textContent=name;card.append(strong,small);summary.appendChild(card);});
+    container.replaceChildren(summary);
+    const issues=[...(rel.erros||[]).map(x=>({...x,severidade:'erro'})),...(rel.alertas||[]).map(x=>({...x,severidade:'aviso'}))];
+    if(!issues.length){const ok=document.createElement('div');ok.style.cssText='padding:12px;background:#ecfdf5;color:#065f46;border:1px solid #10b981;border-radius:6px';ok.textContent='Nenhum conflito de vínculo ou cronologia foi encontrado.';container.appendChild(ok);return;}
+    issues.forEach(issue=>{const row=document.createElement('div');row.style.cssText=`padding:10px;border-radius:6px;background:${issue.severidade==='erro'?'#fff1f2':'#fefce8'};color:${issue.severidade==='erro'?'#9f1239':'#854d0e'}`;row.textContent=issue.mensagem;container.appendChild(row);});
+  }
+
+  window.executarPropagacaoHerancaManual = function () {
+    aplicarHerancaNaGradeUI(); persistirEstadoRecorrencia(); renderActiveView(); renderAuditoriaGrade();
+    showToast('Heranças de episódios atualizadas na semana.', 'success');
+  };
+
   window.abrirConfigSlot = function (dow, idx) {
     const block = blocksByDay[dow]?.[idx];
     if (!block?.program) {
@@ -1659,6 +1869,16 @@
     const statusFaixa = document.getElementById('config-faixa-status-texto');
     if (statusFaixa) statusFaixa.textContent = `${subs.length} atrações cadastradas nesta faixa.`;
     window.toggleConfigFaixaSection();
+
+    const epAtual = block.episodio || rule.episodio || null;
+    const epFields = { 'slot-ep-titulo': epAtual?.titulo || '', 'slot-ep-codigo': epAtual?.codigo || '',
+      'slot-ep-temporada': epAtual?.temporada ?? '', 'slot-ep-numero': epAtual?.episodioNumero ?? '',
+      'slot-ep-duracao': epAtual?.duracaoTotal || '' };
+    Object.entries(epFields).forEach(([id,value])=>{const el=document.getElementById(id);if(el)el.value=value;});
+    const blocksContainer=document.getElementById('container-blocos-episodio');
+    if(blocksContainer){blocksContainer.innerHTML='';(epAtual?.blocos||[]).forEach(b=>window.adicionarBlocoEpisodioSlot(b));}
+    const lock=document.getElementById('slot-bloquear-heranca');if(lock)lock.checked=!!rule.bloquearHeranca;
+    window.atualizarPreviewRepriseOrigem();
 
     document.getElementById('modal-config-slot').style.display = 'flex';
   };
@@ -1705,36 +1925,32 @@
   window.salvarConfigSlot = function () {
     if (!slotConfigContext) return;
     const { dow, idx } = slotConfigContext;
-    const tipoExibicao = document.querySelector('input[name="slot-tipo-exibicao"]:checked')?.value || 'inedito';
-    let origemReprise = null;
-    if (tipoExibicao === 'reprise') {
-      const value = document.getElementById('select-origem-reprise')?.value || '';
-      if (!value.includes('|')) {
-        alert('Não há horário inédito disponível do mesmo programa para vincular. Configure primeiro um horário inédito desse programa.');
-        return;
-      }
-      const [dia, horario] = value.split('|');
-      origemReprise = { diaSemana: Number(dia), horario };
+    const block=blocksByDay[dow]?.[idx];
+    const tipoExibicao=document.querySelector('input[name="slot-tipo-exibicao"]:checked')?.value || 'inedito';
+    let origemReprise=null, mestreSlotId=null;
+    if(tipoExibicao==='reprise'){
+      const value=document.getElementById('select-origem-reprise')?.value || '';
+      if(!value.includes('|')){alert('Não há horário inédito disponível do mesmo programa para vincular. Configure primeiro um horário inédito desse programa.');return;}
+      const [dia,horario]=value.split('|'); origemReprise={diaSemana:Number(dia),horario};
+      const mestreIdx=(blocksByDay[Number(dia)]||[]).findIndex(b=>b.time===horario);
+      if(mestreIdx>=0)mestreSlotId=`slot-${Number(dia)}-${mestreIdx}`;
     }
-    const faixaInput = (document.getElementById('slot-faixa-nome-input')?.value || '').trim();
-    recurrenceState.slots[getSlotKey(dow, idx)] = {
-      tipoExibicao,
-      origemReprise,
-      programaId: getProgramKey(blocksByDay[dow]?.[idx]?.program),
-      faixaNome: faixaInput || undefined,
-      subprogramaDe: faixaInput || undefined
-    };
-    if (blocksByDay[dow]?.[idx]) {
-      blocksByDay[dow][idx].faixaNome = faixaInput || undefined;
-      if (blocksByDay[dow][idx].program) {
-        blocksByDay[dow][idx].program.faixaNome = faixaInput || '';
-        blocksByDay[dow][idx].program.faixaOcupada = faixaInput || '';
-      }
+    const faixaInput=(document.getElementById('slot-faixa-nome-input')?.value||'').trim();
+    const bloquearHeranca=tipoExibicao==='reprise' && !!document.getElementById('slot-bloquear-heranca')?.checked;
+    const episodio=lerEpisodioDoFormulario();
+    const key=getSlotKey(dow,idx);
+    const rule={...(recurrenceState.slots[key]||{}),tipoExibicao,origemReprise,mestreSlotId,bloquearHeranca,
+      programaId:getProgramKey(block?.program),faixaNome:faixaInput||undefined,subprogramaDe:faixaInput||undefined,
+      episodio:(tipoExibicao==='reprise'&&!bloquearHeranca)?null:episodio};
+    recurrenceState.slots[key]=rule;
+    if(block){
+      block.tipoExibicao=tipoExibicao;block.origemReprise=origemReprise;block.mestreSlotId=mestreSlotId;
+      block.bloquearHeranca=bloquearHeranca;block.episodio=rule.episodio;block.faixaNome=faixaInput||undefined;
+      if(block.program){block.program.faixaNome=faixaInput||'';block.program.faixaOcupada=faixaInput||'';}
     }
-    persistirEstadoRecorrencia();
-    window.closeConfigSlotModal();
-    renderActiveView();
-    showToast(tipoExibicao === 'reprise' ? 'Horário configurado como reprise vinculada.' : 'Horário configurado como inédito.', 'success');
+    aplicarHerancaNaGradeUI();
+    persistirEstadoRecorrencia(); window.closeConfigSlotModal(); renderActiveView();
+    showToast(tipoExibicao==='reprise'?(bloquearHeranca?'Reprise salva como episódio exclusivo.':'Reprise vinculada ao horário inédito.'):(episodio?'Episódio salvo e heranças atualizadas.':'Configuração do horário salva.'),'success');
   };
 
   window.abrirModalFilasEpisodios = function () {
@@ -1864,12 +2080,26 @@
       updated_at: new Date().toISOString(),
     };
 
+    // Publicação para os Roteiros Diários via GradeRoteiroSyncCore
+    const emissoraId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
+    let publicacao = null;
+    if (window.GradeRoteiroSyncCore) {
+      publicacao = window.GradeRoteiroSyncCore.prepararPublicacaoGradeSemanal({
+        emissoraId,
+        blocksByDay: gradeBlocksByDay,
+        recurrenceState,
+        resumoSemana,
+        publicadoPor: currentUser ? currentUser.email : "Operador"
+      });
+      saved.gradePublicadaInfo = publicacao.info;
+      saved.gradePublicadaBlocksByDay = gradeBlocksByDay;
+    }
+
     localStorage.setItem(storageKey, JSON.stringify(saved));
 
     // Sincroniza com Supabase se usuário estiver logado
     if (supabaseClient && currentUser) {
       try {
-        const emissoraId = window.EmissoraContext ? window.EmissoraContext.getEmissoraAtivaId() : null;
         if (emissoraId) {
           await supabaseClient.from('user_data').upsert({
             user_id: currentUser.id,
@@ -1877,6 +2107,7 @@
             grade_by_day: gradeByDay,
             grade_order_by_day: gradeOrderByDay,
             grade_recorrencia: recurrenceState,
+            grade_publicada: publicacao ? publicacao.info : null,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'user_id, emissora_id' });
         }
@@ -1886,8 +2117,15 @@
     }
 
     isDirty = false;
-    setSyncStatus('Salvo');
-    showToast('Grade semanal salva com sucesso! Disponível no Roteiro.', 'success');
+    setSyncStatus('Salvo e Publicado');
+    const msg = publicacao
+      ? `Grade semanal salva e publicada para os Roteiros Diários! (${publicacao.info.rotuloCompleto})`
+      : 'Grade semanal salva com sucesso! Disponível no Roteiro.';
+    showToast(msg, 'success');
+  };
+
+  window.publicarGradeParaRoteiros = function () {
+    return window.salvarGrade();
   };
 
 

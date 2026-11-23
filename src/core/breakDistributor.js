@@ -22,6 +22,39 @@
     return [h, m, sec].map(n => String(n).padStart(2, '0')).join(':');
   }
 
+  
+  const PROGRAM_TYPES = new Set(["PGM", "RPRO", "GPRO", "IPRO"]);
+  const CHAMADA_TYPES = new Set(["ECHM", "ECHE", "GCHM", "CH", "CHAMADA_QUENTE", "CHAMADA"]);
+  const INTERPROGRAMA_TYPES = new Set([
+    "EINT", "EINS", "GGV", "GINS", "PROMO", "INTERPRO", "INTERPROGRAMA", "PROGRAMAETE", "PROGRAMETE"
+  ]);
+  const VINHETA_TYPES = new Set(["EVNH", "GVNH", "VH", "VINHETA"]);
+  const COMERCIAL_TYPES = new Set(["ECOM", "RCOM", "RPOL"]);
+
+  function isProgramType(type) {
+    return PROGRAM_TYPES.has(String(type || "").toUpperCase());
+  }
+
+  function isChamadaType(type) {
+    return CHAMADA_TYPES.has(String(type || "").toUpperCase());
+  }
+
+  function isInterprogramaType(type) {
+    return INTERPROGRAMA_TYPES.has(String(type || "").toUpperCase());
+  }
+
+  function isVinhetaType(type) {
+    return VINHETA_TYPES.has(String(type || "").toUpperCase());
+  }
+
+  function isComercialType(type) {
+    return COMERCIAL_TYPES.has(String(type || "").toUpperCase());
+  }
+
+  function isBreakOrPieceType(type) {
+    return isChamadaType(type) || isInterprogramaType(type) || isVinhetaType(type) || isComercialType(type);
+  }
+
   function normalizeKey(s) {
     return String(s || '')
       .normalize('NFD')
@@ -306,16 +339,16 @@
     let prevAllocatedTheme = null;
     let prevAllocatedType = null;
 
-    function findSurroundingProgramTheme(idx) {
+        function findSurroundingProgramTheme(idx) {
       for (let i = idx - 1; i >= 0; i--) {
         const item = roteiro[i];
-        if (item.type === 'PGM' || (!item.type?.startsWith('__') && !item.type?.startsWith('E'))) {
+        if (isProgramType(item.type) || (!item.type?.startsWith("__") && !isBreakOrPieceType(item.type))) {
           return extractTheme(item);
         }
       }
       for (let i = idx + 1; i < roteiro.length; i++) {
         const item = roteiro[i];
-        if (item.type === 'PGM' || (!item.type?.startsWith('__') && !item.type?.startsWith('E'))) {
+        if (isProgramType(item.type) || (!item.type?.startsWith("__") && !isBreakOrPieceType(item.type))) {
           return extractTheme(item);
         }
       }
@@ -334,14 +367,14 @@
         }
       }
 
-      if (p.type === 'ECOM' && prevAllocatedType === 'ECOM') {
+      if (isComercialType(p.type) && isComercialType(prevAllocatedType)) {
         return false;
       }
 
       let minIntervalo = 0;
-      if (p.type === 'ECHM' || p.type === 'ECHE') minIntervalo = intervaloChamada;
-      else if (p.type === 'EINT' || p.type === 'EINS') minIntervalo = intervaloInterprograma;
-      else if (p.type === 'ECOM') minIntervalo = intervaloComercial;
+      if (isChamadaType(p.type)) minIntervalo = intervaloChamada;
+      else if (isInterprogramaType(p.type)) minIntervalo = intervaloInterprograma;
+      else if (isComercialType(p.type)) minIntervalo = intervaloComercial;
 
       const last = lastSeenSec[p.code];
       if (last != null && (currentSec - last) < minIntervalo) {
@@ -446,13 +479,20 @@
         }
       } else if (isSlot) {
         const descUpper = String(it.descricao || '').toUpperCase();
+        let targetKind = 'chamada';
         let targetType = 'ECHM';
-        if (descUpper.includes('INTERPROGRAMA')) targetType = 'EINT';
-        else if (descUpper.includes('COMERCIAL')) targetType = 'ECOM';
+        if (descUpper.includes('INTERPROGRAMA') || descUpper.includes('PROMO') || descUpper.includes('INSTITUCIONAL') || descUpper.includes('GOVERNO')) {
+          targetKind = 'interprograma';
+          targetType = 'EINT';
+        } else if (descUpper.includes('COMERCIAL')) {
+          targetKind = 'comercial';
+          targetType = 'ECOM';
+        }
 
         const candidates = pecasAtivas.filter(p => {
-          if (targetType === 'ECHM') return p.type === 'ECHM' || p.type === 'ECHE';
-          if (targetType === 'EINT') return p.type === 'EINT' || p.type === 'EINS';
+          if (targetKind === 'chamada') return isChamadaType(p.type);
+          if (targetKind === 'interprograma') return isInterprogramaType(p.type);
+          if (targetKind === 'comercial') return isComercialType(p.type);
           return p.type === targetType;
         });
 
@@ -479,14 +519,14 @@
             type: alocada.type,
             score: pScore,
             origem: alocada._origem || 'pecas',
-            tipoAlocacao: targetType === 'ECHM' ? 'chamada' : (targetType === 'EINT' ? 'interprograma' : 'break')
+            tipoAlocacao: targetKind === 'chamada' ? 'chamada' : (targetKind === 'interprograma' ? 'interprograma' : 'break')
           });
           exibições[alocada.code] = (exibições[alocada.code] || 0) + 1;
           lastSeenSec[alocada.code] = cumSec;
           prevAllocatedTheme = pTheme;
           prevAllocatedType = alocada.type;
 
-          if (targetType === 'ECHM') chamadasPreenchidas++;
+          if (targetKind === 'chamada') chamadasPreenchidas++;
           else interprogramasPreenchidos++;
 
           cumSec += durSec;
@@ -509,7 +549,7 @@
       } else {
         outRoteiro.push(it);
         cumSec += timeToSec(it.tempo);
-        if (it.type === 'PGM' || !it.type?.startsWith('__')) {
+        if (isProgramType(it.type) || (!it.type?.startsWith('__') && !isBreakOrPieceType(it.type))) {
           const progTheme = extractTheme(it);
           if (progTheme) prevAllocatedTheme = progTheme;
           prevAllocatedType = it.type;
@@ -533,6 +573,11 @@
 
   const api = {
     distribuirPecasNosBreaks,
+    isProgramType,
+    isChamadaType,
+    isInterprogramaType,
+    isVinhetaType,
+    isComercialType,
     findCombinationForDuration,
     isValidadeExpired,
     extractTheme,

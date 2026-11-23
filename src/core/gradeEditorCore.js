@@ -323,6 +323,73 @@
   /**
    * Constrói uma tabela consolidada da semana toda para renderização matricial e exportação em PDF.
    */
+  /**
+   * Calcula estatísticas consolidadas e resumo executivo da semana para a grade e exportação de relatórios/PDF.
+   */
+  function calcularResumoExecutivoGrade(blocksByDay, options = {}) {
+    const days = [1, 2, 3, 4, 5, 6, 0];
+    let totalSlots = 0;
+    let totalIneditos = 0;
+    let totalReprises = 0;
+    let totalFixos = 0;
+    let reprisesVinculadas = 0;
+    let ineditosComEpisodio = 0;
+    let reprisesComEpisodio = 0;
+    let totalComEpisodio = 0;
+    let totalSegundos = 0;
+    const faixasSet = new Set();
+    const programasSet = new Set();
+
+    days.forEach(d => {
+      const blocks = blocksByDay[d] || [];
+      blocks.forEach((b, idx) => {
+        if (!b.program || !b.program.title) return;
+        totalSlots++;
+        programasSet.add(b.program.title.trim().toUpperCase());
+        totalSegundos += b.durationSec || timeToSec(b.duration);
+
+        const slotKey = `${d}_${idx}`;
+        const recSlot = options.recurrenceState?.slots?.[slotKey] || {};
+        const tipo = b.tipoExibicao || recSlot.tipoExibicao || 'fixo';
+        const origem = b.origemReprise || recSlot.origemReprise;
+        const ep = b.episodio || recSlot.episodio;
+        const faixa = b.faixaOcupada || recSlot.faixaNome || (b.program && (b.program.faixaOcupada || b.program.faixa_ocupada));
+
+        if (faixa) faixasSet.add(faixa.trim());
+
+        if (tipo === 'inedito') {
+          totalIneditos++;
+          if (ep && ep.titulo) ineditosComEpisodio++;
+        } else if (tipo === 'reprise') {
+          totalReprises++;
+          if (origem && (origem.diaSemana !== undefined || origem.horario)) reprisesVinculadas++;
+          if (ep && ep.titulo) reprisesComEpisodio++;
+        } else {
+          totalFixos++;
+        }
+
+        if (ep && ep.titulo) totalComEpisodio++;
+      });
+    });
+
+    const horasProgramadas = (totalSegundos / 3600).toFixed(1);
+
+    return {
+      totalSlots,
+      totalIneditos,
+      totalReprises,
+      totalFixos,
+      reprisesVinculadas,
+      ineditosComEpisodio,
+      reprisesComEpisodio,
+      totalComEpisodio,
+      totalProgramasUnicos: programasSet.size,
+      faixasIdentificadas: Array.from(faixasSet),
+      horasProgramadas: Number(horasProgramadas),
+      taxaVinculoReprises: totalReprises > 0 ? Math.round((reprisesVinculadas / totalReprises) * 100) : 100
+    };
+  }
+
   function buildWeeklyTable(blocksByDay, options = {}) {
     const days = [1, 2, 3, 4, 5, 6, 0];
     const dayNames = { 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado', 0: 'Domingo' };
@@ -363,9 +430,45 @@
 
         if (activeBlock && activeBlock.program && activeBlock.program.title) {
           const isStart = activeBlock.time === tStr;
-          const label = isStart
+          let label = isStart
             ? (activeBlock.program.title + ' (' + activeBlock.duration.substring(0, 5) + ')')
             : ('↳ ' + activeBlock.program.title);
+
+          if (options.incluirMetadados && isStart) {
+            const blockIdx = blocks.indexOf(activeBlock);
+            const slotKey = `${d}_${blockIdx}`;
+            const recSlot = options.recurrenceState?.slots?.[slotKey] || {};
+            const tipo = activeBlock.tipoExibicao || recSlot.tipoExibicao;
+            const origem = activeBlock.origemReprise || recSlot.origemReprise;
+            const ep = activeBlock.episodio || recSlot.episodio;
+            const faixa = activeBlock.faixaOcupada || recSlot.faixaNome || (activeBlock.program && (activeBlock.program.faixaOcupada || activeBlock.program.faixa_ocupada));
+
+            const tags = [];
+            if (tipo === 'inedito') {
+              tags.push('[INÉDITO]');
+            } else if (tipo === 'reprise') {
+              if (origem && origem.diaSemana !== undefined) {
+                const diaNome = dayNames[origem.diaSemana] || '';
+                const horaStr = (origem.horario || '').substring(0, 5);
+                tags.push(`[REP ${diaNome.substring(0, 3)} ${horaStr}]`);
+              } else {
+                tags.push('[REPRISE]');
+              }
+            }
+            if (faixa) {
+              tags.push(`🎪 ${faixa}`);
+            }
+            if (tags.length > 0) {
+              label += '\n' + tags.join(' ');
+            }
+            if (ep && ep.titulo) {
+              const epNum = (ep.temporada && ep.episodioNumero)
+                ? `T${String(ep.temporada).padStart(2, '0')}E${String(ep.episodioNumero).padStart(2, '0')}: `
+                : (ep.codigo ? `${ep.codigo}: ` : '');
+              label += `\n📺 ${epNum}${ep.titulo}`;
+            }
+          }
+
           row.push(label);
         } else {
           row.push('');
@@ -527,6 +630,7 @@
     blocksToGrade,
     moveOrSwapSlot,
     buildWeeklyTable,
+    calcularResumoExecutivoGrade,
     gradeToBlocks,
     vincularFaixaIntervalo,
   };

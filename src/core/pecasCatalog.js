@@ -85,18 +85,60 @@ function vhRole(descricao) {
  * automaticamente para o programa <PROGRAMA> na geração do roteiro.
  */
 export function buildVhMaps(pecas, ref = new Date()) {
-  const maps = { seguir: [], assistindo: [], daquiAPouco: [], classificacao: null };
+  const maps = {
+    seguir: [],
+    assistindo: [],
+    daquiAPouco: [],
+    classificacao: null,
+    vaiComecar: [],
+    voltamosJa: [],
+    voltamosCom: [],
+    realizacao: [],
+    aindaHoje: [],
+    transicao: [],
+  };
   for (const p of pecas || []) {
     if (!p || p.ativo === false || !isPecaVigente(p, ref)) continue;
+    const item = toRoteiroItem(p);
+
+    if (p.funcao) {
+      const rel = p.programaRelacionado || p.programa_relacionado;
+      const kw = rel ? [normalizeKey(rel), normalizeKey(baseProgramTitle(rel))] : ['__GENERICA__'];
+
+      if (p.funcao === 'classificacao_indicativa') {
+        if (!maps.classificacao) maps.classificacao = item;
+      } else if (p.funcao === 'vh_a_seguir') {
+        maps.seguir.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_voce_esta_assistindo') {
+        maps.assistindo.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_daqui_a_pouco') {
+        maps.daquiAPouco.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_vai_comecar') {
+        maps.vaiComecar.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_voltamos_ja') {
+        maps.voltamosJa.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_voltamos_com') {
+        maps.voltamosCom.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_realizacao') {
+        maps.realizacao.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'vh_ainda_hoje') {
+        maps.aindaHoje.push({ ...item, keywords: kw });
+      } else if (p.funcao === 'transicao') {
+        maps.transicao.push({ ...item, keywords: kw });
+      }
+      continue;
+    }
+
     const info = vhRole(p.descricao);
     if (!info) continue;
-    const item = toRoteiroItem(p);
     if (info.role === 'classificacao') {
       if (!maps.classificacao) maps.classificacao = item;
       continue;
     }
     if (!info.keyword) continue;
-    maps[info.role].push({ ...item, keywords: [info.keyword] });
+    if (maps[info.role]) {
+      maps[info.role].push({ ...item, keywords: [info.keyword] });
+    }
   }
   return maps;
 }
@@ -215,6 +257,12 @@ export function catalogFromCadastro({ pecas = [], programas = [], ref = new Date
     vhSeguirMap: vh.seguir,
     vhAssistindoMap: vh.assistindo,
     vhDaquiAPoucoMap: vh.daquiAPouco,
+    vhVaiComecarMap: vh.vaiComecar,
+    vhVoltamosJaMap: vh.voltamosJa,
+    vhVoltamosComMap: vh.voltamosCom,
+    vhRealizacaoMap: vh.realizacao,
+    vhAindaHojeMap: vh.aindaHoje,
+    vhTransicaoMap: vh.transicao,
     vhClassificacao: vh.classificacao,
     fixas: pecasFixasFromCadastro(pecas, ref),
     programas: (programas || []).filter((p) => p && p.ativo !== false),

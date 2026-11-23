@@ -15,7 +15,7 @@ export function normalizeKey(s) {
 /** Título base do programa: remove prefixo PGM, temporada/episódio, bloco, parênteses e minutagem. */
 export function baseProgramTitle(desc) {
   return String(desc || '')
-    .replace(/^\s*PGM\s+/i, '')
+    .replace(/^\s*(?:PGM|RPRO|GPRO|IPRO)\s+/i, '')
     .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '') // remove "T 01 EP 03", "T01 EP03", com ou sem hífen/espacamento
     .replace(/\s*-?\s*EP\s*\d+.*$/i, '') // remove "EP 01" com ou sem hífen
     .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '') // bloco e qualquer observação após ele (ex.: "BL 01 (REPRISE)")

@@ -14,6 +14,44 @@
   const STORAGE_KEY = 'canaledu:emissora_ativa_id';
   let emissorasCache = [];
   let emissoraAtivaId = null;
+  const tiposCache = {};
+
+  const TIPOS_PADRAO = {
+    'canal-gov': [
+      { codigo: 'GPRO', nome: 'Programa Gov', sigla: 'PGM', eh_interprograma: false, ordem: 1, cor: '#0284c7' },
+      { codigo: 'GVNH', nome: 'Vinheta Gov', sigla: 'VNH', eh_interprograma: false, ordem: 2, cor: '#8b5cf6' },
+      { codigo: 'GCHM', nome: 'Chamada Gov', sigla: 'CHM', eh_interprograma: false, ordem: 3, cor: '#ef4444' },
+      { codigo: 'GGV', nome: 'Governo Federal / Campanhas', sigla: 'GGV', eh_interprograma: true, ordem: 4, cor: '#f59e0b' },
+      { codigo: 'GINS', nome: 'Institucional Gov', sigla: 'INS', eh_interprograma: true, ordem: 5, cor: '#10b981' },
+      { codigo: 'LIVE', nome: 'Ao Vivo / Transmissão', sigla: 'VIV', eh_interprograma: false, ordem: 6, cor: '#dc2626' },
+    ],
+    'tv-brasil': [
+      { codigo: 'RPRO', nome: 'Programa', sigla: 'PGM', eh_interprograma: false, ordem: 1, cor: '#10b981' },
+      { codigo: 'CH', nome: 'Chamada', sigla: 'CH', eh_interprograma: false, ordem: 2, cor: '#ef4444' },
+      { codigo: 'VH', nome: 'Vinheta', sigla: 'VH', eh_interprograma: false, ordem: 3, cor: '#8b5cf6' },
+      { codigo: 'PROMO', nome: 'Promoção', sigla: 'PRM', eh_interprograma: false, ordem: 4, cor: '#f59e0b' },
+      { codigo: 'INTERPRO', nome: 'Interprograma', sigla: 'INT', eh_interprograma: true, ordem: 5, cor: '#3b82f6' },
+      { codigo: 'CI', nome: 'Classificação Indicativa', sigla: 'CI', eh_interprograma: false, ordem: 6, cor: '#64748b' },
+      { codigo: 'PROGRAMETE', nome: 'Programete', sigla: 'PGT', eh_interprograma: true, ordem: 7, cor: '#059669' },
+    ],
+    'tv-brasil-int': [
+      { codigo: 'IPRO', nome: 'Programa Internacional', sigla: 'PGM', eh_interprograma: false, ordem: 1, cor: '#f59e0b' },
+      { codigo: 'CH', nome: 'Chamada', sigla: 'CH', eh_interprograma: false, ordem: 2, cor: '#ef4444' },
+      { codigo: 'VH', nome: 'Vinheta', sigla: 'VH', eh_interprograma: false, ordem: 3, cor: '#8b5cf6' },
+      { codigo: 'PROMO', nome: 'Promoção', sigla: 'PRM', eh_interprograma: false, ordem: 4, cor: '#06b6d4' },
+      { codigo: 'INTERPRO', nome: 'Interprograma', sigla: 'INT', eh_interprograma: true, ordem: 5, cor: '#3b82f6' },
+      { codigo: 'CI', nome: 'Classificação Indicativa', sigla: 'CI', eh_interprograma: false, ordem: 6, cor: '#64748b' },
+    ],
+    'canal-educacao': [
+      { codigo: 'ECHE', nome: 'Chamada de Estreia', sigla: 'ECHE', eh_interprograma: false, ordem: 1, cor: '#ef9f27' },
+      { codigo: 'ECHM', nome: 'Chamada Comum / Manutenção', sigla: 'ECHM', eh_interprograma: false, ordem: 2, cor: '#888780' },
+      { codigo: 'RCOM', nome: 'Comercial', sigla: 'RCOM', eh_interprograma: false, ordem: 3, cor: '#378add' },
+      { codigo: 'RPOL', nome: 'Político', sigla: 'RPOL', eh_interprograma: false, ordem: 4, cor: '#7f77dd' },
+      { codigo: 'EINT', nome: 'Interprograma', sigla: 'EINT', eh_interprograma: true, ordem: 5, cor: '#1d9e75' },
+      { codigo: 'EVNH', nome: 'Vinheta / ID', sigla: 'EVNH', eh_interprograma: false, ordem: 6, cor: '#8b5cf6' },
+      { codigo: 'RPRO', nome: 'Programa', sigla: 'RPRO', eh_interprograma: false, ordem: 7, cor: '#10b981' },
+    ],
+  };
 
   function getStorage() {
     try {
@@ -73,6 +111,118 @@
         ...emissoraAtualizada,
       });
     }
+  }
+
+  /**
+   * Identifica o grupo padrão de tipos a partir do slug ou nome da emissora.
+   */
+  function resolverChavePadrao(slugOrNome) {
+    const str = String(slugOrNome || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (str.includes('gov')) return 'canal-gov';
+    if (str.includes('inter') || str.includes('-int') || str === 'tv-brasil-int') return 'tv-brasil-int';
+    if (str.includes('brasil') || str.includes('rede')) return 'tv-brasil';
+    return 'canal-educacao';
+  }
+
+  function getTiposPadrao(slugOrNome) {
+    const chave = resolverChavePadrao(slugOrNome);
+    return (TIPOS_PADRAO[chave] || TIPOS_PADRAO['canal-educacao']).map(t => ({ ...t }));
+  }
+
+  function setTiposEmissoraCache(emissoraId, tipos) {
+    if (!emissoraId || !Array.isArray(tipos)) return;
+    tiposCache[emissoraId] = tipos.map(t => ({ ...t }));
+  }
+
+  function getTiposEmissora(emissoraId) {
+    if (emissoraId && tiposCache[emissoraId]) {
+      return tiposCache[emissoraId].map(t => ({ ...t }));
+    }
+    const ativa = getEmissoraAtiva();
+    const slugOuNome = ativa ? (ativa.slug || ativa.nome) : null;
+    return getTiposPadrao(slugOuNome);
+  }
+
+  function getTiposEmissoraAtiva() {
+    return getTiposEmissora(getEmissoraAtivaId());
+  }
+
+  /**
+   * Carrega os tipos de peças para uma emissora via Supabase RPC fn_tipos_pecas_emissora
+   * com fallback para consulta direta na tabela ou catálogo padrão em memória.
+   */
+  async function carregarTiposEmissora(client, emissoraId, slugOrNome) {
+    if (emissoraId && tiposCache[emissoraId] && tiposCache[emissoraId].length > 0) {
+      return tiposCache[emissoraId].map(t => ({ ...t }));
+    }
+
+    if (client && emissoraId) {
+      try {
+        // 1. Tenta RPC fn_tipos_pecas_emissora
+        if (typeof client.rpc === 'function') {
+          const { data, error } = await client.rpc('fn_tipos_pecas_emissora', { p_emissora_id: emissoraId });
+          if (!error && Array.isArray(data) && data.length > 0) {
+            setTiposEmissoraCache(emissoraId, data);
+            return tiposCache[emissoraId].map(t => ({ ...t }));
+          }
+        }
+
+        // 2. Fallback direto na tabela tipos_pecas
+        if (typeof client.from === 'function') {
+          const { data, error } = await client
+            .from('tipos_pecas')
+            .select('codigo, nome, sigla, cor, eh_interprograma, ordem')
+            .eq('emissora_id', emissoraId)
+            .eq('ativo', true)
+            .order('ordem');
+
+          if (!error && Array.isArray(data) && data.length > 0) {
+            setTiposEmissoraCache(emissoraId, data);
+            return tiposCache[emissoraId].map(t => ({ ...t }));
+          }
+        }
+      } catch (e) {
+        console.warn('[EmissoraContext] Falha ao consultar tipos de peças na nuvem:', e);
+      }
+    }
+
+    const padroes = getTiposPadrao(slugOrNome || (getEmissoraAtiva() ? (getEmissoraAtiva().slug || getEmissoraAtiva().nome) : ''));
+    if (emissoraId) {
+      setTiposEmissoraCache(emissoraId, padroes);
+    }
+    return padroes;
+  }
+
+  function isVinhetaType(tipo, tipos) {
+    if (!tipo) return false;
+    const t = String(tipo).trim().toUpperCase();
+    if (['EVNH', 'GVNH', 'VH', 'VINHETA'].includes(t)) return true;
+    const list = Array.isArray(tipos) ? tipos : getTiposEmissoraAtiva();
+    if (Array.isArray(list)) {
+      const item = list.find(x => (x.codigo || '').toUpperCase() === t);
+      if (item) {
+        const sigla = (item.sigla || '').toUpperCase();
+        const nome = (item.nome || '').toLowerCase();
+        if (sigla === 'VH' || sigla === 'VNH' || nome.includes('vinheta')) return true;
+      }
+    }
+    return false;
+  }
+
+  function isProgramaType(tipo, tipos) {
+    if (!tipo) return false;
+    const t = String(tipo).trim().toUpperCase();
+    if (['RPRO', 'GPRO', 'IPRO', 'PGM'].includes(t)) return true;
+    const list = Array.isArray(tipos) ? tipos : getTiposEmissoraAtiva();
+    if (Array.isArray(list)) {
+      const item = list.find(x => (x.codigo || '').toUpperCase() === t);
+      if (item) {
+        const sigla = (item.sigla || '').toUpperCase();
+        const nome = (item.nome || '').toLowerCase();
+        if (sigla === 'PGM' || nome.includes('programa')) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -158,5 +308,12 @@
     carregarEmissoras,
     resolverEmissoraAtiva,
     getEmissorasCache: () => emissorasCache.slice(),
+    getTiposPadrao,
+    carregarTiposEmissora,
+    setTiposEmissoraCache,
+    getTiposEmissora,
+    getTiposEmissoraAtiva,
+    isVinhetaType,
+    isProgramaType,
   };
 });

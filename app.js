@@ -578,8 +578,8 @@ function editarNumeroSemanaRoteiro(mondayDate) {
   }
 }
 
-/** Preenche ou alinha o roteiro do dia selecionado com base nos blocos e programas cadastrados na Grade Semanal. */
-function sincronizarRoteiroComGradeSemana() {
+/** Preenche ou alinha o roteiro do dia selecionado com base nos blocos e programas cadastrados na Grade Semanal, preservando integralmente todas as edições feitas pelo operador. */
+function sincronizarRoteiroComGradeSemana(options = {}) {
   const dow = _currentDow();
   const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
   const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
@@ -594,14 +594,74 @@ function sincronizarRoteiroComGradeSemana() {
     return;
   }
 
+  const fonteGrade = temBlocos ? gradeBlocks : gradeSimples;
+  const SyncCore = typeof GradeRoteiroSyncCore !== 'undefined' ? GradeRoteiroSyncCore : (typeof window !== 'undefined' ? window.GradeRoteiroSyncCore : null);
+
   if (state.roteiro.length > 0) {
-    const ok = confirm(
-      `O roteiro de hoje já possui ${state.roteiro.length} itens.\n` +
-      `Deseja preencher/alinhar com a Grade Semanal de ${DAY_NAMES[dow]}?`
+    const modoForcado = options.modo;
+    let modoEscolhido = modoForcado || 'inteligente';
+
+    if (!modoForcado) {
+      const ok = confirm(
+        `O roteiro de hoje já possui ${state.roteiro.length} itens editados.\n\n` +
+        `Deseja sincronizar com a Grade Semanal de ${DAY_NAMES[dow]} preservando todas as suas edições?\n\n` +
+        `• Clique em [OK] para SINCRONIZAÇÃO INTELIGENTE (preserva 100% das chamadas, vinhetas manuais e breaks montados, atualizando programas e episódios da Grade).\n` +
+        `• Clique em [Cancelar] para manter o roteiro inalterado.`
+      );
+      if (!ok) return;
+    }
+
+    if (SyncCore) {
+      const resultado = SyncCore.mesclarGradeComRoteiroPreservandoEdicoes(
+        state.roteiro,
+        fonteGrade,
+        { modo: modoEscolhido, duracaoBreakPadrao: '00:03:00' }
+      );
+      state.roteiro = resultado.roteiroAtualizado;
+
+      // Registra metadados de versão da grade sincronizada
+      const dk = dateKey(state.currentDate || nowForGrade());
+      if (!saved._metaGradePorData) saved._metaGradePorData = {};
+      saved._metaGradePorData[dk] = {
+        versaoGrade: saved.gradePublicadaInfo?.versao || Date.now(),
+        sincronizadoEm: new Date().toISOString()
+      };
+      localStorage.setItem(_storageKey, JSON.stringify(saved));
+
+      recalcTimes();
+      saveState();
+      renderAll();
+      renderWeekSelector();
+      toast(resultado.resumo.mensagem, 'success');
+      return;
+    }
+  } else if (SyncCore) {
+    // Roteiro vazio: preenchimento inicial usando o motor inteligente
+    const resultado = SyncCore.mesclarGradeComRoteiroPreservandoEdicoes(
+      [],
+      fonteGrade,
+      { modo: 'substituir', duracaoBreakPadrao: '00:03:00' }
     );
-    if (!ok) return;
+    state.roteiro = resultado.roteiroAtualizado;
+
+    const dk = dateKey(state.currentDate || nowForGrade());
+    if (!saved._metaGradePorData) saved._metaGradePorData = {};
+    saved._metaGradePorData[dk] = {
+      versaoGrade: saved.gradePublicadaInfo?.versao || Date.now(),
+      sincronizadoEm: new Date().toISOString()
+    };
+    localStorage.setItem(_storageKey, JSON.stringify(saved));
+
+    injectPecasFixas();
+    recalcTimes();
+    saveState();
+    renderAll();
+    renderWeekSelector();
+    toast(`✓ Roteiro preenchido com ${resultado.resumo.programasNovos} programas da Grade Semanal`, 'success');
+    return;
   }
 
+  // Fallback seguro caso SyncCore não esteja carregado
   const progs = [];
 
   if (temBlocos) {
@@ -727,7 +787,7 @@ function renderRoteiro() {
   }
 
   tbody.innerHTML = state.roteiro.map((item, i) => {
-    const isProgram  = item.type === 'RPRO';
+    const isProgram  = TIPOS_PROGRAMA_APP.includes(item.type);
     const isEvnh     = item.type === 'EVNH';
     const isSlot     = item.type === '__SLOT__';
 
@@ -748,7 +808,7 @@ function renderRoteiro() {
       // Avança o contador de ocorrência sempre que troca de programa
       // contíguo — é também a definição de "primeiro bloco" do programa.
       const prevItem = i > 0 ? state.roteiro[i - 1] : null;
-      const prevBase = prevItem && prevItem.type === 'RPRO' ? _norm(baseProgramTitle(prevItem.descricao)) : null;
+      const prevBase = prevItem && TIPOS_PROGRAMA_APP.includes(prevItem.type) ? _norm(baseProgramTitle(prevItem.descricao)) : null;
       const isFirstBlock = (prevBase !== normBase);
       if (isFirstBlock) {
         renderRoteiro._occ[normBase] = n + 1;
@@ -888,18 +948,57 @@ function renderRoteiroFiltered() {
   });
 }
 
+// =====================================================
+// TIPOS POR EMISSORA (filtros da sidebar e estatísticas)
+// Canal Educação (tipos legados) mantém exatamente os botões de sempre;
+// emissoras com tipos próprios (Gov/Internacional/Rede) passam a ver os
+// tipos realmente cadastrados.
+// =====================================================
+const TIPOS_PADRAO_EDUCACAO = ['ECHM', 'ECHE', 'EINT', 'RCOM', 'RPOL', 'EVNH'];
+const TIPOS_PROGRAMA_APP = ['RPRO', 'GPRO', 'IPRO', 'PGM'];
+
+/** Lista (ordenada) de tipos de peça a exibir como filtro. Função pura sobre state.pecas. */
+function tiposFiltroEmissora(pecas) {
+  const presentes = [];
+  (pecas || []).forEach(p => {
+    const t = String(p && p.type || '').toUpperCase();
+    if (t && !t.startsWith('__') && !TIPOS_PROGRAMA_APP.includes(t) && !presentes.includes(t)) presentes.push(t);
+  });
+  const soLegado = presentes.every(t => TIPOS_PADRAO_EDUCACAO.includes(t) || t === 'ECOM' || t === 'EINS');
+  if (soLegado) return TIPOS_PADRAO_EDUCACAO.slice();
+  return presentes.sort();
+}
+
+/** Reconstrói os botões de filtro da sidebar se o conjunto de tipos mudou. */
+function renderFiltrosSidebarDinamicos() {
+  const box = document.getElementById('pecas-filters');
+  if (!box || !box.dataset || typeof box.querySelector !== 'function') return;
+  const tipos = tiposFiltroEmissora(state.pecas);
+  const assinatura = tipos.join('|');
+  if (box.dataset.tipos === assinatura) return;
+  box.dataset.tipos = assinatura;
+  const outros = [...box.children].filter(el => !el.classList.contains('filter-btn'));
+  box.innerHTML = tipos.map(t =>
+    `<button class="filter-btn${state.sidebarFilters.has(t) ? ' active' : ''}" data-t="${t}" onclick="toggleFilter('${t}')">${t}</button>`
+  ).join('') + `<button class="filter-btn${state.sidebarFilters.has('RPRO') ? ' active' : ''}" data-t="RPRO" onclick="toggleFilter('RPRO')">PGM</button>`;
+  outros.forEach(el => box.appendChild(el));
+  [...state.sidebarFilters].forEach(t => { if (t !== 'RPRO' && !tipos.includes(t)) state.sidebarFilters.delete(t); });
+}
+
 /** Atualiza a barra de estatísticas com contadores clicáveis por tipo (PGM, ECHM, ECHE, EINT, RCOM, RPOL, EVNH). Clicar num tipo ativa o filtro visual correspondente. */
 function renderStats() {
   const counts = {};
-  state.roteiro.forEach(item => { counts[item.type] = (counts[item.type]||0)+1; });
-  document.getElementById('stat-row').innerHTML = `
-    <span class="stat-badge${_statFilter==='RPRO'?' stat-badge-active':''}" data-type="RPRO" onclick="toggleStatFilter('RPRO')" title="Clique para filtrar programas">PGM <strong>${counts['RPRO']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='ECHM'?' stat-badge-active':''}" data-type="ECHM" onclick="toggleStatFilter('ECHM')" title="Clique para filtrar chamadas manutenção">ECHM <strong>${counts['ECHM']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='ECHE'?' stat-badge-active':''}" data-type="ECHE" onclick="toggleStatFilter('ECHE')" title="Clique para filtrar chamadas quentes">ECHE <strong>${counts['ECHE']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='EINT'?' stat-badge-active':''}" data-type="EINT" onclick="toggleStatFilter('EINT')" title="Clique para filtrar interprogramas">EINT <strong>${counts['EINT']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='RCOM'?' stat-badge-active':''}" data-type="RCOM" onclick="toggleStatFilter('RCOM')" title="Clique para filtrar comerciais">RCOM <strong>${counts['RCOM']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='RPOL'?' stat-badge-active':''}" data-type="RPOL" onclick="toggleStatFilter('RPOL')" title="Clique para filtrar políticos">RPOL <strong>${counts['RPOL']||0}</strong></span>
-    <span class="stat-badge${_statFilter==='EVNH'?' stat-badge-active':''}" data-type="EVNH" onclick="toggleStatFilter('EVNH')" title="Clique para filtrar vinhetas">EVNH <strong>${counts['EVNH']||0}</strong></span>
+  state.roteiro.forEach(item => {
+    const t = TIPOS_PROGRAMA_APP.includes(item.type) ? 'RPRO' : item.type;
+    counts[t] = (counts[t]||0)+1;
+  });
+  const tipos = tiposFiltroEmissora(state.pecas);
+  tiposFiltroEmissora(state.roteiro).forEach(t => { if (!tipos.includes(t)) tipos.push(t); });
+  const titulos = { ECHM: 'chamadas manutenção', ECHE: 'chamadas quentes', EINT: 'interprogramas', RCOM: 'comerciais', RPOL: 'políticos', EVNH: 'vinhetas' };
+  const badge = (t, label) =>
+    `<span class="stat-badge${_statFilter===t?' stat-badge-active':''}" data-type="${t}" onclick="toggleStatFilter('${t}')" title="Clique para filtrar ${titulos[t] || label}">${label} <strong>${counts[t]||0}</strong></span>`;
+  document.getElementById('stat-row').innerHTML =
+    badge('RPRO', 'PGM') + tipos.map(t => badge(t, t)).join('') + `
     <span style="margin-left:auto;font-size:11px;color:var(--muted)">${state.roteiro.length} itens · ${secToTime(totalDuration())}</span>
     ${_statFilter ? `<span class="stat-badge stat-clear" onclick="toggleStatFilter(null)">✕ limpar filtro</span>` : ''}
   `;
@@ -935,6 +1034,7 @@ function toggleSidebarSort(dir) {
 
 /** Renderiza a lista de peças na barra lateral aplicando filtros de busca, tipo, duração e ordenação por tempo. Cada item é arrastável e clicável (duplo clique insere no roteiro na posição selecionada). */
 function renderPecasSidebar() {
+  renderFiltrosSidebarDinamicos();
   const search   = document.getElementById('pecas-search-input').value.toLowerCase();
   const durMax   = document.getElementById('sidebar-dur-filter')?.value || '';
   const allItems = [...state.pecas,
