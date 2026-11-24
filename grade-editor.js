@@ -1092,8 +1092,9 @@
     if (!utils) return null;
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const dataRef = saved.semanaDataBase || saved.gradeSemanalInfo?.dataInicio || new Date();
     const customNum = saved.semanaCustomNumero || saved.gradeSemanalInfo?.numeroSemana || null;
-    return utils.obterResumoSemana(new Date(), 0, customNum);
+    return utils.obterResumoSemana(dataRef, 0, customNum);
   }
 
   function atualizarRotulosSemanaGrade() {
@@ -1103,6 +1104,11 @@
     const badge = document.getElementById("badge-grade-semana-info");
     if (badge) {
       badge.textContent = resumo.rotuloCompleto;
+    }
+
+    const inputCalendario = document.getElementById("input-semana-calendario");
+    if (inputCalendario && resumo.dataInicio) {
+      inputCalendario.value = resumo.dataInicio;
     }
 
     const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
@@ -1129,6 +1135,63 @@
     });
   }
 
+  window.selecionarSemanaPorData = function (dataValor) {
+    if (!dataValor) return;
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) return;
+
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+    const resumo = utils.obterResumoSemana(dataValor, 0, null);
+    saved.semanaDataBase = resumo.dataInicio;
+    saved.semanaCustomNumero = resumo.numeroSemana;
+    if (saved.gradeSemanalInfo) {
+      saved.gradeSemanalInfo.numeroSemana = resumo.numeroSemana;
+      saved.gradeSemanalInfo.dataInicio = resumo.dataInicio;
+      saved.gradeSemanalInfo.dataFim = resumo.dataFim;
+      saved.gradeSemanalInfo.descricao = resumo.rotuloCompleto;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(saved));
+    atualizarRotulosSemanaGrade();
+    if (typeof showToast === 'function') {
+      showToast(`Semana selecionada: ${resumo.rotuloCompleto}`, "info");
+    }
+  };
+
+  window.navegarSemana = function (deltaSemanas) {
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) return;
+
+    let dataBase;
+    if (deltaSemanas === 0) {
+      dataBase = new Date();
+    } else {
+      const resumoAtual = obterResumoSemanaAtiva();
+      const dt = (resumoAtual && resumoAtual.segunda) ? new Date(resumoAtual.segunda) : new Date();
+      dt.setDate(dt.getDate() + deltaSemanas * 7);
+      dataBase = dt;
+    }
+
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
+    const resumo = utils.obterResumoSemana(dataBase, 0, null);
+    saved.semanaDataBase = resumo.dataInicio;
+    saved.semanaCustomNumero = resumo.numeroSemana;
+    if (saved.gradeSemanalInfo) {
+      saved.gradeSemanalInfo.numeroSemana = resumo.numeroSemana;
+      saved.gradeSemanalInfo.dataInicio = resumo.dataInicio;
+      saved.gradeSemanalInfo.dataFim = resumo.dataFim;
+      saved.gradeSemanalInfo.descricao = resumo.rotuloCompleto;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(saved));
+    atualizarRotulosSemanaGrade();
+    if (typeof showToast === 'function') {
+      showToast(`Navegado para: ${resumo.rotuloCompleto}`, "info");
+    }
+  };
+
   window.ajustarNumeroSemanaGrade = function () {
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
@@ -1148,7 +1211,9 @@
       }
       localStorage.setItem(storageKey, JSON.stringify(saved));
       atualizarRotulosSemanaGrade();
-      showToast(`Semana ajustada para Semana ${num}!`, "success");
+      if (typeof showToast === 'function') {
+        showToast(`Semana ajustada para Semana ${num}!`, "success");
+      }
     }
   };
 

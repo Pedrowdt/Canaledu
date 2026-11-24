@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import SemanaUtils from '../../src/core/semanaUtils.js';
 
 describe('Rotulação de Semanas e Datas no Editor de Grade', () => {
@@ -24,5 +26,22 @@ describe('Rotulação de Semanas e Datas no Editor de Grade', () => {
       'Sábado (14/11)',
       'Domingo (15/11)'
     ]);
+  });
+
+  it('navegação por data arbitrária (input de calendário) alinha corretamente para a segunda-feira correspondente', () => {
+    // Usuário seleciona uma quarta-feira (25/11/2026) no calendário
+    const resumo = SemanaUtils.obterResumoSemana('2026-11-25');
+    expect(resumo.dataInicio).toBe('2026-11-23'); // Segunda-feira
+    expect(resumo.dataFim).toBe('2026-11-29'); // Domingo
+    expect(resumo.periodoFormatado).toBe('23/11 a 29/11/2026');
+  });
+
+  it('grade-editor.html possui o seletor de calendário e removeu a barra de legenda específica', () => {
+    const html = fs.readFileSync(path.resolve('grade-editor.html'), 'utf-8');
+    expect(html).toContain('id="input-semana-calendario"');
+    expect(html).toContain('selecionarSemanaPorData');
+    expect(html).toContain('navegarSemana');
+    // A barra fixa de legenda foi removida para limpar a interface
+    expect(html).not.toContain('id="grade-legend-bar"');
   });
 });
