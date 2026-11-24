@@ -7499,7 +7499,190 @@
     };
   }
 
-  function parseCsvGrade(csvText) {
+  /**
+   * Converte uma matriz bidimensional (linhas x colunas de planilha Excel/CSV) em estrutura de grade semanal.
+   * Suporta o formato oficial das emissoras brasileiras (TV Brasil, Canal Educação, Canal Gov):
+   * - Colunas com os dias da semana (Segunda a Domingo)
+   * - Coluna de horários (06:00, 06:15, 06:30, ...)
+   * - Células com títulos, temporadas/episódios (T 01 EP 02), tags de reprise e MAM
+   * - Cálculo dinâmico de duração com base no intervalo até a próxima atração do dia
+   */
+  function parseGradeMatriz(rows, options = {}) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error('Planilha vazia ou sem linhas legíveis.');
+    }
+
+    const dayKeywords = {
+      segunda: 1, seg: 1, 'segunda-feira': 1, mon: 1, monday: 1,
+      terca: 2, terça: 2, ter: 2, 'terça-feira': 2, tue: 2, tuesday: 2,
+      quarta: 3, qua: 3, 'quarta-feira': 3, wed: 3, wednesday: 3,
+      quinta: 4, qui: 4, 'quinta-feira': 4, thu: 4, thursday: 4,
+      sexta: 5, sex: 5, 'sexta-feira': 5, fri: 5, friday: 5,
+      sabado: 6, sábado: 6, sab: 6, sáb: 6, 'sábado-feira': 6, sat: 6, saturday: 6,
+      domingo: 0, dom: 0, sun: 0, sunday: 0
+    };
+
+    let headerRow = -1;
+    let colToDay = {};
+    let timeCol = -1;
+
+    // 1. Identificar linha de cabeçalho dos dias da semana (busca nas primeiras 25 linhas)
+    for (let r = 0; r < Math.min(rows.length, 25); r++) {
+      const row = rows[r];
+      if (!Array.isArray(row)) continue;
+      const foundDays = {};
+      for (let c = 0; c < row.length; c++) {
+        const val = String(row[c] || '').toLowerCase().replace(/[\n\r]+/g, ' ').trim();
+        if (!val) continue;
+
+        for (const [kw, dow] of Object.entries(dayKeywords)) {
+          const regex = new RegExp('(?:^|[\\s/_-])' + kw + '(?:$|[\\s/_-])', 'i');
+          if (regex.test(val) || val.startsWith(kw)) {
+            foundDays[c] = dow;
+            break;
+          }
+        }
+      }
+      if (Object.keys(foundDays).length >= 5) {
+        headerRow = r;
+        colToDay = foundDays;
+        break;
+      }
+    }
+
+    if (headerRow === -1) {
+      throw new Error('Não foi possível identificar as colunas dos dias da semana (Segunda a Domingo) na planilha.');
+    }
+
+    // 2. Identificar coluna de horários
+    for (let c = 0; c < (rows[headerRow] || []).length; c++) {
+      if (colToDay[c] !== undefined) continue;
+      const hVal = String(rows[headerRow][c] || '').toLowerCase();
+      if (hVal.includes('hora') || hVal.includes('tempo') || hVal.includes('time')) {
+        timeCol = c;
+        break;
+      }
+    }
+
+    if (timeCol === -1) {
+      let bestCol = -1;
+      let maxTimeCount = 0;
+      const maxCols = Math.max(...rows.slice(headerRow + 1, headerRow + 30).map(r => (r && r.length) || 0));
+      for (let c = 0; c < maxCols; c++) {
+        if (colToDay[c] !== undefined) continue;
+        let count = 0;
+        for (let r = headerRow + 1; r < Math.min(rows.length, headerRow + 40); r++) {
+          const val = String((rows[r] && rows[r][c]) || '').trim();
+          if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(val)) count++;
+        }
+        if (count > maxTimeCount) {
+          maxTimeCount = count;
+          bestCol = c;
+        }
+      }
+      if (maxTimeCount >= 3) {
+        timeCol = bestCol;
+      }
+    }
+
+    if (timeCol === -1) {
+      throw new Error('Não foi possível identificar a coluna de horários na planilha (ex: 06:00, 06:30).');
+    }
+
+    const dias = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+
+    // 3. Varrer linhas de dados para cada dia da semana
+    for (let dow = 0; dow < 7; dow++) {
+      const colIdxStr = Object.keys(colToDay).find(c => colToDay[c] === dow);
+      if (colIdxStr === undefined) continue;
+      const colIdx = Number(colIdxStr);
+
+      const rawItems = [];
+
+      for (let r = headerRow + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row) continue;
+        const timeVal = String(row[timeCol] || '').trim();
+        const cellVal = String(row[colIdx] || '').trim();
+
+        if (!/^\d{1,2}:\d{2}(?::\d{2})?$/.test(timeVal)) continue;
+
+        if (cellVal && !/^LEGENDA/i.test(cellVal) && !/^SUBLINHADO/i.test(cellVal) && !/^OBSERVAÇÃO/i.test(cellVal)) {
+          const lines = cellVal.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+          const title = lines[0] || 'Atração';
+
+          let ep = '';
+          let mam = '';
+          let isReprise = false;
+
+          for (let i = 0; i < lines.length; i++) {
+            const l = lines[i];
+            if (/T\s*\d+\s*EP\s*\d+|EP\s*\d+/i.test(l)) {
+              ep = l;
+            }
+            if (/\(Mam [^)]+\)/i.test(l)) {
+              mam = l;
+            }
+            if (/reprise|rep\s|\(rep\)|reapresenta/i.test(l)) {
+              isReprise = true;
+            }
+          }
+
+          const normTime = normalizarHorario(timeVal);
+          rawItems.push({
+            time: normTime,
+            title,
+            episodio: ep,
+            origemMam: mam,
+            tipoExibicao: isReprise ? 'reprise' : 'inedito',
+            detalhes: cellVal
+          });
+        }
+      }
+
+      // Ordenar cronologicamente pelo ciclo de grade (a partir das 06:00)
+      rawItems.sort((a, b) => toCycleSec(a.time) - toCycleSec(b.time));
+
+      // Calcular durações dinâmicas pelo intervalo até o próximo programa
+      for (let i = 0; i < rawItems.length; i++) {
+        const cur = rawItems[i];
+        let durSec = 1800; // 30 min padrão
+
+        if (i + 1 < rawItems.length) {
+          const next = rawItems[i + 1];
+          const diff = toCycleSec(next.time) - toCycleSec(cur.time);
+          if (diff > 0) durSec = diff;
+        } else {
+          // Último item do dia: encerra às 06:00 do dia seguinte (86400 ciclo)
+          const diff = 86400 - toCycleSec(cur.time);
+          if (diff > 0 && diff <= 7200) durSec = diff;
+          else durSec = 900;
+        }
+
+        dias[dow].push({
+          time: cur.time,
+          duration: secToTime(durSec),
+          program: {
+            title: cur.title,
+            code: '',
+            categoria: 'Geral'
+          },
+          episodio: cur.episodio,
+          tipoExibicao: cur.tipoExibicao,
+          origemMam: cur.origemMam
+        });
+      }
+    }
+
+    return {
+      versao: options.versao || 'Planilha Semanal Importada',
+      emissoraNome: options.emissoraNome || 'Grade Importada',
+      formato: 'matriz_semanal',
+      dias
+    };
+  }
+
+  function parseCsvGrade(csvText, options = {}) {
     if (!csvText || typeof csvText !== 'string') {
       throw new Error('Conteúdo CSV vazio ou inválido.');
     }
@@ -7516,6 +7699,20 @@
     }
 
     const delimiter = lines[0].includes(';') ? ';' : ',';
+
+    // 1. Verificar se é formato Matriz Semanal (Segunda a Domingo nas colunas)
+    const firstLinesSample = lines.slice(0, 5).join(' ').toLowerCase();
+    const hasWeekdays = /segunda|terca|terça|quarta|quinta|sexta/i.test(firstLinesSample);
+
+    if (hasWeekdays) {
+      const rows = lines.map(line => line.split(delimiter).map(c => c.trim().replace(/^"|"$/g, '')));
+      try {
+        return parseGradeMatriz(rows, options);
+      } catch (err) {
+        // Se falhar como matriz, continua para a tentativa tabular
+      }
+    }
+
     const header = lines[0].split(delimiter).map(c => c.trim().toLowerCase());
 
     const idxDia = header.findIndex(h => h.includes('dia') || h === 'dow');
@@ -7527,7 +7724,7 @@
     const idxTipo = header.findIndex(h => h.includes('tipo'));
 
     if (idxProg === -1 && idxHora === -1) {
-      throw new Error('Cabeçalho do CSV deve conter pelo menos as colunas "dia", "horario" e "programa".');
+      throw new Error('Formato de planilha não reconhecido. A planilha deve estar no formato Matriz Semanal (com colunas Segunda a Domingo e uma coluna de Horário) ou Lista Tabular (colunas "dia", "horario" e "programa"). Baixe os modelos no painel de importação para orientações.');
     }
 
     const dias = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
@@ -7860,6 +8057,7 @@
     GRADE_TV_BRASIL_SEMANA_45,
     prepararPreviaImportacao,
     parseCsvGrade,
+    parseGradeMatriz,
     normalizarDiaSemana,
     normalizarHorario,
     formatDurationHuman,

@@ -2316,7 +2316,7 @@
   window.processarUploadArquivoCsv = function () {
     const input = document.getElementById('input-arquivo-grade-csv');
     if (!input || !input.files || input.files.length === 0) {
-      showToast('Por favor, selecione um arquivo CSV ou Excel (.xlsx) para importar.', 'error');
+      showToast('Por favor, selecione um arquivo Excel (.xlsx, .xls) ou CSV para importar.', 'error');
       return;
     }
     const file = input.files[0];
@@ -2331,23 +2331,55 @@
           }
           const data = new Uint8Array(e.target.result);
           const workbook = window.XLSX.read(data, { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
 
-          // Se for a planilha oficial da TV Brasil (com coluna HORA e dias SEGUNDA, TERÇA...),
-          // o preset da Semana 45 extraído da mesma planilha oficial é utilizado com 100% de fidelidade
-          if (workbook.SheetNames.some(n => /SEMANA|GRADE/i.test(n))) {
-            const preset = window.GradeImportador.GRADE_TV_BRASIL_SEMANA_45 || window.GradeImportador.GRADE_TV_BRASIL_SEMANA_44;
-            previaImportacao = window.GradeImportador.prepararPreviaImportacao(preset, programas, window.obterOpcoesImportacao());
-            exibirPreviaImportacao();
-            showToast('Planilha oficial da TV Brasil reconhecida com sucesso!', 'success');
-            return;
+          if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+            throw new Error('A planilha enviada não contém nenhuma aba legível.');
           }
 
-          // Para planilhas tabulares genéricas, converte para CSV estruturado
-          const csvText = window.XLSX.utils.sheet_to_csv(firstSheet, { FS: ';' });
-          const parsed = window.GradeImportador.parseCsvGrade(csvText);
+          // Selecionar a aba de programação semanal mais relevante
+          let chosenSheetName = workbook.SheetNames[0];
+          const candidate = workbook.SheetNames.find(n => !/cache|gpt/i.test(n) && (/semana|grade|\d{2}\s*a\s*\d{2}/i.test(n)));
+          if (candidate) {
+            chosenSheetName = candidate;
+          } else {
+            const nonCache = workbook.SheetNames.find(n => !/cache|gpt/i.test(n));
+            if (nonCache) chosenSheetName = nonCache;
+          }
+
+          const sheet = workbook.Sheets[chosenSheetName];
+          const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+
+          let parsed = null;
+          let erroMatriz = null;
+
+          // 1. Tentar ler como matriz semanal oficial (Segunda a Domingo com horários)
+          if (window.GradeImportador && typeof window.GradeImportador.parseGradeMatriz === 'function') {
+            try {
+              parsed = window.GradeImportador.parseGradeMatriz(rows, {
+                versao: chosenSheetName,
+                emissoraNome: (window.EmissoraContext && typeof window.EmissoraContext.getEmissoraAtivaNome === 'function')
+                  ? window.EmissoraContext.getEmissoraAtivaNome()
+                  : 'Grade Semanal'
+              });
+            } catch (mErr) {
+              erroMatriz = mErr;
+            }
+          }
+
+          // 2. Se não for matriz semanal, tentar ler no formato lista tabular via CSV
+          if (!parsed) {
+            const csvText = window.XLSX.utils.sheet_to_csv(sheet, { FS: ';' });
+            try {
+              parsed = window.GradeImportador.parseCsvGrade(csvText, { versao: chosenSheetName });
+            } catch (cErr) {
+              const msg = erroMatriz ? erroMatriz.message : cErr.message;
+              throw new Error(msg);
+            }
+          }
+
           previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas, window.obterOpcoesImportacao());
           exibirPreviaImportacao();
+          showToast(`Planilha "${chosenSheetName}" carregada com sucesso! (${previaImportacao.totalSlots} slots identificados)`, 'success');
         } catch (err) {
           console.error('Erro ao processar planilha Excel:', err);
           showToast('Erro ao ler planilha: ' + err.message, 'error');
@@ -2371,6 +2403,7 @@
         const parsed = window.GradeImportador.parseCsvGrade(text);
         previaImportacao = window.GradeImportador.prepararPreviaImportacao(parsed, programas, window.obterOpcoesImportacao());
         exibirPreviaImportacao();
+        showToast(`Arquivo CSV carregado com sucesso! (${previaImportacao.totalSlots} slots identificados)`, 'success');
       } catch (err) {
         console.error('Erro ao processar CSV:', err);
         showToast('Erro ao ler CSV: ' + err.message, 'error');
@@ -2380,6 +2413,78 @@
       showToast('Erro ao abrir o arquivo local.', 'error');
     };
     reader.readAsText(file, 'UTF-8');
+  };
+
+  /**
+   * Gera e faz o download imediato de uma planilha Excel (.xlsx) modelo no formato oficial matriz semanal
+   */
+  window.baixarModeloGradeXlsx = function () {
+    if (!window.XLSX) {
+      showToast('Biblioteca XLSX não carregada no navegador.', 'error');
+      return;
+    }
+
+    const headers = ['HORA', 'SEGUNDA', 'TERÇA', 'QUARTA', 'QUINTA', 'SEXTA', 'SÁBADO', 'DOMINGO'];
+    const rows = [
+      ['GRADE DE PROGRAMAÇÃO SEMANAL — MODELO OFICIAL (ROTEIROHUB / EBC)'],
+      ['Preencha as atrações nos dias da semana. O sistema reconhece títulos, temporadas/episódios (ex: T 01 EP 01) e menções de (Reprise).'],
+      headers,
+      ['06:00', 'TELEJORNAL MANHÃ\nT 01 EP 01', 'TELEJORNAL MANHÃ\nT 01 EP 02', 'TELEJORNAL MANHÃ\nT 01 EP 03', 'TELEJORNAL MANHÃ\nT 01 EP 04', 'TELEJORNAL MANHÃ\nT 01 EP 05', 'CULTURA AGRO\nT 02 EP 05', 'RETRATOS DE FÉ\nT 01 EP 08'],
+      ['06:30', 'DESENHO EDUCATIVO\nT 02 EP 01', 'DESENHO EDUCATIVO\nT 02 EP 02', 'DESENHO EDUCATIVO\nT 02 EP 03', 'DESENHO EDUCATIVO\nT 02 EP 04', 'DESENHO EDUCATIVO\nT 02 EP 05', 'NATUREZA BRASIL\nT 01 EP 12', 'SANTA MISSA\nAO VIVO'],
+      ['07:00', 'FAIXA INFANTIL\n(TV Brasil Animada)', 'FAIXA INFANTIL\n(TV Brasil Animada)', 'FAIXA INFANTIL\n(TV Brasil Animada)', 'FAIXA INFANTIL\n(TV Brasil Animada)', 'FAIXA INFANTIL\n(TV Brasil Animada)', 'SÁBADO ANIMADO\nT 01 EP 01', 'CONCERTOS BRASIL\nT 03 EP 02'],
+      ['07:30', 'LUPITA NO PLANETA\nT 02 EP 11', 'LUPITA NO PLANETA\nT 02 EP 12', 'LUPITA NO PLANETA\nT 02 EP 13', 'LUPITA NO PLANETA\nT 02 EP 14', 'LUPITA NO PLANETA\nT 02 EP 15', 'MUNDO BITA\nT 01 EP 04', 'PROGRAMA ESPECIAL\nT 01 EP 09'],
+      ['08:00', 'HISTÓRIAS DE VALOR\nT 01 EP 03', 'HISTÓRIAS DE VALOR\nT 01 EP 04', 'HISTÓRIAS DE VALOR\nT 01 EP 05', 'HISTÓRIAS DE VALOR\nT 01 EP 06', 'HISTÓRIAS DE VALOR\nT 01 EP 07', 'ESPORTE TOTAL\nAO VIVO', 'DOMINGO ESPORTE\nAO VIVO'],
+      ['12:00', 'REPÓRTER BRASIL TARDE\nAO VIVO', 'REPÓRTER BRASIL TARDE\nAO VIVO', 'REPÓRTER BRASIL TARDE\nAO VIVO', 'REPÓRTER BRASIL TARDE\nAO VIVO', 'REPÓRTER BRASIL TARDE\nAO VIVO', 'NOTÍCIAS DA SEMANA\nT 01 EP 22', 'RODA DE SAMBA\nT 04 EP 10'],
+      ['13:00', 'DOCUMENTÁRIO BRASIL\nT 01 EP 04\n(Reprise)', 'DOCUMENTÁRIO BRASIL\nT 01 EP 05', 'DOCUMENTÁRIO BRASIL\nT 01 EP 06', 'DOCUMENTÁRIO BRASIL\nT 01 EP 07', 'DOCUMENTÁRIO BRASIL\nT 01 EP 08\n(Reprise)', 'CINEMA BRASIL\nT 02 EP 01', 'FUTEBOL AO VIVO\nRODADA DO CAMPEONATO'],
+      ['19:00', 'REPÓRTER BRASIL NOITE\nAO VIVO', 'REPÓRTER BRASIL NOITE\nAO VIVO', 'REPÓRTER BRASIL NOITE\nAO VIVO', 'REPÓRTER BRASIL NOITE\nAO VIVO', 'REPÓRTER BRASIL NOITE\nAO VIVO', 'GRANDES TEMAS\nT 01 EP 15', 'DEBATE ESPECIAL\nT 02 EP 06'],
+      ['20:00', 'SEM CENSURA\nT 02 EP 45', 'SEM CENSURA\nT 02 EP 46', 'SEM CENSURA\nT 02 EP 47', 'SEM CENSURA\nT 02 EP 48', 'SEM CENSURA\nT 02 EP 49', 'FESTIVAL DE MÚSICA\nT 01 EP 03', 'CINEMA ESPECIAL\nO FILME DA SEMANA'],
+      ['22:00', 'CAMINHOS DA REPORTAGEM\nT 05 EP 12', 'TRILHA DE LETRAS\nT 03 EP 08', 'EXPEDICOES\nT 04 EP 02', 'PARATODOS\nT 02 EP 14', 'SAMBA NA GAMBOA\nT 06 EP 18', 'SHOW DA NOITE\nT 01 EP 05', 'DOC INTERNACIONAL\nT 01 EP 09'],
+      ['00:00', 'SEM CENSURA\nT 02 EP 45\n(Reprise)', 'SEM CENSURA\nT 02 EP 46\n(Reprise)', 'SEM CENSURA\nT 02 EP 47\n(Reprise)', 'SEM CENSURA\nT 02 EP 48\n(Reprise)', 'SEM CENSURA\nT 02 EP 49\n(Reprise)', 'MADRUGADA CULTURAL\nT 01 EP 02', 'MADRUGADA MUSICAL\nT 01 EP 04'],
+      ['02:00', 'TELEJORNAL NOTURNO\n(Reprise)', 'TELEJORNAL NOTURNO\n(Reprise)', 'TELEJORNAL NOTURNO\n(Reprise)', 'TELEJORNAL NOTURNO\n(Reprise)', 'TELEJORNAL NOTURNO\n(Reprise)', 'DOCUMENTÁRIOS DA TERRA\n(Reprise)', 'CONCERTOS DA NOITE\n(Reprise)'],
+      ['05:30', 'AGRO MANHÃ\nT 03 EP 12', 'AGRO MANHÃ\nT 03 EP 13', 'AGRO MANHÃ\nT 03 EP 14', 'AGRO MANHÃ\nT 03 EP 15', 'AGRO MANHÃ\nT 03 EP 16', 'AGRO MANHÃ\nT 03 EP 17', 'AGRO MANHÃ\nT 03 EP 18']
+    ];
+
+    const ws = window.XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 10 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }];
+    const wb = window.XLSX.utils.book_new();
+    window.XLSX.utils.book_append_sheet(wb, ws, 'GRADE SEMANAL');
+    window.XLSX.writeFile(wb, 'modelo_grade_semanal_roteirohub.xlsx');
+    showToast('Download do modelo Excel (.xlsx) iniciado!', 'success');
+  };
+
+  /**
+   * Faz o download do modelo CSV de lista tabular
+   */
+  window.baixarModeloGradeCsv = function () {
+    const csvContent = `# MODELO DE IMPORTAÇÃO DE GRADE — ROTEIROHUB / EBC
+# Colunas: dia (segunda..domingo ou 0..6); horario (HH:MM); duracao (HH:MM); programa; codigo; categoria; tipo (inedito/reprise/fixo)
+dia;horario;duracao;programa;codigo;categoria;tipo
+segunda;06:00;00:30;Telejornal Manhã;TJM01;Jornalismo;inedito
+segunda;06:30;00:30;Desenho Educativo;DES01;Infantil;inedito
+segunda;07:00;01:00;Faixa TV Brasil Animada;ANI01;Infantil;inedito
+segunda;12:00;01:00;Repórter Brasil Tarde;RBT01;Jornalismo;inedito
+segunda;13:00;01:00;Documentário Brasil;DOC01;Cultura;reprise
+segunda;19:00;01:00;Repórter Brasil Noite;RBN01;Jornalismo;inedito
+segunda;20:00;02:00;Sem Censura;SC01;Entrevistas;inedito
+segunda;00:00;02:00;Sem Censura (Reprise);SC01;Entrevistas;reprise
+terça;06:00;00:30;Telejornal Manhã;TJM01;Jornalismo;inedito
+terça;06:30;00:30;Desenho Educativo;DES02;Infantil;inedito
+quarta;06:00;00:30;Telejornal Manhã;TJM01;Jornalismo;inedito
+quinta;06:00;00:30;Telejornal Manhã;TJM01;Jornalismo;inedito
+sexta;06:00;00:30;Telejornal Manhã;TJM01;Jornalismo;inedito
+sábado;06:00;00:30;Cultura Agro;AGR01;Geral;inedito
+domingo;06:00;00:30;Retratos de Fé;RET01;Religioso;inedito
+`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'modelo_grade_roteirohub.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('Download do modelo CSV iniciado!', 'success');
   };
 
   function exibirPreviaImportacao() {
