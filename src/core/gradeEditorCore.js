@@ -614,6 +614,24 @@
     return resultadoFinal;
   }
 
+  function limparDia(blocksByDay, dow, options = {}) {
+    const startHour = options.startHour !== undefined ? options.startHour : 6;
+    const intervalMinutes = options.intervalMinutes !== undefined ? options.intervalMinutes : 30;
+    const nextBlocks = { ...(blocksByDay || {}) };
+    nextBlocks[dow] = generateBaseSlots(startHour, intervalMinutes);
+    return nextBlocks;
+  }
+
+  function limparSemana(blocksByDay, options = {}) {
+    const startHour = options.startHour !== undefined ? options.startHour : 6;
+    const intervalMinutes = options.intervalMinutes !== undefined ? options.intervalMinutes : 30;
+    const nextBlocks = {};
+    for (let dow = 0; dow <= 6; dow++) {
+      nextBlocks[dow] = generateBaseSlots(startHour, intervalMinutes);
+    }
+    return nextBlocks;
+  }
+
   return {
     START_SECONDS,
     DEFAULT_INTERVAL_MIN,
@@ -633,5 +651,7 @@
     calcularResumoExecutivoGrade,
     gradeToBlocks,
     vincularFaixaIntervalo,
+    limparDia,
+    limparSemana,
   };
 });

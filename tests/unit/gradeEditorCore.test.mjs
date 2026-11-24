@@ -83,7 +83,6 @@ describe("GradeEditorCore", () => {
     expect(blocks[0].duration).toBe("01:00:00"); // 08:00 - 07:00
     expect(blocks[1].program.title).toBe("DOCUMENTÁRIO");
   });
-});
 
   it("move ou troca blocos entre dias diferentes com moveOrSwapSlot", () => {
     const day1 = GradeEditorCore.generateBaseSlots(6, 30);
@@ -110,3 +109,34 @@ describe("GradeEditorCore", () => {
     expect(table.rows[0][0]).toBe("06:00");
     expect(table.rows[0][1]).toContain("ESTAÇÕES");
   });
+
+  it("limpa a programação de um dia específico preservando os demais com limparDia", () => {
+    const day1 = GradeEditorCore.generateBaseSlots(6, 30);
+    const day2 = GradeEditorCore.generateBaseSlots(6, 30);
+    day1[0].program = { title: "TELEJORNAL" };
+    day2[0].program = { title: "DOCUMENTÁRIO" };
+    const blocksByDay = { 1: day1, 2: day2 };
+
+    const cleaned = GradeEditorCore.limparDia(blocksByDay, 1);
+    expect(cleaned[1][0].program).toBeNull();
+    expect(cleaned[1]).toHaveLength(48);
+    // Terça-feira (2) continua intacta
+    expect(cleaned[2][0].program.title).toBe("DOCUMENTÁRIO");
+  });
+
+  it("limpa a grade da semana inteira de segunda a domingo com limparSemana", () => {
+    const blocksByDay = {};
+    for (let d = 0; d <= 6; d++) {
+      const slots = GradeEditorCore.generateBaseSlots(6, 30);
+      slots[0].program = { title: `PROG DIA ${d}` };
+      blocksByDay[d] = slots;
+    }
+
+    const cleaned = GradeEditorCore.limparSemana(blocksByDay);
+    for (let d = 0; d <= 6; d++) {
+      expect(cleaned[d]).toHaveLength(48);
+      expect(cleaned[d][0].program).toBeNull();
+      expect(cleaned[d][0].time).toBe("06:00:00");
+    }
+  });
+});

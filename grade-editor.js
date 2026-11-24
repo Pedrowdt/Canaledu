@@ -1389,13 +1389,71 @@
     showToast('Grade compactada com sucesso!', 'success');
   };
 
-  window.limparDiaAtual = function () {
-    if (!confirm(`Tem certeza que deseja limpar todos os programas de ${DOW_NAMES[currentDow]}?`)) return;
-    blocksByDay[currentDow] = window.GradeEditorCore.generateBaseSlots(6, 30);
+  window.abrirModalLimparGrade = function () {
+    const modal = document.getElementById('modal-limpar-grade');
+    const labelDia = document.getElementById('modal-limpar-dia-nome');
+    const labelSemana = document.getElementById('modal-limpar-semana-nome');
+    if (labelDia) {
+      labelDia.textContent = `Limpar apenas ${DOW_NAMES[currentDow]}`;
+    }
+    if (labelSemana) {
+      const resumoSemana = (typeof obterResumoSemanaAtiva === 'function') ? obterResumoSemanaAtiva() : null;
+      labelSemana.textContent = resumoSemana?.rotuloCompleto ? `Limpar SEMANA TODA (${resumoSemana.rotuloCompleto})` : 'Limpar a SEMANA TODA (Segunda a Domingo)';
+    }
+    if (modal) modal.style.display = 'flex';
+  };
+
+  window.fecharModalLimparGrade = function () {
+    const modal = document.getElementById('modal-limpar-grade');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.limparDiaAtual = function (ignorarConfirm = false) {
+    if (!ignorarConfirm && !confirm(`Tem certeza que deseja limpar todos os programas de ${DOW_NAMES[currentDow]}?`)) return;
+    if (window.GradeEditorCore && typeof window.GradeEditorCore.limparDia === 'function') {
+      blocksByDay = window.GradeEditorCore.limparDia(blocksByDay, currentDow);
+    } else {
+      blocksByDay[currentDow] = window.GradeEditorCore.generateBaseSlots(6, 30);
+    }
+    if (recurrenceState && recurrenceState.slots) {
+      Object.keys(recurrenceState.slots).forEach(k => {
+        if (k.startsWith(`${currentDow}:`)) {
+          delete recurrenceState.slots[k];
+        }
+      });
+    }
     isDirty = true;
-    renderTimeline();
     atualizarBadgesDias();
+    if (typeof aplicarHerancaNaGradeUI === 'function') aplicarHerancaNaGradeUI();
+    renderActiveView();
+    if (typeof renderAuditoriaGrade === 'function') renderAuditoriaGrade();
+    window.fecharModalLimparGrade();
     showToast(`Programação de ${DOW_NAMES[currentDow]} limpa.`);
+  };
+
+  window.limparSemanaToda = function (ignorarConfirm = false) {
+    const resumoSemana = (typeof obterResumoSemanaAtiva === 'function') ? obterResumoSemanaAtiva() : null;
+    const nomeSemana = resumoSemana?.rotuloCompleto || 'Semana Ativa';
+    if (!ignorarConfirm && !confirm(`ATENÇÃO: Deseja realmente LIMPAR TODA A GRADE DA SEMANA?\n\n(${nomeSemana})\n\nTodos os programas de Segunda a Domingo serão removidos e os slots ficarão vazios.`)) {
+      return;
+    }
+    if (window.GradeEditorCore && typeof window.GradeEditorCore.limparSemana === 'function') {
+      blocksByDay = window.GradeEditorCore.limparSemana(blocksByDay);
+    } else {
+      for (let dow = 0; dow <= 6; dow++) {
+        blocksByDay[dow] = window.GradeEditorCore.generateBaseSlots(6, 30);
+      }
+    }
+    if (recurrenceState && recurrenceState.slots) {
+      recurrenceState.slots = {};
+    }
+    isDirty = true;
+    atualizarBadgesDias();
+    if (typeof aplicarHerancaNaGradeUI === 'function') aplicarHerancaNaGradeUI();
+    renderActiveView();
+    if (typeof renderAuditoriaGrade === 'function') renderAuditoriaGrade();
+    window.fecharModalLimparGrade();
+    showToast(`Grade completa da ${nomeSemana} foi limpa com sucesso.`, 'info');
   };
 
   window.resolverConflitos = function () {
