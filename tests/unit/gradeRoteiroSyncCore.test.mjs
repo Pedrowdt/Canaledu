@@ -318,4 +318,85 @@ describe('GradeRoteiroSyncCore — Etapa 3.4: Sincronização Grade -> Roteiro P
     expect(roteiroAtualizado.some(i => i.descricao.includes('FADA MANU'))).toBe(true);
   });
 
+  it('vincula slots da Grade ao acervo e usa codes/tempos oficiais por episódio e bloco', () => {
+    const acervo = [
+      { code: 'CE136463_1', descricao: 'PGM VIDA DE MERENDEIRA - T 03 EP 04 - BL 01', tempo: '00:14:04', midia: '0OMN', type: 'RPRO' },
+      { code: 'CE136463_2', descricao: 'PGM VIDA DE MERENDEIRA - T 03 EP 04 - BL 02', tempo: '00:12:57', midia: '0OMN', type: 'RPRO' },
+      { code: 'CE136463_3', descricao: 'PGM VIDA DE MERENDEIRA - T 03 EP 04 - BL 03', tempo: '00:23:15', midia: '0OMN', type: 'RPRO' },
+      { code: 'CE999999_1', descricao: 'PGM VIDA DE MERENDEIRA - T 03 EP 05 - BL 01', tempo: '00:14:00', midia: '0OMN', type: 'RPRO' }
+    ];
+    const slots = [{
+      id: 'slot-real', time: '08:00:00', duration: '00:15:00',
+      program: { title: 'VIDA DE MERENDEIRA', tempo: '00:50:16', code: 'CE136463_1', type: 'RPRO' },
+      episodio: { temporada: 3, episodioNumero: 4, titulo: 'T 03 EP 04' }
+    }];
+
+    const resultado = Core.mesclarGradeComRoteiroPreservandoEdicoes([], slots, { modo: 'substituir', acervo });
+    const programas = resultado.roteiroAtualizado.filter(item => item.type === 'RPRO');
+    expect(programas.map(item => item.code)).toEqual(['CE136463_1', 'CE136463_2', 'CE136463_3']);
+    expect(programas.map(item => item.tempo)).toEqual(['00:14:04', '00:12:57', '00:23:15']);
+    expect(programas.some(item => /_B\d+$|^GRD_/.test(item.code))).toBe(false);
+  });
+
+  it('usa o código e a duração oficial de um registro único em vez de criar bloco genérico', () => {
+    const acervo = [{ code: 'AD926703', descricao: 'PGM PALALOOS - T 01 EP 04 - ROLANDO TUDO AZUL', tempo: '00:10:00', midia: '0OMN', type: 'RPRO' }];
+    const slots = [{ time: '09:00:00', duration: '00:15:00', program: { title: 'PALALOOS - T 01 EP 04 - ROLANDO TUDO AZUL', code: 'AD926703', tempo: '00:10:00', type: 'RPRO' } }];
+    const resultado = Core.mesclarGradeComRoteiroPreservandoEdicoes([], slots, { modo: 'substituir', acervo });
+    const programas = resultado.roteiroAtualizado.filter(item => item.type === 'RPRO');
+    expect(programas).toHaveLength(1);
+    expect(programas[0].code).toBe('AD926703');
+    expect(programas[0].tempo).toBe('00:10:00');
+  });
+
+  it('não vincula blocos de outro episódio quando a grade identifica temporada e episódio', () => {
+    const acervo = [
+      { code: 'CEEP05_1', descricao: 'PGM VIDA DE MERENDEIRA - T 03 EP 05 - BL 01', tempo: '00:14:00', type: 'RPRO' }
+    ];
+    const slots = [{
+      time: '08:00:00', duration: '00:15:00',
+      program: { title: 'VIDA DE MERENDEIRA', code: 'CEEP05_1', tempo: '00:14:00', type: 'RPRO' },
+      episodio: { temporada: 3, episodioNumero: 4, titulo: 'T 03 EP 04' }
+    }];
+    const resultado = Core.mesclarGradeComRoteiroPreservandoEdicoes([], slots, { modo: 'substituir', acervo });
+    const programas = resultado.roteiroAtualizado.filter(item => item.type === 'RPRO');
+    expect(programas).toHaveLength(1);
+    expect(programas[0].code).not.toBe('CEEP05_1');
+    expect(programas[0]._catalogoOficial).not.toBe(true);
+  });
+
+  it('seleciona a grade somente quando a data está no período publicado', () => {
+    const saved = {
+      gradePublicadaInfo: { dataInicio: '2026-11-09', dataFim: '2026-11-15', versao: 4 },
+      gradePublicadaBlocksByDay: { 1: [{ id: 'segunda-publicada' }] },
+      gradeBlocksByDay: { 1: [{ id: 'segunda-rascunho' }] }
+    };
+    expect(Core.selecionarGradeParaData('2026-11-09', 1, saved)).toMatchObject({
+      dentroDaSemana: true, fonte: 'publicada', blocks: [{ id: 'segunda-publicada' }]
+    });
+    expect(Core.selecionarGradeParaData('2026-11-16', 1, saved)).toMatchObject({
+      dentroDaSemana: false, fonte: 'fora_da_vigencia', blocks: []
+    });
+  });
+
+  it('usa o rascunho da semana quando não há snapshot publicado, sem sair do intervalo', () => {
+    const saved = {
+      gradePublicadaInfo: { dataInicio: '2026-11-09', dataFim: '2026-11-15' },
+      gradeBlocksByDay: { 2: [{ id: 'terca-da-semana' }] }
+    };
+    expect(Core.selecionarGradeParaData('2026-11-10', 2, saved)).toMatchObject({
+      dentroDaSemana: true, fonte: 'rascunho', blocks: [{ id: 'terca-da-semana' }]
+    });
+  });
+
+  it('regera a sequência de vinhetas para programas existentes sem mexer em grupos editados manualmente', () => {
+    const grade = [{ time: '08:00:00', duration: '00:30:00', program: { title: 'JORNAL TESTE', code: 'JT01', tempo: '00:20:00', type: 'RPRO' } }];
+    const existente = [{ type: 'RPRO', code: 'JT_OLD', descricao: 'JORNAL TESTE', tempo: '00:15:00', bloco: 1 }];
+    const resultado = Core.mesclarGradeComRoteiroPreservandoEdicoes(existente, grade, {
+      modo: 'inteligente',
+      geradorSequenciaPrograma: blocos => [{ type: 'EVNH', code: 'AUTO_VH', descricao: 'VINHETA AUTOMÁTICA', tempo: '00:00:05' }, ...blocos]
+    });
+    expect(resultado.roteiroAtualizado[0].code).toBe('AUTO_VH');
+    expect(resultado.roteiroAtualizado.some(item => item.type === 'RPRO')).toBe(true);
+  });
+
 });

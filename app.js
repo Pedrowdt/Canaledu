@@ -579,127 +579,112 @@ function editarNumeroSemanaRoteiro(mondayDate) {
 }
 
 /** Preenche ou alinha o roteiro do dia selecionado com base nos blocos e programas cadastrados na Grade Semanal, preservando integralmente todas as edições feitas pelo operador. */
+function obterGradeParaDataSelecionada(data, saved) {
+  const dataStr = dateKey(data || nowForGrade());
+  const dia = (data || nowForGrade()).getDay();
+  const Core = typeof GradeRoteiroSyncCore !== 'undefined' ? GradeRoteiroSyncCore : (typeof window !== 'undefined' ? window.GradeRoteiroSyncCore : null);
+  const resolvida = Core && typeof Core.selecionarGradeParaData === 'function'
+    ? Core.selecionarGradeParaData(dataStr, dia, saved)
+    : { blocks: (saved.gradeBlocksByDay || {})[dia] || [], info: saved.gradePublicadaInfo || saved.gradeSemanalInfo || null, dentroDaSemana: null };
+  if (resolvida.dentroDaSemana === null && !resolvida.blocks.length) {
+    return { ...resolvida, simples: loadGrade(dia) };
+  }
+  return { ...resolvida, simples: null };
+}
+
+function montarAcervoParaSync(saved) {
+  const candidatos = [
+    ...(Array.isArray(state.programas) ? state.programas : []),
+    ...(Array.isArray(saved.programas) ? saved.programas : []),
+    ...(typeof INITIAL_PROGRAMAS !== 'undefined' && Array.isArray(INITIAL_PROGRAMAS) ? INITIAL_PROGRAMAS : [])
+  ];
+  const porCode = new Map();
+  candidatos.forEach(item => {
+    if (item && item.code && item.tempo) porCode.set(String(item.code), item);
+  });
+  return [...porCode.values()];
+}
+
+function gerarSequenciaComVinhetasGrade(blocos) {
+  if (!Array.isArray(blocos) || !blocos.length) return [];
+  const programas = blocos.map(b => ({ ...b }));
+  // Usa o mesmo construtor que preserva as regras de vinheta já existentes no Roteiro.
+  return buildRoteiroFromPrograms(programas, { alinharGrade: false });
+}
+
 function sincronizarRoteiroComGradeSemana(options = {}) {
-  const dow = _currentDow();
+  const dataSelecionada = state.currentDate || nowForGrade();
+  const dow = dataSelecionada.getDay();
+  const dataKeySelecionada = dateKey(dataSelecionada);
   const _storageKey = typeof getRoteiroStorageKey === 'function' ? getRoteiroStorageKey() : 'roteiroApp';
   const saved = JSON.parse(localStorage.getItem(_storageKey) || '{}');
-  const gradeBlocks = (saved.gradeBlocksByDay || {})[dow] || [];
-  const gradeSimples = loadGrade(dow);
-
+  const gradeSelecionada = obterGradeParaDataSelecionada(dataSelecionada, saved);
+  const gradeBlocks = gradeSelecionada.blocks;
+  const gradeSimples = gradeSelecionada.simples;
   const temBlocos = Array.isArray(gradeBlocks) && gradeBlocks.some(b => b.program && (b.program.title || b.program.nome || b.program.descricao));
-  const temSimples = gradeSimples && Object.keys(gradeSimples).length > 0;
+  const temSimples = gradeSimples && Object.keys(gradeSimples || {}).length > 0;
 
   if (!temBlocos && !temSimples) {
-    toast(`Nenhuma grade encontrada para ${DAY_NAMES[dow]}. Configure no Editor de Grade.`, 'error');
+    const foraDaVigencia = gradeSelecionada.dentroDaSemana === false;
+    toast(foraDaVigencia
+      ? `A grade publicada não cobre ${dataKeySelecionada}. Publique ou selecione a semana correta.`
+      : `Nenhuma grade encontrada para ${DAY_NAMES[dow]} (${dataKeySelecionada}). Configure no Editor de Grade.`, 'error');
     return;
   }
 
   const fonteGrade = temBlocos ? gradeBlocks : gradeSimples;
   const SyncCore = typeof GradeRoteiroSyncCore !== 'undefined' ? GradeRoteiroSyncCore : (typeof window !== 'undefined' ? window.GradeRoteiroSyncCore : null);
+  const acervo = montarAcervoParaSync(saved);
+  const opcoesSync = {
+    modo: options.modo || (state.roteiro.length > 0 ? 'inteligente' : 'substituir'),
+    duracaoBreakPadrao: '00:03:00',
+    acervo,
+    geradorSequenciaPrograma: gerarSequenciaComVinhetasGrade
+  };
 
-  if (state.roteiro.length > 0) {
-    const modoForcado = options.modo;
-    let modoEscolhido = modoForcado || 'inteligente';
-
-    if (!modoForcado) {
-      const ok = confirm(
-        `O roteiro de hoje já possui ${state.roteiro.length} itens editados.\n\n` +
-        `Deseja sincronizar com a Grade Semanal de ${DAY_NAMES[dow]} preservando todas as suas edições?\n\n` +
-        `• Clique em [OK] para SINCRONIZAÇÃO INTELIGENTE (preserva 100% das chamadas, vinhetas manuais e breaks montados, atualizando programas e episódios da Grade).\n` +
-        `• Clique em [Cancelar] para manter o roteiro inalterado.`
-      );
-      if (!ok) return;
-    }
-
-    if (SyncCore) {
-      const resultado = SyncCore.mesclarGradeComRoteiroPreservandoEdicoes(
-        state.roteiro,
-        fonteGrade,
-        { modo: modoEscolhido, duracaoBreakPadrao: '00:03:00' }
-      );
-      state.roteiro = resultado.roteiroAtualizado;
-
-      // Registra metadados de versão da grade sincronizada
-      const dk = dateKey(state.currentDate || nowForGrade());
-      if (!saved._metaGradePorData) saved._metaGradePorData = {};
-      saved._metaGradePorData[dk] = {
-        versaoGrade: saved.gradePublicadaInfo?.versao || Date.now(),
-        sincronizadoEm: new Date().toISOString()
-      };
-      localStorage.setItem(_storageKey, JSON.stringify(saved));
-
-      recalcTimes();
-      saveState();
-      renderAll();
-      renderWeekSelector();
-      toast(resultado.resumo.mensagem, 'success');
-      return;
-    }
-  } else if (SyncCore) {
-    // Roteiro vazio: preenchimento inicial usando o motor inteligente
-    const resultado = SyncCore.mesclarGradeComRoteiroPreservandoEdicoes(
-      [],
-      fonteGrade,
-      { modo: 'substituir', duracaoBreakPadrao: '00:03:00' }
+  if (state.roteiro.length > 0 && !options.modo) {
+    const ok = confirm(
+      `O roteiro de ${dataKeySelecionada} já possui ${state.roteiro.length} itens editados.\n\n` +
+      `Deseja sincronizar com a Grade Semanal de ${DAY_NAMES[dow]} (${dataKeySelecionada}) preservando suas edições?\n\n` +
+      `• Clique em [OK] para sincronizar os programas da grade, usar codes/tempos do acervo e preservar chamadas e vinhetas manuais.\n` +
+      `• Clique em [Cancelar] para manter o roteiro inalterado.`
     );
-    state.roteiro = resultado.roteiroAtualizado;
+    if (!ok) return;
+  }
 
-    const dk = dateKey(state.currentDate || nowForGrade());
+  if (SyncCore) {
+    const resultado = SyncCore.mesclarGradeComRoteiroPreservandoEdicoes(state.roteiro, fonteGrade, opcoesSync);
+    state.roteiro = resultado.roteiroAtualizado;
     if (!saved._metaGradePorData) saved._metaGradePorData = {};
-    saved._metaGradePorData[dk] = {
-      versaoGrade: saved.gradePublicadaInfo?.versao || Date.now(),
-      sincronizadoEm: new Date().toISOString()
+    saved._metaGradePorData[dataKeySelecionada] = {
+      versaoGrade: gradeSelecionada.info?.versao || Date.now(),
+      sincronizadoEm: new Date().toISOString(),
+      dataGrade: dataKeySelecionada
     };
     localStorage.setItem(_storageKey, JSON.stringify(saved));
-
-    injectPecasFixas();
     recalcTimes();
     saveState();
     renderAll();
     renderWeekSelector();
-    toast(`✓ Roteiro preenchido com ${resultado.resumo.programasNovos} programas da Grade Semanal`, 'success');
+    toast(resultado.resumo.mensagem, 'success');
     return;
   }
 
-  // Fallback seguro caso SyncCore não esteja carregado
+  // Fallback legível: mantém apenas os dados reais do slot e do acervo, sem inventar minutagem de 15 min.
   const progs = [];
-
   if (temBlocos) {
     gradeBlocks.forEach(b => {
       const p = b.program || {};
       const nome = p.title || p.nome || p.descricao;
       if (!nome) return;
-      const dur = b.duration || p.duration || '00:15:00';
-      const code = p.code || `GRD_${String(b.time || '').replace(/[^0-9]/g, '')}`;
-      progs.push({
-        code,
-        descricao: nome,
-        tempo: dur,
-        midia: p.midia || '0OMN',
-        type: 'RPRO'
-      });
-    });
-  } else {
-    const order = loadGradeOrder(dow);
-    const keys = (order && order.length) ? order : Object.keys(gradeSimples);
-    keys.forEach(k => {
-      progs.push({
-        code: `GRD_${String(gradeSimples[k] || '').replace(/[^0-9]/g, '')}`,
-        descricao: k,
-        tempo: '00:15:00',
-        midia: '0OMN',
-        type: 'RPRO'
-      });
+      progs.push({ code: p.code || b.code || '', descricao: nome, tempo: p.tempo || b.duration || '', midia: p.midia || '0OMN', type: 'RPRO' });
     });
   }
-
   if (!progs.length) {
-    toast(`Nenhum programa alocado na grade de ${DAY_NAMES[dow]}`, 'error');
+    toast('O motor de sincronização não está disponível; nenhum dado foi alterado.', 'error');
     return;
   }
-
-  const generated = buildRoteiroFromPrograms(progs);
-  state.roteiro = generated;
+  state.roteiro = buildRoteiroFromPrograms(progs);
   injectPecasFixas();
   saveState();
   renderAll();
@@ -2853,12 +2838,12 @@ function sortBlocks(blocks) {
 }
 
 /** Função central de geração automática. Recebe o array de programas do Notion e constrói o roteiro completo com VHs A SEGUIR, CLASSIFICAÇÃO INDICATIVA, breaks com __SLOT__, VH VC ESTA ASSISTINDO e ASSINATURAS. */
-function buildRoteiroFromPrograms(programs) {
+function buildRoteiroFromPrograms(programs, options = {}) {
   // A Grade Semanal (importada do XLSX) é a régua mestre: cada início de programa
   // é cravado no horário definido pela grade do dia. Se sobrar tempo, injetamos
   // um "__GAP__" (Ajuste de Grade) para o usuário preencher com chamadas/breaks.
   const dow = state.currentDate ? state.currentDate.getDay() : nowForGrade().getDay();
-  const gradeDiaria = (typeof loadGrade === 'function') ? loadGrade(dow) : {};
+  const gradeDiaria = options.alinharGrade === false ? {} : ((typeof loadGrade === 'function') ? loadGrade(dow) : {});
 
   const roteiro = [];
   let cumSec = START_SECONDS;

@@ -194,8 +194,74 @@
   /**
    * Converte slots de grade (do GradeEditor ou GradeRecorrenciaCore) em especificações de programa normalizadas.
    */
-  function normalizarSlotsGradeDoDia(slotsOuGrade = []) {
+  function normalizarTituloCatalogo(texto) {
+    if (!texto) return '';
+    return String(texto)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA)\s+/i, '')
+      .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
+      .replace(/\s*-?\s*EP\s*\d+.*$/i, '')
+      .replace(/\s*-?\s*BL\s*0*\d+.*$/i, '')
+      .replace(/\s*\(REPRISE\)\s*$/i, '')
+      .replace(/[^A-Z0-9]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function extrairEpisodioDeTexto(texto) {
+    const match = String(texto || '').match(/(?:T\s*(\d+)\s*)?EP\s*(\d+)/i);
+    return match ? { temporada: match[1] ? Number(match[1]) : null, episodio: Number(match[2]) } : { temporada: null, episodio: null };
+  }
+
+  function extrairNumeroBlocoDeItem(item) {
+    const descricao = String(item && item.descricao || '');
+    const porDescricao = descricao.match(/BL\s*0*(\d+)/i);
+    if (porDescricao) return Number(porDescricao[1]);
+    const porCode = String(item && item.code || '').match(/_(\d+)$/);
+    return porCode ? Number(porCode[1]) : 1;
+  }
+
+  function indexarAcervo(acervo = []) {
+    const index = new Map();
+    (Array.isArray(acervo) ? acervo : []).forEach(item => {
+      const chave = normalizarTituloCatalogo(item.descricao || item.title || item.nome || item.programaTitulo || item.programa_titulo);
+      if (!chave || !item.code || !item.tempo) return;
+      if (!index.has(chave)) index.set(chave, []);
+      index.get(chave).push(item);
+    });
+    return index;
+  }
+
+  function obterBlocosOficiais(slot, index) {
+    if (!index || !slot || slot.catalogoEncontrado === false) return [];
+    const chave = normalizarTituloCatalogo(slot.titulo || slot.baseTitle);
+    const candidatos = index.get(chave) || [];
+    if (!candidatos.length) return [];
+
+    const epSlot = slot.episodio || extrairEpisodioDeTexto(slot.titulo || '');
+    const temEpAlvo = epSlot && (epSlot.temporada != null || epSlot.episodio != null || epSlot.episodioNumero != null);
+    let filtrados = candidatos;
+    if (temEpAlvo) {
+      const numeroAlvo = epSlot.episodioNumero != null ? Number(epSlot.episodioNumero) : (epSlot.episodio != null ? Number(epSlot.episodio) : null);
+      const porEp = candidatos.filter(item => {
+        const ep = extrairEpisodioDeTexto(item.descricao || '');
+        if (epSlot.temporada != null && ep.temporada != null && Number(epSlot.temporada) !== ep.temporada) return false;
+        if (numeroAlvo != null && ep.episodio != null && numeroAlvo !== ep.episodio) return false;
+        return true;
+      });
+      // Um episódio explícito na grade é uma restrição, não uma preferência.
+      filtrados = porEp;
+    }
+
+    const unicos = new Map();
+    filtrados.forEach(item => { if (!unicos.has(String(item.code))) unicos.set(String(item.code), item); });
+    return [...unicos.values()].sort((a, b) => extrairNumeroBlocoDeItem(a) - extrairNumeroBlocoDeItem(b));
+  }
+
+  function normalizarSlotsGradeDoDia(slotsOuGrade = [], opcoes = {}) {
     if (!slotsOuGrade) return [];
+    const indiceAcervo = opcoes.acervoIndex || indexarAcervo(opcoes.acervo || []);
 
     // Se for formato array de blocos do GradeEditor (ex: blocksByDay[dow])
     if (Array.isArray(slotsOuGrade)) {
@@ -210,25 +276,36 @@
         const baseTitle = baseProgramTitle(titulo);
         const normKey = normalizeKey(baseTitle);
 
-        normalizados.push({
+        const normalizado = {
           slotIndex: idx,
           slotId: slot.id || `slot-${idx}-${horario.replace(/:/g, '')}`,
           horario,
           duracao,
+          duracaoAlocada: slot.duration || p.duration || null,
           titulo,
           baseTitle,
           normKey,
           code: p.code || slot.code || `GRD_${horario.replace(/[^0-9]/g, '')}`,
+          tempoPrograma: p.tempo || null,
+          catalogoEncontrado: p.catalogoEncontrado,
           midia: p.midia || '0OMN',
           tipoExibicao: slot.tipoExibicao || p.tipoExibicao || (slot.isReprise ? 'reprise' : 'inedito'),
           isReprise: Boolean(slot.isReprise || slot.tipoExibicao === 'reprise'),
           origemReprise: slot.origemReprise || null,
-          episodio: slot.episodio || p.episodio || null,
+          episodio: slot.episodio || p.episodio || extrairEpisodioDeTexto(titulo),
           faixaOcupada: slot.faixaNome || p.faixaOcupada || p.faixa_ocupada || '',
           classificacao: slot.classificacao || p.classificacao || 'L',
           programaId: p.id || slot.programaId || null,
           subprogramas: Array.isArray(slot.subprogramas) ? slot.subprogramas : null
-        });
+        };
+        const blocosOficiais = obterBlocosOficiais(normalizado, indiceAcervo);
+        if (blocosOficiais.length) normalizado.blocosCatalogo = blocosOficiais;
+        else if (normalizado.episodio && (normalizado.episodio.temporada != null || normalizado.episodio.episodioNumero != null || normalizado.episodio.episodio != null)) {
+          // Não reutiliza um code do programa-base quando a temporada/episódio da grade não bateu no acervo.
+          normalizado.catalogoEncontrado = false;
+          normalizado.code = `GRD_${String(horario).replace(/[^0-9]/g, '')}`;
+        }
+        normalizados.push(normalizado);
       });
       return normalizados;
     }
@@ -239,7 +316,7 @@
         .filter(([k]) => !k.startsWith('_'))
         .map(([titulo, horario], idx) => {
           const baseTitle = baseProgramTitle(titulo);
-          return {
+          const normalizado = {
             slotIndex: idx,
             slotId: `slot-simples-${idx}`,
             horario: String(horario),
@@ -251,8 +328,15 @@
             midia: '0OMN',
             tipoExibicao: 'inedito',
             isReprise: false,
-            episodio: null
+            episodio: extrairEpisodioDeTexto(titulo)
           };
+          const blocosOficiais = obterBlocosOficiais(normalizado, indiceAcervo);
+          if (blocosOficiais.length) normalizado.blocosCatalogo = blocosOficiais;
+          else if (normalizado.episodio && (normalizado.episodio.temporada != null || normalizado.episodio.episodio != null)) {
+            normalizado.catalogoEncontrado = false;
+            normalizado.code = `GRD_${String(horario).replace(/[^0-9]/g, '')}`;
+          }
+          return normalizado;
         });
     }
 
@@ -264,8 +348,39 @@
    */
   function construirBlocosPadraoParaSlot(slotGrade, opcoes = {}) {
     const tipoPrograma = opcoes.tipoPrograma || 'RPRO';
-    const duracaoTotal = slotGrade.duracao || '00:30:00';
+    const duracaoTotal = slotGrade.tempoPrograma || slotGrade.duracao || '00:30:00';
     const ep = slotGrade.episodio;
+
+    // Se a grade contém um programa/episódio localizado no acervo, usa os blocos oficiais
+    // com seus codes, descrições e durações, sem repartir a duração alocada do slot.
+    if (Array.isArray(slotGrade.blocosCatalogo) && slotGrade.blocosCatalogo.length > 0) {
+      const oficiais = slotGrade.blocosCatalogo;
+      return oficiais.map(item => {
+        const bloco = extrairNumeroBlocoDeItem(item);
+        const descricao = String(item.descricao || slotGrade.titulo || slotGrade.baseTitle || '').replace(/\s*\(REPRISE\)\s*$/i, '');
+        return {
+          ...item,
+          type: item.type || tipoPrograma,
+          code: item.code,
+          midia: item.midia || '0OMN',
+          tempo: item.tempo,
+          descricao: slotGrade.isReprise && !/\(REPRISE\)/i.test(descricao) ? `${descricao} (REPRISE)` : descricao,
+          bloco,
+          totalBlocos: oficiais.length,
+          programaId: slotGrade.programaId || item.programaId || null,
+          programaNome: slotGrade.baseTitle,
+          temporada: ep && ep.temporada != null ? ep.temporada : extrairEpisodioDeTexto(item.descricao).temporada,
+          episodioNumero: ep && (ep.episodioNumero != null || ep.episodio != null) ? (ep.episodioNumero ?? ep.episodio) : extrairEpisodioDeTexto(item.descricao).episodio,
+          episodioTitulo: ep && ep.titulo ? ep.titulo : null,
+          isReprise: slotGrade.isReprise,
+          origemReprise: slotGrade.origemReprise || null,
+          faixaOcupada: slotGrade.faixaOcupada || null,
+          _gradeSlotId: slotGrade.slotId,
+          _horarioGrade: slotGrade.horario,
+          _catalogoOficial: true
+        };
+      });
+    }
 
     // Se o slot possui episódios e blocos definidos pelo GradeRecorrenciaCore
     if (ep && Array.isArray(ep.blocos) && ep.blocos.length > 0) {
@@ -296,6 +411,32 @@
           _horarioGrade: slotGrade.horario
         };
       });
+    }
+
+    // Quando o slot veio vinculado a um registro único do acervo, preserva code e tempo oficiais.
+    if (slotGrade.catalogoEncontrado !== false && slotGrade.code && !String(slotGrade.code).startsWith('GRD_') && slotGrade.tempoPrograma) {
+      const epDesc = ep && ep.titulo ? ` - ${ep.titulo}` : '';
+      const repTag = slotGrade.isReprise ? ' (REPRISE)' : '';
+      return [{
+        type: tipoPrograma,
+        code: slotGrade.code,
+        midia: slotGrade.midia || '0OMN',
+        tempo: slotGrade.tempoPrograma,
+        descricao: `${slotGrade.titulo || slotGrade.baseTitle}${epDesc}${repTag}`,
+        bloco: 1,
+        totalBlocos: 1,
+        programaId: slotGrade.programaId || null,
+        programaNome: slotGrade.baseTitle,
+        temporada: ep ? ep.temporada : null,
+        episodioNumero: ep ? (ep.episodioNumero ?? ep.episodio ?? null) : null,
+        episodioTitulo: ep ? ep.titulo || null : null,
+        isReprise: slotGrade.isReprise,
+        origemReprise: slotGrade.origemReprise || null,
+        faixaOcupada: slotGrade.faixaOcupada || null,
+        _gradeSlotId: slotGrade.slotId,
+        _horarioGrade: slotGrade.horario,
+        _catalogoOficial: true
+      }];
     }
 
     // Padrão: 2 blocos para programas de 30min ou 1 bloco para programas curtos (15min)
@@ -342,6 +483,21 @@
   function atualizarBlocoExistenteComSlotGrade(blocoExistente, slotGrade) {
     const atualizado = { ...blocoExistente };
     const ep = slotGrade.episodio;
+
+    // Código e minutagem oficiais substituem somente identificadores/durações artificiais
+    // de sincronizações anteriores. Alterações explicitamente marcadas pelo operador ficam intactas.
+    const oficial = (slotGrade.blocosCatalogo || []).find(item => {
+      const numero = extrairNumeroBlocoDeItem(item);
+      return numero === (Number(blocoExistente.bloco) || getBlockNumber(blocoExistente.descricao));
+    }) || (slotGrade.blocosCatalogo || [])[0];
+    if (oficial) {
+      if ((!blocoExistente.code || /^(?:GRD_|.*_B\d+$)/i.test(blocoExistente.code) || blocoExistente._catalogoOficial) && oficial.code) {
+        atualizado.code = oficial.code;
+      }
+      if (!blocoExistente._tempoEditadoManualmente && oficial.tempo) atualizado.tempo = oficial.tempo;
+      if (oficial.descricao) atualizado.descricao = oficial.descricao;
+      atualizado._catalogoOficial = true;
+    }
 
     // Atualiza metadados da grade
     atualizado._gradeSlotId = slotGrade.slotId;
@@ -394,13 +550,20 @@
       duracaoBreakPadrao = '00:03:00'
     } = opcoes;
 
-    const slotsNormalizados = normalizarSlotsGradeDoDia(slotsGrade);
+    const slotsNormalizados = normalizarSlotsGradeDoDia(slotsGrade, opcoes);
 
     // MODO SUBSTITUIR: Recria do zero a partir da grade
     if (modo === 'substituir' || !Array.isArray(roteiroAtual) || roteiroAtual.length === 0) {
       const novoRoteiro = [];
       slotsNormalizados.forEach((slot, sIdx) => {
         const blocos = construirBlocosPadraoParaSlot(slot, opcoes);
+        if (typeof opcoes.geradorSequenciaPrograma === 'function') {
+          const sequencia = opcoes.geradorSequenciaPrograma(blocos, slot, { indice: sIdx, total: slotsNormalizados.length, modo: 'substituir' });
+          if (Array.isArray(sequencia)) {
+            sequencia.forEach(item => novoRoteiro.push(item));
+            return;
+          }
+        }
         blocos.forEach((b, bIdx) => {
           novoRoteiro.push(b);
           // Adiciona slots vazios de break entre blocos
@@ -489,37 +652,50 @@
 
         const grupo = correspondente.grupo;
 
-        // Atualiza blocos existentes preservando chamadas e edições do operador
-        grupo.blocos.forEach((blocoOriginal, bIdx) => {
-          const blocoAtualizado = atualizarBlocoExistenteComSlotGrade(blocoOriginal, slot);
-          resultadoRoteiro.push(blocoAtualizado);
-
-          // Se houver peças em breaks internos entre blocos deste programa, reinsere todas!
-          if (grupo.pecasBreaksInternos && grupo.pecasBreaksInternos.length > 0) {
-            grupo.pecasBreaksInternos.forEach(p => {
-              resultadoRoteiro.push({ ...p, _preservado: true });
-              if (isPecaManual(p)) totalPecasPreservadas++;
-            });
-          } else if (bIdx < grupo.blocos.length - 1) {
-            // Se não tinha peças, preserva os slots de break padrão
-            resultadoRoteiro.push({
-              code: '__BREAK__',
-              descricao: '[ BREAK — chamada ]',
-              tempo: '00:00:00',
-              midia: '0OMN',
-              type: '__SLOT__',
-              _break: true
-            });
+        // Em grupos sem peças manuais, refaz a sequência automática com o mesmo motor de vinhetas
+        // do Roteiro. Se houver qualquer inserção do operador, mantém o caminho conservador.
+        const temEdicaoManualNoGrupo = [
+          ...(grupo.pecasBreaksInternos || []),
+          ...(grupo.pecasBreakFinal || [])
+        ].some(isPecaManual);
+        let sequenciaAutomaticaAplicada = false;
+        if (!temEdicaoManualNoGrupo && typeof opcoes.geradorSequenciaPrograma === 'function') {
+          const blocosAtualizados = grupo.blocos.map(bloco => atualizarBlocoExistenteComSlotGrade(bloco, slot));
+          const sequencia = opcoes.geradorSequenciaPrograma(blocosAtualizados, slot, { modo: 'inteligente', existente: true });
+          if (Array.isArray(sequencia)) {
+            sequencia.forEach(item => resultadoRoteiro.push(item));
+            sequenciaAutomaticaAplicada = true;
           }
-        });
+        }
+
+        if (!sequenciaAutomaticaAplicada) {
+          // Atualiza blocos existentes preservando chamadas e edições do operador
+          grupo.blocos.forEach((blocoOriginal, bIdx) => {
+            const blocoAtualizado = atualizarBlocoExistenteComSlotGrade(blocoOriginal, slot);
+            resultadoRoteiro.push(blocoAtualizado);
+
+            // Se houver peças em breaks internos entre blocos deste programa, reinsere todas!
+            if (grupo.pecasBreaksInternos && grupo.pecasBreaksInternos.length > 0) {
+              grupo.pecasBreaksInternos.forEach(p => {
+                resultadoRoteiro.push({ ...p, _preservado: true });
+                if (isPecaManual(p)) totalPecasPreservadas++;
+              });
+            } else if (bIdx < grupo.blocos.length - 1) {
+              resultadoRoteiro.push({
+                code: '__BREAK__', descricao: '[ BREAK — chamada ]', tempo: '00:00:00',
+                midia: '0OMN', type: '__SLOT__', _break: true
+              });
+            }
+          });
+        }
 
         // Reinsere TODAS as peças manuais, chamadas e interprogramas que estavam no break deste programa
-        if (grupo.pecasBreakFinal && grupo.pecasBreakFinal.length > 0) {
+        if (!sequenciaAutomaticaAplicada && grupo.pecasBreakFinal && grupo.pecasBreakFinal.length > 0) {
           grupo.pecasBreakFinal.forEach(pecaManual => {
             resultadoRoteiro.push({ ...pecaManual, _preservado: true });
             if (isPecaManual(pecaManual)) totalPecasPreservadas++;
           });
-        } else {
+        } else if (!sequenciaAutomaticaAplicada) {
           // Mantém slot de intervalo se não havia peças
           resultadoRoteiro.push({
             code: '__BREAK__',
@@ -534,6 +710,17 @@
         // CASO B: NOVO PROGRAMA DA GRADE -> INSERE COM SEUS BLOCOS E BREAKS PADRÃO
         totalProgramasNovos++;
         const novosBlocos = construirBlocosPadraoParaSlot(slot, opcoes);
+        if (typeof opcoes.geradorSequenciaPrograma === 'function') {
+          const sequencia = opcoes.geradorSequenciaPrograma(novosBlocos, slot, { modo: 'inteligente' });
+          if (Array.isArray(sequencia)) {
+            sequencia.forEach(item => resultadoRoteiro.push(item));
+            resultadoRoteiro.push({
+              code: '__BREAK__', descricao: '[ BREAK — intervalo ]', tempo: duracaoBreakPadrao,
+              midia: '0OMN', type: '__SLOT__', _break: true
+            });
+            return;
+          }
+        }
         novosBlocos.forEach((b, bIdx) => {
           resultadoRoteiro.push({ ...b, _novoDaGrade: true });
           if (bIdx < novosBlocos.length - 1) {
@@ -636,6 +823,21 @@
   /**
    * Empacota a publicação da Grade Semanal gerando metadados auditáveis e snapshots.
    */
+  function selecionarGradeParaData(dataKey, diaSemana, saved = {}) {
+    const info = saved.gradePublicadaInfo || saved.gradeSemanalInfo || null;
+    const temPeriodo = !!(info && info.dataInicio && info.dataFim);
+    const dentroDaSemana = temPeriodo ? (dataKey >= info.dataInicio && dataKey <= info.dataFim) : null;
+    if (temPeriodo && !dentroDaSemana) return { blocks: [], info, dentroDaSemana: false, fonte: 'fora_da_vigencia' };
+
+    if (dentroDaSemana) {
+      const publicados = (saved.gradePublicadaBlocksByDay || {})[diaSemana] || [];
+      if (publicados.length) return { blocks: publicados, info, dentroDaSemana: true, fonte: 'publicada' };
+    }
+    const rascunho = (saved.gradeBlocksByDay || {})[diaSemana] || [];
+    if (rascunho.length) return { blocks: rascunho, info, dentroDaSemana, fonte: 'rascunho' };
+    return { blocks: [], info, dentroDaSemana, fonte: 'nenhuma' };
+  }
+
   function prepararPublicacaoGradeSemanal(params = {}) {
     const {
       emissoraId = null,
@@ -706,6 +908,7 @@
     atualizarBlocoExistenteComSlotGrade,
     mesclarGradeComRoteiroPreservandoEdicoes,
     prepararPublicacaoGradeSemanal,
+    selecionarGradeParaData,
     verificarGradePendenteParaData
   };
 });
