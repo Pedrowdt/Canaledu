@@ -1583,110 +1583,123 @@ input, select { font-family: inherit; font-size: 12px; }
 
 
 <!-- MODAL: IMPORTAR GRADE COM PRÉ-VISUALIZAÇÃO -->
-<div class="overlay" id="modal-importar-grade" style="display:none" onclick="if(event.target===this)fecharModalImportarGrade()">
-  <div class="modal-box" style="max-width:760px;max-height:85vh;display:flex;flex-direction:column;gap:16px;padding:22px">
+<div class="overlay" id="modal-importar-grade" style="display:none;padding:16px;overflow-y:auto" onclick="if(event.target===this)fecharModalImportarGrade()">
+  <div class="modal-box" style="max-width:760px;max-height:90vh;display:flex;flex-direction:column;gap:14px;padding:20px 22px;overflow:hidden;box-shadow:0 20px 25px -5px rgba(0,0,0,0.25)">
 
     <!-- Cabeçalho -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--border);padding-bottom:10px">
       <div>
-        <h2 style="font-size:17px;font-weight:700;color:var(--text);margin:0 0 4px">📥 Importar Grade de Programação</h2>
+        <h2 style="font-size:16.5px;font-weight:700;color:var(--text);margin:0 0 2px">📥 Importar Grade de Programação</h2>
         <p style="font-size:12px;color:#64748b;margin:0">
-          Selecione uma grade oficial de referência ou envie um arquivo para pré-visualizar antes de aplicar.
+          Envie a planilha da sua emissora ou selecione uma grade oficial de referência para pré-visualizar.
         </p>
       </div>
-      <button type="button" class="btn-slot-clear" onclick="fecharModalImportarGrade()" title="Fechar" style="font-size:18px">×</button>
+      <button type="button" class="btn-slot-clear" onclick="fecharModalImportarGrade()" title="Fechar" style="font-size:18px;line-height:1">×</button>
     </div>
 
     <!-- Etapa 1: Seleção de Fonte -->
-    <div id="step-selecao-importacao" style="display:flex;flex-direction:column;gap:14px">
+    <div id="step-selecao-importacao" style="display:flex;flex-direction:column;gap:12px;overflow-y:auto;max-height:calc(90vh - 90px);padding-right:4px">
 
-      <!-- Opção de desmembrar faixas em slots de 15 minutos -->
-      <div style="padding:10px 14px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;display:flex;align-items:center;justify-content:space-between">
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:#065f46;cursor:pointer;margin:0">
-          <input type="checkbox" id="chk-importar-desmembrar-faixas" checked>
-          <span>⚡ Desmembrar faixas compostas (ex: TV Brasil Animada) em slots individuais de 15 minutos</span>
-        </label>
-        <span style="font-size:11px;color:#047857">Recomendado para roteiros e exibição</span>
-      </div>
-
-            <!-- Card Destaque: TV Brasil Semana 45 (Novembro 2026) -->
-      <div style="border:2px solid #10b981;background:#f0fdf4;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">
+      <!-- Card Principal de Upload (Destaque Universal) -->
+      <div style="border:1.5px solid #3b82f6;background:#f8fafc;border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:10px">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:11px;font-weight:700;background:#059669;color:#fff;padding:2px 8px;border-radius:12px;text-transform:uppercase">Oficial Planilha EBC</span>
-          <span style="font-size:12px;color:#047857;font-weight:600">Semana 45 (09 a 15/11/2026)</span>
-        </div>
-        <div style="font-size:14px;font-weight:700;color:#064e3b">
-          📺 Grade Oficial TV Brasil — Semana 45 Completa (24h)
-        </div>
-        <div style="font-size:12px;color:#334155;line-height:1.4">
-          Extraída diretamente da planilha oficial de Novembro/2026: 7 dias completos, faixa TV Brasil Animada configurada com atrações e temporadas, Sem Censura (ao vivo e episódios gravados) e todas as classificações de cores.
-        </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:4px">
-          <button type="button" class="btn-primary" style="background:#059669;border-color:#059669" onclick="carregarPreviaTvBrasilSemana45()">
-            Visualizar Prévia da Semana 45 ➔
-          </button>
-        </div>
-      </div>
-
-      <!-- Card Destaque: TV Brasil Semana 44 -->
-      <div style="border:2px solid #38bdf8;background:#f0f9ff;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:8px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:11px;font-weight:700;background:#0284c7;color:#fff;padding:2px 8px;border-radius:12px;text-transform:uppercase">Recomendado</span>
-          <span style="font-size:12px;color:#0369a1;font-weight:600">Semana 44 (02 a 08/11/2026)</span>
-        </div>
-        <div style="font-size:14px;font-weight:700;color:#0c4a6e">
-          📺 Grade Oficial TV Brasil — Semana Completa (24h)
-        </div>
-        <div style="font-size:12px;color:#334155;line-height:1.4">
-          Contém os 7 dias completos: faixa infantil matutina (TV Brasil Animada), jornalismo ao vivo (Repórter Brasil Tarde e Noite), novelas, documentários, faixas culturais e as reprises vinculadas da madrugada.
-        </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:4px">
-          <button type="button" class="btn-primary" style="background:#0284c7;border-color:#0284c7" onclick="carregarPreviaTvBrasil()">
-            Visualizar Prévia da TV Brasil ➔
-          </button>
-        </div>
-      </div>
-
-      <!-- Card Opção: Upload de Arquivo Excel / CSV -->
-      <div style="border:1.5px solid #cbd5e1;background:#fafafa;border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span style="font-size:13px;font-weight:700;color:var(--text)">
+          <span style="font-size:13.5px;font-weight:700;color:#1e3a8a;display:flex;align-items:center;gap:6px">
             📂 Enviar Planilha da sua Emissora (Excel ou CSV)
           </span>
-          <span style="font-size:11px;font-weight:600;background:#e2e8f0;color:#334155;padding:2px 8px;border-radius:10px">
-            Qualquer Emissora
+          <span style="font-size:11px;font-weight:600;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px">
+            Universal / Qualquer Emissora
           </span>
         </div>
 
         <div style="font-size:12px;color:#475569;line-height:1.45">
           Suporta dois formatos universais:
-          <br>• <strong>Matriz Semanal Oficial:</strong> colunas de <em>Segunda a Domingo</em> com uma coluna de <em>Horário</em> (formato oficial de todas as emissoras públicas). Detecta títulos, temporadas/episódios (ex: <code>T 01 EP 02</code>), reprises e MAM automaticamente.
+          <br>• <strong>Matriz Semanal Oficial:</strong> colunas de <em>Segunda a Domingo</em> com coluna de <em>Horário</em> (formato oficial de todas as emissoras públicas). Detecta títulos, temporadas/episódios (ex: <code>T 01 EP 02</code>), reprises e MAM automaticamente.
           <br>• <strong>Lista Tabular CSV:</strong> colunas <code>dia;horario;duracao;programa;codigo;categoria;tipo</code>.
         </div>
 
         <!-- Botões para baixar modelos oficiais -->
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f1f5f9;border-radius:6px;border:1px dashed #cbd5e1">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:8px 12px;background:#fff;border-radius:6px;border:1px dashed #cbd5e1">
           <span style="font-size:11.5px;font-weight:600;color:#334155">Modelos prontos:</span>
-          <button type="button" class="btn-outline" style="font-size:11.5px;padding:4px 10px;background:#fff" onclick="baixarModeloGradeXlsx()" title="Baixar modelo em Excel com dias da semana e horários">
-            📥 Baixar Modelo Excel (.xlsx)
-          </button>
-          <button type="button" class="btn-outline" style="font-size:11.5px;padding:4px 10px;background:#fff" onclick="baixarModeloGradeCsv()" title="Baixar modelo em CSV tabular">
-            📥 Baixar Modelo (.csv)
-          </button>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn-outline" style="font-size:11px;padding:4px 10px;background:#f8fafc" onclick="baixarModeloGradeXlsx()" title="Baixar modelo em Excel com dias da semana e horários">
+              📥 Baixar Modelo Excel (.xlsx)
+            </button>
+            <button type="button" class="btn-outline" style="font-size:11px;padding:4px 10px;background:#f8fafc" onclick="baixarModeloGradeCsv()" title="Baixar modelo em CSV tabular">
+              📥 Baixar Modelo (.csv)
+            </button>
+          </div>
         </div>
 
+        <!-- Campo de Arquivo e Ação -->
         <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-          <input type="file" id="input-arquivo-grade-csv" accept=".xlsx,.xls,.csv,.txt" style="font-size:12px;flex:1">
-          <button type="button" class="btn-primary" onclick="processarUploadArquivoCsv()" style="font-weight:600">
+          <input type="file" id="input-arquivo-grade-csv" accept=".xlsx,.xls,.csv,.txt" style="font-size:12px;flex:1;background:#fff;padding:6px;border:1px solid #cbd5e1;border-radius:6px">
+          <button type="button" class="btn-primary" onclick="processarUploadArquivoCsv()" style="font-weight:600;white-space:nowrap;padding:7px 14px">
             Carregar e Pré-visualizar ➔
           </button>
         </div>
+
+        <!-- Opção de desmembrar faixas em slots de 15 minutos -->
+        <div style="padding:6px 10px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;display:flex;align-items:center;justify-content:space-between;margin-top:2px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;color:#065f46;cursor:pointer;margin:0">
+            <input type="checkbox" id="chk-importar-desmembrar-faixas" checked>
+            <span>⚡ Desmembrar faixas compostas (ex: TV Brasil Animada) em slots individuais de 15 min</span>
+          </label>
+          <span style="font-size:10.5px;color:#047857">Recomendado</span>
+        </div>
       </div>
+
+      <!-- Seção Secundária: Amostras Oficiais Prontas (Colapsável) -->
+      <details style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:10px 14px">
+        <summary style="font-size:12px;font-weight:600;color:#475569;cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+          <span>💡 Ou carregar uma Grade de Amostra EBC pré-configurada (TV Brasil Semanas 44 e 45)</span>
+          <span style="font-size:11px;color:#0284c7;font-weight:600">Ver amostras ▾</span>
+        </summary>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:10px;margin-top:12px">
+          <!-- Card Destaque: TV Brasil Semana 45 (Novembro 2026) -->
+          <div style="border:1.5px solid #10b981;background:#f0fdf4;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:10px;font-weight:700;background:#059669;color:#fff;padding:2px 6px;border-radius:10px;text-transform:uppercase">Oficial EBC</span>
+              <span style="font-size:11px;color:#047857;font-weight:600">Semana 45 (09 a 15/11)</span>
+            </div>
+            <div style="font-size:12.5px;font-weight:700;color:#064e3b">
+              📺 TV Brasil — Semana 45 (24h)
+            </div>
+            <div style="font-size:11px;color:#334155;line-height:1.35">
+              Grade oficial com 7 dias completos, faixa infantil TV Brasil Animada e Sem Censura.
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:2px">
+              <button type="button" class="btn-primary" style="background:#059669;border-color:#059669;font-size:11px;padding:4px 10px" onclick="carregarPreviaTvBrasilSemana45()">
+                Visualizar Prévia ➔
+              </button>
+            </div>
+          </div>
+
+          <!-- Card Destaque: TV Brasil Semana 44 -->
+          <div style="border:1.5px solid #38bdf8;background:#f0f9ff;border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:10px;font-weight:700;background:#0284c7;color:#fff;padding:2px 6px;border-radius:10px;text-transform:uppercase">Amostra</span>
+              <span style="font-size:11px;color:#0369a1;font-weight:600">Semana 44 (02 a 08/11)</span>
+            </div>
+            <div style="font-size:12.5px;font-weight:700;color:#0c4a6e">
+              📺 TV Brasil — Semana 44 (24h)
+            </div>
+            <div style="font-size:11px;color:#334155;line-height:1.35">
+              Contém os 7 dias completos: jornalismo ao vivo, novelas e reprises vinculadas.
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:2px">
+              <button type="button" class="btn-primary" style="background:#0284c7;border-color:#0284c7;font-size:11px;padding:4px 10px" onclick="carregarPreviaTvBrasil()">
+                Visualizar Prévia ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
 
     </div>
 
     <!-- Etapa 2: Pré-visualização antes de salvar -->
-    <div id="step-previa-importacao" style="display:none;flex-direction:column;gap:12px;flex:1;overflow:hidden">
+    <div id="step-previa-importacao" style="display:none;flex-direction:column;gap:12px;overflow-y:auto;max-height:calc(90vh - 90px);padding-right:4px">
 
       <!-- Barra de Resumo e Métricas Operacionais da Prévia -->
       <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:8px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:10px">

@@ -7206,17 +7206,25 @@
   }
 
   function normalizarTituloCatalogo(valor) {
-    return String(valor || '')
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .replace(/^\s*(?:PGM|PROGRAMA)\s+/i, '')
-      .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
-      .replace(/\s*-?\s*EP\s*\d+.*$/i, '')
-      .replace(/\s*-?\s*BL\s*\d+.*$/i, '')
-      .replace(/\s*\([^)]*\)\s*$/g, '')
-      .replace(/\s*\d+\s*['’]\s*$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    let s = String(valor || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toUpperCase();
+    // Remove prefixos como PGM, PROGRAMA, INTPGM, INTERPROGRAMA
+    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA)\s+/i, '');
+    // Remove sufixos de canal/emissora
+    s = s.replace(/\s*[-–—]?\s*CANAL\s+EDUCACAO.*$/i, '');
+    s = s.replace(/\s*[-–—]?\s*TV\s+BRASIL.*$/i, '');
+    s = s.replace(/\s*[-–—]?\s*CANAL\s+GOV.*$/i, '');
+    // Remove temporada/episodio/bloco/sufixos comuns
+    s = s.replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*BL\s*\d+.*$/i, '');
+    s = s.replace(/\s*_\d+$/g, ''); // Sufixos _1, _2 de blocos do acervo
+    s = s.replace(/\s*\([^)]*\)\s*$/g, '');
+    s = s.replace(/\s*\d+\s*['’]\s*$/g, '');
+    // Normaliza pontuação e espaços para chave limpa
+    s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return s;
   }
 
   function extrairMetadadosEpisodio(texto) {
@@ -7273,20 +7281,46 @@
 
   function obterEpisodioRegistroPrograma(programa) {
     if (!programa || typeof programa !== 'object') return { temporada: null, episodio: null };
-    const parsed = extrairMetadadosEpisodio(obterTituloRegistroPrograma(programa));
+    // Prioriza campos explícitos do registro relacional
+    if (programa.temporada != null || programa.episodioNumero != null || programa.episodio != null) {
+      return {
+        temporada: programa.temporada != null ? Number(programa.temporada) : null,
+        episodio: programa.episodioNumero != null ? Number(programa.episodioNumero) : (programa.episodio != null ? Number(programa.episodio) : null),
+      };
+    }
+    // Fallback: extrai de descricao ou programaTitulo
+    const parsedDesc = extrairMetadadosEpisodio(programa.descricao || '');
+    if (parsedDesc && (parsedDesc.temporada != null || parsedDesc.episodioNumero != null)) {
+      return {
+        temporada: parsedDesc.temporada,
+        episodio: parsedDesc.episodioNumero,
+      };
+    }
+    const parsedTit = extrairMetadadosEpisodio(obterTituloRegistroPrograma(programa));
     return {
-      temporada: programa.temporada != null ? Number(programa.temporada) : (parsed?.temporada ?? null),
-      episodio: programa.episodioNumero != null ? Number(programa.episodioNumero) : (programa.episodio != null ? Number(programa.episodio) : (parsed?.episodioNumero ?? null)),
+      temporada: parsedTit?.temporada ?? null,
+      episodio: parsedTit?.episodioNumero ?? null,
     };
   }
 
   function criarIndiceAcervo(acervoAtual = []) {
     const indice = new Map();
     (acervoAtual || []).forEach(programa => {
-      const chave = normalizarTituloCatalogo(obterTituloRegistroPrograma(programa));
-      if (!chave) return;
-      if (!indice.has(chave)) indice.set(chave, []);
-      indice.get(chave).push(programa);
+      // 1. Chave pelo título canônico
+      const tit = obterTituloRegistroPrograma(programa);
+      const chaveTit = normalizarTituloCatalogo(tit);
+      if (chaveTit) {
+        if (!indice.has(chaveTit)) indice.set(chaveTit, []);
+        indice.get(chaveTit).push(programa);
+      }
+      // 2. Chave secundária pela descrição se for diferente do título
+      if (programa.descricao) {
+        const chaveDesc = normalizarTituloCatalogo(programa.descricao);
+        if (chaveDesc && chaveDesc !== chaveTit) {
+          if (!indice.has(chaveDesc)) indice.set(chaveDesc, []);
+          indice.get(chaveDesc).push(programa);
+        }
+      }
     });
     return indice;
   }
@@ -7296,18 +7330,30 @@
     if (!chave) return null;
     const candidatos = indiceAcervo instanceof Map ? (indiceAcervo.get(chave) || []) : [];
     if (!candidatos.length) return null;
+
+    // Se temos dados de episódio (temporada e/ou número), busca correspondência exata
     if (episodio && (episodio.temporada != null || episodio.episodioNumero != null)) {
-      const exato = candidatos.find(p => {
+      // 1. Tenta correspondência com bloco 1 (_1) ou sem bloco primeiro
+      const exatos = candidatos.filter(p => {
         const ep = obterEpisodioRegistroPrograma(p);
-        return (episodio.temporada == null || ep.temporada === Number(episodio.temporada)) &&
-          (episodio.episodioNumero == null || ep.episodio === Number(episodio.episodioNumero));
+        const matchTemp = episodio.temporada == null || ep.temporada == null || ep.temporada === Number(episodio.temporada);
+        const matchEp = episodio.episodioNumero != null && ep.episodio === Number(episodio.episodioNumero);
+        return matchTemp && matchEp;
       });
-      if (exato) return exato;
+
+      if (exatos.length > 0) {
+        // Se houver múltiplos blocos (ex: _1 e _2), prefere bloco 1
+        const bloco1 = exatos.find(p => p.bloco === 1 || /_1$/.test(p.code || ''));
+        return bloco1 || exatos[0];
+      }
     }
-    return candidatos.find(p => {
+
+    // Se não houver episódio ou não achou exato, prefere registro "master" (sem episódio)
+    const master = candidatos.find(p => {
       const ep = obterEpisodioRegistroPrograma(p);
       return ep.temporada == null && ep.episodio == null;
-    }) || candidatos[0];
+    });
+    return master || candidatos[0];
   }
 
   function prepararPreviaImportacao(dadosGrade, acervoAtual = [], opcoes = {}) {

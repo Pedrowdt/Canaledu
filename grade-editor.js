@@ -340,9 +340,11 @@
           }
           if (userRow.grade_by_day && Object.keys(userRow.grade_by_day).length > 0) {
             saved.gradeByDay = userRow.grade_by_day;
-            // gradeBlocksByDay é um cache local expandido da grade. Quando há
-            // uma grade remota para esta emissora, reconstrói os blocos dela.
-            saved.gradeBlocksByDay = null;
+            // Preserva o cache expandido de gradeBlocksByDay salvo localmente para manter códigos,
+            // tempos e episódios sincronizados da importação recente.
+            if (!saved.gradeBlocksByDay || typeof saved.gradeBlocksByDay !== 'object') {
+              saved.gradeBlocksByDay = null;
+            }
           }
           if (userRow.grade_order_by_day && Object.keys(userRow.grade_order_by_day).length > 0) {
             saved.gradeOrderByDay = userRow.grade_order_by_day;
@@ -570,6 +572,7 @@
             <div class="slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
             <div class="slot-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               ${b.program.code ? `<span>Cód: <strong>${escapeHtml(b.program.code)}</strong></span>` : ''}
+              ${b.program.tempo ? `<span title="Duração oficial do programa no acervo" style="color:#0369a1;font-family:var(--mono);font-size:10.5px">⏱ ${escapeHtml(b.program.tempo)}</span>` : ''}
               ${b.program.categoria ? `<span>• ${escapeHtml(b.program.categoria)}</span>` : ''}
               ${renderClassificacaoBadge(currentDow, idx)}
               ${renderRecurrenceBadge(currentDow, idx)}
@@ -686,7 +689,10 @@
                 <div style="width:4px;height:24px;border-radius:2px;background:${color};flex-shrink:0"></div>
                 <div style="flex:1;min-width:0">
                   <div class="week-slot-title" title="${escapeHtml(b.program.title)}">${escapeHtml(b.program.title)}</div>
-                  ${b.program.code ? `<div style="font-size:9px;color:#64748b;font-family:var(--mono)">${escapeHtml(b.program.code)}</div>` : ''}
+                  <div style="display:flex;align-items:center;gap:6px;font-size:9px;color:#64748b;font-family:var(--mono)">
+                    ${b.program.code ? `<span>${escapeHtml(b.program.code)}</span>` : ''}
+                    ${b.program.tempo ? `<span title="Duração no acervo" style="color:#0369a1">⏱ ${escapeHtml(b.program.tempo)}</span>` : ''}
+                  </div>
                   <div style="font-size:9.5px;color:#0369a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(b.episodio || recurrenceState.slots[getSlotKey(d, idx)]?.episodio)?.titulo ? `📺 ${escapeHtml((b.episodio || recurrenceState.slots[getSlotKey(d, idx)]?.episodio).titulo)}` : ''}</div>
                   <div style="display:flex;align-items:center;gap:4px;margin-top:2px">${renderRecurrenceBadge(d, idx)}<button type="button" class="btn-slot-gear" onclick="abrirConfigSlot(${d}, ${idx})" title="Configurar inédito ou reprise vinculada">⚙</button></div>
                 </div>
@@ -2281,6 +2287,31 @@
     return { desmembrarFaixas: checkbox ? checkbox.checked : true };
   };
 
+    async function assegurarAcervoCarregado() {
+    if (Array.isArray(programas) && programas.length > 5) return programas;
+    if (window.PecasRepo && typeof window.PecasRepo.loadAll === 'function') {
+      try {
+        if (window.EmissoraContext) {
+          window.PecasRepo.setEmissoraId(window.EmissoraContext.getEmissoraAtivaId());
+        }
+        const repoData = await window.PecasRepo.loadAll();
+        if (Array.isArray(repoData.programas) && repoData.programas.length > 0) {
+          const existingCodes = new Set(programas.map(p => (p.code || p.title || p.nome || '').toUpperCase()));
+          repoData.programas.forEach(rp => {
+            const k = (rp.code || rp.title || rp.nome || '').toUpperCase();
+            if (k && !existingCodes.has(k)) {
+              existingCodes.add(k);
+              programas.push(rp);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Falha ao recarregar acervo antes da importação:', err);
+      }
+    }
+    return programas;
+  }
+
   window.carregarPreviaTvBrasilSemana45 = function () {
     if (!window.GradeImportador) {
       showToast('Módulo de importação não carregado.', 'error');
@@ -2324,8 +2355,9 @@
     // Se for arquivo Excel (.xlsx, .xls)
     if (/\.xlsx?$|\.xls$/i.test(file.name)) {
       const reader = new FileReader();
-      reader.onload = function (e) {
+      reader.onload = async function (e) {
         try {
+          await assegurarAcervoCarregado();
           if (!window.XLSX) {
             throw new Error('Biblioteca XLSX não encontrada no navegador.');
           }
@@ -2394,8 +2426,9 @@
 
     // Arquivo CSV / TXT
     const reader = new FileReader();
-    reader.onload = function (e) {
+    reader.onload = async function (e) {
       try {
+        await assegurarAcervoCarregado();
         const text = e.target.result;
         if (!window.GradeImportador) {
           throw new Error('Módulo GradeImportador não disponível.');

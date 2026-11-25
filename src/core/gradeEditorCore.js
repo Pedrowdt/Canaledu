@@ -216,6 +216,28 @@
   /**
    * Reconstitui os blocos a partir de gradeByDay / gradeOrderByDay salvos.
    */
+  function normalizarTituloGrade(valor) {
+    let s = String(valor || '')
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toUpperCase();
+    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA)\s+/i, '');
+    s = s.replace(/\s*[-–—]?\s*CANAL\s+EDUCACAO.*$/i, '');
+    s = s.replace(/\s*[-–—]?\s*TV\s+BRASIL.*$/i, '');
+    s = s.replace(/\s*[-–—]?\s*CANAL\s+GOV.*$/i, '');
+    s = s.replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*BL\s*\d+.*$/i, '');
+    s = s.replace(/\s*_\d+$/g, '');
+    s = s.replace(/\s*\[\d+ª\]$/g, '');
+    s = s.replace(/\s*\([^)]*\)\s*$/g, '');
+    s = s.replace(/\s*\d+\s*['’]\s*$/g, '');
+    s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    return s;
+  }
+
+  /**
+   * Reconstitui os blocos a partir de gradeByDay / gradeOrderByDay salvos.
+   */
   function gradeToBlocks(gradeObj = {}, orderList = [], programCatalog = []) {
     const baseSlots = generateBaseSlots(6, 30);
     const catalogMap = new Map();
@@ -223,6 +245,14 @@
       const codeOrTitle = (p.code || p.title || p.nome || p.descricao || '').toUpperCase().trim();
       if (codeOrTitle) catalogMap.set(codeOrTitle, p);
       if (p.descricao) catalogMap.set(p.descricao.toUpperCase().trim(), p);
+      // Indexa também pelo título canônico normalizado
+      const tit = p.programaTitulo || p.programa_titulo || p.title || p.nome || p.descricao || '';
+      const kTit = normalizarTituloGrade(tit);
+      if (kTit && !catalogMap.has(kTit)) catalogMap.set(kTit, p);
+      if (p.descricao) {
+        const kDesc = normalizarTituloGrade(p.descricao);
+        if (kDesc && !catalogMap.has(kDesc)) catalogMap.set(kDesc, p);
+      }
     });
 
     const entries = [];
@@ -263,7 +293,8 @@
       }
 
       const cleanTitle = cur.title.replace(/\s*\[\d+ª\]$/, '').trim();
-      const meta = catalogMap.get(cleanTitle.toUpperCase()) || {};
+      const normClean = normalizarTituloGrade(cleanTitle);
+      const meta = catalogMap.get(cleanTitle.toUpperCase()) || (normClean ? catalogMap.get(normClean) : null) || {};
       const faixaOcupada = (meta.faixaOcupada || meta.faixa_ocupada || meta.faixa || '').trim();
 
       resultBlocks.push({
@@ -288,14 +319,12 @@
           episodio: meta.episodio ?? null,
           bloco: meta.bloco ?? null,
         },
-      });    }
+      });
+    }
 
     return resultBlocks;
   }
 
-  /**
-   * Move ou troca um slot entre dias ou dentro do mesmo dia.
-   */
   function moveOrSwapSlot(blocksByDay, fromDow, fromSlotIdx, toDow, toSlotIdx, options = {}) {
     const copy = { ...blocksByDay };
     const sourceBlocks = (copy[fromDow] || []).map(b => ({ ...b, program: b.program ? { ...b.program } : null }));

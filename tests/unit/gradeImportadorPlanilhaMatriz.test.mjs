@@ -201,4 +201,66 @@ terça;06:00;00:30;Jornalismo Manhã;JM01;Jornalismo;inedito`;
       /Formato de planilha não reconhecido\. A planilha deve estar no formato Matriz Semanal/i
     );
   });
+  it('casa programas reais do Canal Educação como MUTATIS MUTANDIS e PORTUGUÊS DAQUI com código e duração oficiais', () => {
+    const grade = {
+      dias: {
+        1: [
+          {
+            time: '18:00:00',
+            duration: '00:30:00',
+            program: { title: 'MUTATIS MUTANDIS' },
+            episodioInfo: {
+              temporada: 1,
+              episodioNumero: 4,
+              titulo: 'HISTÓRIA DA EDUCAÇÃO'
+            }
+          },
+          {
+            time: '19:00:00',
+            duration: '00:15:00',
+            program: { title: 'PORTUGUÊS DAQUI, DALI E DE LÁ' },
+            episodioInfo: {
+              temporada: 1,
+              episodioNumero: 2,
+              titulo: 'ACORDO ORTOGRÁFICO'
+            }
+          }
+        ]
+      }
+    };
+
+    const acervo = [
+      {
+        id: 'mut-1',
+        code: 'CE136763',
+        descricao: 'PGM MUTATIS MUTANDIS CANAL EDUCACAO - T 01 EP 04 - HISTORIA DA EDUCACAO',
+        programaTitulo: 'MUTATIS MUTANDIS',
+        temporada: 1,
+        episodio: 4,
+        tempo: '00:20:53'
+      },
+      {
+        id: 'port-1',
+        code: 'CE136781_1',
+        descricao: 'PGM PORTUGUES DAQUI DALI E DE LA CANAL EDUCACAO - T 01 EP 02 - ACORDO ORTOGRAFICO _1',
+        programaTitulo: 'PORTUGUES DAQUI DALI E DE LA',
+        temporada: 1,
+        episodio: 2,
+        bloco: 1,
+        tempo: '00:14:06'
+      }
+    ];
+
+    const previa = GradeImportador.prepararPreviaImportacao(grade, acervo, { desmembrarFaixas: false });
+    const slots = previa.slotsPorDia[1];
+
+    expect(slots[0].program.code).toBe('CE136763');
+    expect(slots[0].program.tempo).toBe('00:20:53');
+    expect(slots[0].program.catalogoEncontrado).toBe(true);
+    expect(slots[0].episodio.codigo).toBe('CE136763');
+
+    expect(slots[1].program.code).toBe('CE136781_1');
+    expect(slots[1].program.tempo).toBe('00:14:06');
+    expect(slots[1].program.catalogoEncontrado).toBe(true);
+  });
 });
