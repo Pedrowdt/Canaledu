@@ -2763,7 +2763,12 @@ domingo;06:00;00:30;Retratos de Fé;RET01;Religioso;inedito
       if (isLivre) {
         title = '<span style="color:#b45309;font-weight:600">● Horário Livre / Vazio</span>';
       }
-      const code = prog && prog.code ? `<div style="font-size:10px;color:#64748b;font-family:var(--mono)">${escapeHtml(prog.code)}</div>` : '';
+      const code = prog && prog.code ? `<div style="font-size:10px;color:#64748b;font-family:var(--mono)">Código: ${escapeHtml(prog.code)}</div>` : '';
+      const catalogDuration = prog?.tempo ? `<div style="font-size:10px;color:#475569">${prog.duracaoFonte === 'acervo' ? 'Duração no acervo' : 'Duração informada na planilha'}: ${escapeHtml(prog.tempo)}</div>` : '';
+      const catalogStatus = prog?.catalogoEncontrado ? '<span style="font-size:9px;color:#047857;background:#d1fae5;padding:1px 5px;border-radius:8px">Vinculado ao acervo</span>' : '';
+      const ep = s.episodio;
+      const episodeInfo = ep ? `<div style="font-size:10px;color:#0369a1">📺 ${ep.temporada != null ? `T${String(ep.temporada).padStart(2, '0')} ` : ''}${ep.episodioNumero != null ? `EP${String(ep.episodioNumero).padStart(2, '0')} · ` : ''}${escapeHtml(ep.titulo || 'Episódio')}</div>` : '';
+      const mamInfo = s.origemMam ? `<div style="font-size:9px;color:#64748b">${escapeHtml(s.origemMam)}</div>` : '';
 
       let tipoBadge = '<span style="font-size:10.5px;color:#64748b">● Fixo</span>';
       const slotKey = `${dow}:${s.time}`;
@@ -2786,7 +2791,7 @@ domingo;06:00;00:30;Retratos de Fé;RET01;Religioso;inedito
           <td style="padding:6px 10px;color:#64748b;font-size:11px">${s.duration.substring(0, 5)}</td>
           <td style="padding:6px 10px">
             <div style="font-weight:600;color:var(--text)">${title}</div>
-            ${code}
+            ${catalogStatus}${code}${catalogDuration}${episodeInfo}${mamInfo}
           </td>
           <td style="padding:6px 10px">${tipoBadge}</td>
         </tr>

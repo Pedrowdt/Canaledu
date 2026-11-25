@@ -7198,19 +7198,125 @@
    * Converte o preset ou um objeto estruturado em blocos e acervo prontos para o Editor de Grade.
    * Por padrão, faixas compostas (ex: TV Brasil Animada) são desmembradas em slots individuais de 15 min.
    */
+  function limparDuracaoDoTitulo(valor) {
+    return String(valor || '')
+      .replace(/\s*\(\s*\d{1,2}:\d{2}(?::\d{2})?\s*\)\s*$/g, '')
+      .replace(/\s+\d{1,3}\s*['’]\s*$/g, '')
+      .trim();
+  }
+
+  function normalizarTituloCatalogo(valor) {
+    return String(valor || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/^\s*(?:PGM|PROGRAMA)\s+/i, '')
+      .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
+      .replace(/\s*-?\s*EP\s*\d+.*$/i, '')
+      .replace(/\s*-?\s*BL\s*\d+.*$/i, '')
+      .replace(/\s*\([^)]*\)\s*$/g, '')
+      .replace(/\s*\d+\s*['’]\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function extrairMetadadosEpisodio(texto) {
+    const linhas = Array.isArray(texto)
+      ? texto.map(l => String(l || '').trim()).filter(Boolean)
+      : String(texto || '').split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+    let temporada = null;
+    let episodioNumero = null;
+    let subtitulo = '';
+    let codigoEpisodio = '';
+    let duracaoExplicita = '';
+    let origemMam = '';
+    let tipoExibicao = '';
+    let linhaEpisodio = '';
+
+    for (const linha of linhas) {
+      const epMatch = linha.match(/(?:T\s*(\d+)\s*)?EP\s*(\d+)(?:\s*[-–—:]\s*(.+))?/i);
+      if (epMatch) {
+        temporada = epMatch[1] ? Number(epMatch[1]) : temporada;
+        episodioNumero = Number(epMatch[2]);
+        subtitulo = (epMatch[3] || '').trim();
+        linhaEpisodio = linha;
+      }
+      const codigoMatch = linha.match(/\b(?:COD(?:IGO)?\s*[:#]?\s*)([A-Z0-9_-]{3,})/i);
+      if (codigoMatch) codigoEpisodio = codigoMatch[1].trim();
+      const duracaoMatch = linha.match(/\(?\b(\d{1,2}:\d{2}(?::\d{2})?)\b\)?/);
+      if (duracaoMatch) duracaoExplicita = duracaoMatch[1].length === 5 ? `${duracaoMatch[1]}:00` : duracaoMatch[1];
+      const minutosMatch = linha.match(/\b(\d{1,3})\s*['’]/);
+      if (!duracaoExplicita && minutosMatch) duracaoExplicita = `00:${String(Number(minutosMatch[1])).padStart(2, '0')}:00`;
+      if (/\bMAM\b/i.test(linha)) origemMam = linha.replace(/[()]/g, '').trim();
+      if (/reprise|\brep\b|reapresenta/i.test(linha)) tipoExibicao = 'reprise';
+    }
+
+    if (temporada == null && episodioNumero == null && !duracaoExplicita && !origemMam && !tipoExibicao) return null;
+    const titulo = subtitulo || (temporada != null
+      ? `T${String(temporada).padStart(2, '0')} EP${String(episodioNumero).padStart(2, '0')}`
+      : (episodioNumero != null ? `EP${String(episodioNumero).padStart(2, '0')}` : 'Episódio'));
+    return {
+      titulo,
+      codigo: codigoEpisodio || null,
+      temporada,
+      episodioNumero,
+      duracaoTotal: duracaoExplicita || null,
+      origemMam: origemMam || null,
+      tipoExibicao: tipoExibicao || null,
+      referencia: linhaEpisodio || null,
+    };
+  }
+
+  function obterTituloRegistroPrograma(programa) {
+    if (!programa || typeof programa !== 'object') return '';
+    return programa.programaTitulo || programa.programa_titulo || programa.title || programa.nome || programa.name || programa.descricao || '';
+  }
+
+  function obterEpisodioRegistroPrograma(programa) {
+    if (!programa || typeof programa !== 'object') return { temporada: null, episodio: null };
+    const parsed = extrairMetadadosEpisodio(obterTituloRegistroPrograma(programa));
+    return {
+      temporada: programa.temporada != null ? Number(programa.temporada) : (parsed?.temporada ?? null),
+      episodio: programa.episodioNumero != null ? Number(programa.episodioNumero) : (programa.episodio != null ? Number(programa.episodio) : (parsed?.episodioNumero ?? null)),
+    };
+  }
+
+  function criarIndiceAcervo(acervoAtual = []) {
+    const indice = new Map();
+    (acervoAtual || []).forEach(programa => {
+      const chave = normalizarTituloCatalogo(obterTituloRegistroPrograma(programa));
+      if (!chave) return;
+      if (!indice.has(chave)) indice.set(chave, []);
+      indice.get(chave).push(programa);
+    });
+    return indice;
+  }
+
+  function encontrarProgramaNoAcervo(titulo, indiceAcervo, episodio = null) {
+    const chave = normalizarTituloCatalogo(titulo);
+    if (!chave) return null;
+    const candidatos = indiceAcervo instanceof Map ? (indiceAcervo.get(chave) || []) : [];
+    if (!candidatos.length) return null;
+    if (episodio && (episodio.temporada != null || episodio.episodioNumero != null)) {
+      const exato = candidatos.find(p => {
+        const ep = obterEpisodioRegistroPrograma(p);
+        return (episodio.temporada == null || ep.temporada === Number(episodio.temporada)) &&
+          (episodio.episodioNumero == null || ep.episodio === Number(episodio.episodioNumero));
+      });
+      if (exato) return exato;
+    }
+    return candidatos.find(p => {
+      const ep = obterEpisodioRegistroPrograma(p);
+      return ep.temporada == null && ep.episodio == null;
+    }) || candidatos[0];
+  }
+
   function prepararPreviaImportacao(dadosGrade, acervoAtual = [], opcoes = {}) {
     if (!dadosGrade || !dadosGrade.dias) {
       throw new Error('Formato de dados de grade inválido. Objeto com chave "dias" é esperado.');
     }
 
     const desmembrarFaixas = opcoes.desmembrarFaixas !== false; // Padrão: true
-
-    const acervoMap = new Map();
-    (acervoAtual || []).forEach(p => {
-      if (p && p.title) {
-        acervoMap.set(p.title.trim().toUpperCase(), p);
-      }
-    });
+    const indiceAcervo = criarIndiceAcervo(acervoAtual);
 
     const novosProgramas = [];
     const programasIdentificados = new Map();
@@ -7234,9 +7340,25 @@
       items.forEach((item, idx) => {
         const prog = item.program || {};
         const title = (prog.title || item.title || 'Livre').trim();
-        const code = (prog.code || item.code || '').trim();
-        const categoria = prog.categoria || item.categoria || 'Geral';
+        const episodioInfo = item.episodioInfo || (typeof item.episodio === 'object' ? item.episodio : extrairMetadadosEpisodio(item.episodio || item.detalhes));
+        const registroAcervo = encontrarProgramaNoAcervo(title, indiceAcervo, episodioInfo);
+        const code = String(prog.code || item.code || registroAcervo?.code || '').trim();
+        const categoria = prog.categoria || item.categoria || registroAcervo?.categoria || 'Geral';
         const durStr = item.duration || '00:30:00';
+        const duracaoInformada = String(item.duracaoExplicita || episodioInfo?.duracaoTotal || '').trim();
+        const tempoCatalogo = String(registroAcervo?.tempo || prog.tempo || '').trim();
+        const tempoPrograma = tempoCatalogo || duracaoInformada;
+        const programaImportado = title !== 'Livre' ? {
+          ...prog,
+          title,
+          code,
+          categoria,
+          tempo: tempoPrograma,
+          duracaoFonte: tempoCatalogo ? 'acervo' : (duracaoInformada ? 'planilha' : null),
+          catalogoEncontrado: !!registroAcervo,
+          temporada: registroAcervo?.temporada ?? episodioInfo?.temporada ?? null,
+          episodioNumero: registroAcervo?.episodio ?? episodioInfo?.episodioNumero ?? null,
+        } : null;
         const durSec = timeToSec(durStr);
         const isFaixa = !!(item.isFaixa || prog.isFaixa || /ANIMADA|FAIXA/i.test(title));
         let subs = item.subprogramas || prog.subprogramas || [];
@@ -7279,13 +7401,14 @@
               diasResumo[d].duracaoTotalSec += slotDurSec;
               diasResumo[d].programasUnicos.add(subTitle);
 
-              const keyUpper = subTitle.toUpperCase();
-              if (!acervoMap.has(keyUpper) && !programasIdentificados.has(keyUpper)) {
+              const keyUpper = normalizarTituloCatalogo(subTitle);
+              const subRegistroAcervo = encontrarProgramaNoAcervo(subTitle, indiceAcervo);
+              if (!subRegistroAcervo && !programasIdentificados.has(keyUpper)) {
                 const novo = {
                   title: subTitle,
-                  code: subCode,
+                  code: subCode || subRegistroAcervo?.code || '',
                   categoria: subCat,
-                  tempo: '00:15:00',
+                  tempo: subRegistroAcervo?.tempo || '00:15:00',
                 };
                 novosProgramas.push(novo);
                 programasIdentificados.set(keyUpper, novo);
@@ -7300,8 +7423,10 @@
                 endTime: curEnd,
                 program: {
                   title: subTitle,
-                  code: subCode,
+                  code: subCode || subRegistroAcervo?.code || '',
                   categoria: subCat,
+                  tempo: subRegistroAcervo?.tempo || (typeof sub === 'object' ? sub.duracao : null) || '00:15:00',
+                  catalogoEncontrado: !!subRegistroAcervo,
                   faixaNome: faixaNome,
                 },
                 faixaNome: faixaNome,
@@ -7349,13 +7474,13 @@
         diasResumo[d].programasUnicos.add(title);
 
         if (title !== 'Livre') {
-          const keyUpper = title.toUpperCase();
-          if (!acervoMap.has(keyUpper) && !programasIdentificados.has(keyUpper)) {
+          const keyUpper = normalizarTituloCatalogo(title);
+          if (!registroAcervo && !programasIdentificados.has(keyUpper)) {
             const novo = {
               title: title,
               code: code,
               categoria: categoria,
-              tempo: durStr,
+              tempo: tempoPrograma || durStr,
             };
             novosProgramas.push(novo);
             programasIdentificados.set(keyUpper, novo);
@@ -7369,7 +7494,9 @@
           duration: durStr,
           durationSec: durSec,
           endTime: addSeconds(item.time || '06:00:00', durSec),
-          program: title !== 'Livre' ? { title, code, categoria } : null,
+          program: programaImportado,
+          episodio: episodioInfo ? { ...episodioInfo, codigo: episodioInfo.codigo || (registroAcervo && (registroAcervo.temporada != null || registroAcervo.episodio != null) ? registroAcervo.code : null) } : null,
+          origemMam: item.origemMam || episodioInfo?.origemMam || null,
           isFaixa: isFaixa,
           subprogramas: subs,
         };
@@ -7379,8 +7506,9 @@
         if (item.tipoExibicao || item.classificacao || isFaixa) {
           const hora = item.time || '06:00:00';
           const ruleData = {
-            tipoExibicao: item.tipoExibicao || 'fixo',
+            tipoExibicao: item.tipoExibicao || episodioInfo?.tipoExibicao || 'fixo',
             origemInedito: item.repriseDe || null,
+            episodio: episodioInfo ? { ...episodioInfo, codigo: episodioInfo.codigo || (registroAcervo && (registroAcervo.temporada != null || registroAcervo.episodio != null) ? registroAcervo.code : null) } : null,
             classificacao: item.classificacao || prog.classificacao || (title.includes('AO VIVO') ? 'tv_brasil_aovivo' : 'tv_brasil'),
             isFaixa: isFaixa,
             subprogramas: subs
@@ -7609,30 +7737,34 @@
 
         if (cellVal && !/^LEGENDA/i.test(cellVal) && !/^SUBLINHADO/i.test(cellVal) && !/^OBSERVAÇÃO/i.test(cellVal)) {
           const lines = cellVal.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
-          const title = lines[0] || 'Atração';
+          const title = limparDuracaoDoTitulo(lines[0]) || 'Atração';
 
           let ep = '';
           let mam = '';
           let isReprise = false;
+          let duracaoExplicita = '';
 
           for (let i = 0; i < lines.length; i++) {
             const l = lines[i];
-            if (/T\s*\d+\s*EP\s*\d+|EP\s*\d+/i.test(l)) {
-              ep = l;
-            }
-            if (/\(Mam [^)]+\)/i.test(l)) {
-              mam = l;
-            }
-            if (/reprise|rep\s|\(rep\)|reapresenta/i.test(l)) {
-              isReprise = true;
-            }
+            if (/T\s*\d+\s*EP\s*\d+|EP\s*\d+/i.test(l)) ep = l;
+            if (/\bMAM\b/i.test(l)) mam = l.replace(/[()]/g, '').trim();
+            if (/reprise|\brep\b|reapresenta/i.test(l)) isReprise = true;
+            const horaDuracao = l.match(/\(?\b(\d{1,2}:\d{2}(?::\d{2})?)\b\)?/);
+            const minutosDuracao = l.match(/\b(\d{1,3})\s*['’]/);
+            if (horaDuracao) duracaoExplicita = horaDuracao[1].length === 5 ? `${horaDuracao[1]}:00` : horaDuracao[1];
+            else if (minutosDuracao && !duracaoExplicita) duracaoExplicita = `00:${String(Number(minutosDuracao[1])).padStart(2, '0')}:00`;
           }
+          const episodioInfo = extrairMetadadosEpisodio(lines);
+          if (episodioInfo && mam && !episodioInfo.origemMam) episodioInfo.origemMam = mam;
+          if (episodioInfo && isReprise) episodioInfo.tipoExibicao = 'reprise';
 
           const normTime = normalizarHorario(timeVal);
           rawItems.push({
             time: normTime,
             title,
             episodio: ep,
+            episodioInfo,
+            duracaoExplicita,
             origemMam: mam,
             tipoExibicao: isReprise ? 'reprise' : 'inedito',
             detalhes: cellVal
@@ -7668,6 +7800,8 @@
             categoria: 'Geral'
           },
           episodio: cur.episodio,
+          episodioInfo: cur.episodioInfo,
+          duracaoExplicita: cur.duracaoExplicita,
           tipoExibicao: cur.tipoExibicao,
           origemMam: cur.origemMam
         });

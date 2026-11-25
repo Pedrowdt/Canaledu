@@ -110,6 +110,88 @@ terça;06:00;00:30;Jornalismo Manhã;JM01;Jornalismo;inedito`;
     expect(result.dias[1][0].program.title).toBe('Jornalismo Manhã');
   });
 
+
+  it('extrai temporada, episódio, subtítulo, reprise e MAM da planilha real do Canal Educação', () => {
+    const fixturePath = path.join(__dirname, '../fixtures/grade-canal-educacao-semana-23-29-nov-2026.json');
+    const rawRows = JSON.parse(fs.readFileSync(fixturePath, 'utf-8'));
+    const result = GradeImportador.parseGradeMatriz(rawRows, { versao: '23 A 29 DE NOVEMBRO' });
+    const items = Object.values(result.dias).flat();
+    const episodiosEstruturados = items.filter(item => item.episodioInfo?.temporada != null && item.episodioInfo?.episodioNumero != null);
+    const adolescentes = items.find(item => item.program.title === 'ADOLESCENTES E O MUNDO DIGITAL');
+
+    expect(episodiosEstruturados.length).toBeGreaterThan(100);
+    expect(adolescentes.episodioInfo).toMatchObject({
+      temporada: 1,
+      episodioNumero: 3,
+      titulo: 'CLIMA ESCOLAR E SAÚDE MENTAL'
+    });
+    const previa = GradeImportador.prepararPreviaImportacao(result, [
+      { code: 'ADOLESCENTES01', descricao: 'PGM ADOLESCENTES E O MUNDO DIGITAL', tempo: '00:26:00' }
+    ]);
+    const blocoImportado = Object.values(previa.slotsPorDia).flat()
+      .find(slot => slot.program?.title === 'ADOLESCENTES E O MUNDO DIGITAL');
+    expect(blocoImportado.program).toMatchObject({
+      code: 'ADOLESCENTES01', tempo: '00:26:00', catalogoEncontrado: true
+    });
+    expect(blocoImportado.episodio).toMatchObject({
+      temporada: 1, episodioNumero: 3, titulo: 'CLIMA ESCOLAR E SAÚDE MENTAL'
+    });
+    expect(items.some(item => item.tipoExibicao === 'reprise')).toBe(true);
+    expect(items.some(item => /MAM/i.test(item.origemMam || ''))).toBe(true);
+  });
+
+  it('vincula código e duração oficiais ao registro de episódio correspondente no acervo', () => {
+    const grade = {
+      dias: {
+        1: [{
+          time: '06:00:00',
+          duration: '00:30:00',
+          program: { title: 'ADOLESCENTES E O MUNDO DIGITAL' },
+          episodioInfo: {
+            titulo: 'CLIMA ESCOLAR E SAÚDE MENTAL',
+            temporada: 1,
+            episodioNumero: 3
+          }
+        }]
+      }
+    };
+    const acervo = [
+      { code: 'ADOMUN', descricao: 'ADOLESCENTES E O MUNDO DIGITAL', programaTitulo: 'ADOLESCENTES E O MUNDO DIGITAL', tempo: '00:26:00' },
+      { code: 'ADOMUN_T01EP03', descricao: 'T 01 EP 03 - CLIMA ESCOLAR E SAÚDE MENTAL', programaTitulo: 'ADOLESCENTES E O MUNDO DIGITAL', temporada: 1, episodio: 3, tempo: '00:22:30' }
+    ];
+
+    const previa = GradeImportador.prepararPreviaImportacao(grade, acervo, { desmembrarFaixas: false });
+    const bloco = previa.slotsPorDia[1][0];
+
+    expect(bloco.program).toMatchObject({
+      title: 'ADOLESCENTES E O MUNDO DIGITAL',
+      code: 'ADOMUN_T01EP03',
+      tempo: '00:22:30',
+      catalogoEncontrado: true,
+      temporada: 1,
+      episodioNumero: 3
+    });
+    expect(bloco.episodio).toMatchObject({
+      temporada: 1,
+      episodioNumero: 3,
+      codigo: 'ADOMUN_T01EP03',
+      titulo: 'CLIMA ESCOLAR E SAÚDE MENTAL'
+    });
+    // A duração oficial fica no vínculo do programa; a duração da faixa importada não muda.
+    expect(bloco.duration).toBe('00:30:00');
+    expect(previa.totalNovosProgramas).toBe(0);
+  });
+
+  it('encontra o programa pela descrição quando o acervo não usa o campo title', () => {
+    const grade = { dias: { 1: [{ time: '06:00:00', duration: '00:30:00', program: { title: "LUPITA NO PLANETA DE GENTE GRANDE 13'" } }] } };
+    const previa = GradeImportador.prepararPreviaImportacao(grade, [
+      { code: 'LUPITA01', descricao: 'PGM LUPITA NO PLANETA DE GENTE GRANDE', tempo: '00:13:00' }
+    ], { desmembrarFaixas: false });
+    expect(previa.slotsPorDia[1][0].program.code).toBe('LUPITA01');
+    expect(previa.slotsPorDia[1][0].program.tempo).toBe('00:13:00');
+    expect(previa.totalNovosProgramas).toBe(0);
+  });
+
   it('deve retornar mensagem explicativa clara quando o formato não for reconhecido', () => {
     const invalidContent = `alguma;coisa;aleatoria
 1;2;3
