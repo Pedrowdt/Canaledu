@@ -586,7 +586,23 @@ function obterGradeParaDataSelecionada(data, saved) {
   const resolvida = Core && typeof Core.selecionarGradeParaData === 'function'
     ? Core.selecionarGradeParaData(dataStr, dia, saved)
     : { blocks: (saved.gradeBlocksByDay || {})[dia] || [], info: saved.gradePublicadaInfo || saved.gradeSemanalInfo || null, dentroDaSemana: null };
-  if (resolvida.dentroDaSemana === null && !resolvida.blocks.length) {
+
+  // Fora da vigência da grade publicada: respeita a regra e avisa (sem fallback).
+  if (resolvida.dentroDaSemana === false) return { ...resolvida, simples: null };
+
+  if (!resolvida.blocks.length) {
+    // Tentativa 1: reconstrói blocos a partir de gradeByDay + gradeOrderByDay + acervo.
+    // Necessário quando o cache gradeBlocksByDay foi perdido (ex.: regravação do localStorage pelo cloud-sync).
+    const gradeDia = (saved.gradeByDay || {})[dia];
+    const ordem = (saved.gradeOrderByDay || {})[dia] || [];
+    const GEC = (typeof window !== 'undefined' && window.GradeEditorCore) || (typeof GradeEditorCore !== 'undefined' ? GradeEditorCore : null);
+    if (gradeDia && Object.keys(gradeDia).length && GEC && typeof GEC.gradeToBlocks === 'function') {
+      const blocos = GEC.gradeToBlocks(gradeDia, ordem, montarAcervoParaSync(saved));
+      if (blocos.some(b => b.program && (b.program.title || b.program.nome || b.program.descricao))) {
+        return { ...resolvida, blocks: blocos, fonte: 'reconstruida_gradeByDay', simples: null };
+      }
+    }
+    // Tentativa 2: grade simples (comportamento anterior ao commit 256ad88).
     return { ...resolvida, simples: loadGrade(dia) };
   }
   return { ...resolvida, simples: null };

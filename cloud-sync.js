@@ -354,6 +354,14 @@ async function fetchAndMergeCloudData(user) {
   // Preserva metadados de publicação da grade e versões sincronizadas por data
   merged.gradePublicadaInfo = localRaw.gradePublicadaInfo || userRow?.grade_publicada || null;
   merged._metaGradePorData  = localRaw._metaGradePorData || {};
+  // Preserva caches de blocos que o Editor de Grade grava só localmente.
+  // Sem isto, a regravação de `merged` abaixo apagava gradeBlocksByDay e
+  // gradePublicadaBlocksByDay e o Roteiro dizia "nenhuma grade encontrada".
+  merged.gradeBlocksByDay          = localRaw.gradeBlocksByDay || null;
+  merged.gradePublicadaBlocksByDay = localRaw.gradePublicadaBlocksByDay || null;
+  merged.semanasCustom             = localRaw.semanasCustom || {};
+  if (localRaw.semanaDataBase !== undefined)     merged.semanaDataBase     = localRaw.semanaDataBase;
+  if (localRaw.semanaCustomNumero !== undefined) merged.semanaCustomNumero = localRaw.semanaCustomNumero;
 
   // Aplica a política de retenção ANTES de gravar: é aqui que o JSON gigante
   // vindo da nuvem (user_data.roteiros) quebrava o primeiro boot num navegador novo.
