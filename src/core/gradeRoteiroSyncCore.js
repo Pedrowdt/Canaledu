@@ -27,22 +27,21 @@
   }
 
   function normalizeKey(s) {
-    return String(s || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toUpperCase();
+    return normalizarTituloCatalogo(s);
   }
 
   function baseProgramTitle(desc) {
     return String(desc || '')
-      .replace(/^\s*(?:PGM|RPRO|GPRO|IPRO)\s+/i, '')
+      .replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)\b(?:\s*[-–—:]\s*|\s+)/i, '')
       .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
       .replace(/\s*-?\s*EP\s*\d+.*$/i, '')
-      .replace(/\s*-?\s*\bBL\s*\d+.*$/i, '')
-      .replace(/\s*\(.*?\)\s*$/, '')
-      .replace(/\s*\d+'\s*$/, '')
+      .replace(/\s*-?\s*\bBL\s*0*\d+.*$/i, '')
+      .replace(/\s*\[\s*\d+\s*[ªaº°]?\s*\]/gi, '')
+      .replace(/\s*\[[^\]]*\]/g, '')
+      .replace(/\s*\(REPRISE\)\s*$/i, '')
+      .replace(/\s*\([^)]*\)\s*$/, '')
+      .replace(/\s*\d+\s*['’]\s*$/, '')
+      .replace(/_\d+\b/g, '')
       .trim();
   }
 
@@ -195,18 +194,37 @@
    * Converte slots de grade (do GradeEditor ou GradeRecorrenciaCore) em especificações de programa normalizadas.
    */
   function normalizarTituloCatalogo(texto) {
+    if (typeof GradeEditorCore !== 'undefined' && typeof GradeEditorCore.normalizarTituloGrade === 'function') {
+      return GradeEditorCore.normalizarTituloGrade(texto);
+    }
     if (!texto) return '';
-    return String(texto)
+    let s = String(texto)
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .toUpperCase()
-      .replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA)\s+/i, '')
-      .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '')
-      .replace(/\s*-?\s*EP\s*\d+.*$/i, '')
-      .replace(/\s*-?\s*BL\s*0*\d+.*$/i, '')
-      .replace(/\s*\(REPRISE\)\s*$/i, '')
-      .replace(/[^A-Z0-9]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+      .toUpperCase();
+
+    s = s.replace(/&/g, ' E ');
+    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)\b(?:\s*[-–—:]\s*|\s+)/i, '');
+    s = s.replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*EP\s*\d+.*$/i, '');
+    s = s.replace(/\s*-?\s*BL\s*0*\d+.*$/i, '');
+    s = s.replace(/\s*\[\s*\d+\s*[ªaº°]?\s*\]/gi, '');
+    s = s.replace(/\s*\[[^\]]*\]/g, '');
+    s = s.replace(/\s*\(REPRISE\)/gi, '');
+    s = s.replace(/\s*\([^)]*\)\s*$/g, '');
+    s = s.replace(/\s*\d+\s*['’]\s*/g, ' ');
+    s = s.replace(/_\d+\b/g, ' ');
+
+    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL|CANAL\s+GOV)\b.*$/i, '');
+    if (semCanal.trim()) s = semCanal;
+
+    s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const CONECTIVOS = new Set(['E', 'DE', 'DA', 'DO', 'DAS', 'DOS']);
+    const palavras = s.split(' ').filter(p => p && !CONECTIVOS.has(p));
+    if (palavras.length > 0) {
+      s = palavras.join(' ');
+    }
+    return s;
   }
 
   function extrairEpisodioDeTexto(texto) {
@@ -223,40 +241,123 @@
   }
 
   function indexarAcervo(acervo = []) {
-    const index = new Map();
+    const porId = new Map();
+    const porCode = new Map();
+    const porTitulo = new Map();
+    const itensInvalidos = [];
+    const vistosInvalidos = new Set();
+
     (Array.isArray(acervo) ? acervo : []).forEach(item => {
+      if (!item) return;
+      const temCode = Boolean(item.code && String(item.code).trim());
+      const temTempo = Boolean(item.tempo && String(item.tempo).trim());
+      if (!temCode || !temTempo) {
+        const nome = item.title || item.nome || item.descricao || item.programaTitulo || item.code || 'Item sem nome';
+        const chaveInvalido = `${item.id || ''}|${item.code || ''}|${nome}`;
+        if (!vistosInvalidos.has(chaveInvalido)) {
+          vistosInvalidos.add(chaveInvalido);
+          itensInvalidos.push({
+            id: item.id || null,
+            code: item.code || null,
+            tempo: item.tempo || null,
+            nome,
+            semCode: !temCode,
+            semTempo: !temTempo
+          });
+        }
+        return;
+      }
+
+      const idVal = item.id != null ? String(item.id) : (item.programaId != null ? String(item.programaId) : (item.programa_id != null ? String(item.programa_id) : null));
+      if (idVal) porId.set(idVal, item);
+
+      if (item.code) {
+        porCode.set(String(item.code), item);
+      }
+
       const chave = normalizarTituloCatalogo(item.descricao || item.title || item.nome || item.programaTitulo || item.programa_titulo);
-      if (!chave || !item.code || !item.tempo) return;
-      if (!index.has(chave)) index.set(chave, []);
-      index.get(chave).push(item);
+      if (chave) {
+        if (!porTitulo.has(chave)) porTitulo.set(chave, []);
+        porTitulo.get(chave).push(item);
+      }
     });
-    return index;
+
+    return {
+      porId,
+      porCode,
+      porTitulo,
+      itensInvalidos,
+      get(chave) { return porTitulo.get(chave) || []; },
+      has(chave) { return porTitulo.has(chave); }
+    };
   }
 
   function obterBlocosOficiais(slot, index) {
     if (!index || !slot || slot.catalogoEncontrado === false) return [];
-    const chave = normalizarTituloCatalogo(slot.titulo || slot.baseTitle);
-    const candidatos = index.get(chave) || [];
-    if (!candidatos.length) return [];
 
     const epSlot = slot.episodio || extrairEpisodioDeTexto(slot.titulo || '');
     const temEpAlvo = epSlot && (epSlot.temporada != null || epSlot.episodio != null || epSlot.episodioNumero != null);
-    let filtrados = candidatos;
-    if (temEpAlvo) {
-      const numeroAlvo = epSlot.episodioNumero != null ? Number(epSlot.episodioNumero) : (epSlot.episodio != null ? Number(epSlot.episodio) : null);
-      const porEp = candidatos.filter(item => {
+    const numeroAlvo = temEpAlvo
+      ? (epSlot.episodioNumero != null ? Number(epSlot.episodioNumero) : (epSlot.episodio != null ? Number(epSlot.episodio) : null))
+      : null;
+
+    function filtrarPorEpisodio(candidatos) {
+      if (!Array.isArray(candidatos) || !candidatos.length) return [];
+      if (!temEpAlvo) return candidatos;
+      return candidatos.filter(item => {
         const ep = extrairEpisodioDeTexto(item.descricao || '');
         if (epSlot.temporada != null && ep.temporada != null && Number(epSlot.temporada) !== ep.temporada) return false;
         if (numeroAlvo != null && ep.episodio != null && numeroAlvo !== ep.episodio) return false;
         return true;
       });
-      // Um episódio explícito na grade é uma restrição, não uma preferência.
-      filtrados = porEp;
     }
 
-    const unicos = new Map();
-    filtrados.forEach(item => { if (!unicos.has(String(item.code))) unicos.set(String(item.code), item); });
-    return [...unicos.values()].sort((a, b) => extrairNumeroBlocoDeItem(a) - extrairNumeroBlocoDeItem(b));
+    function ordenarEUnificar(lista) {
+      const unicos = new Map();
+      lista.forEach(item => {
+        if (item && item.code && !unicos.has(String(item.code))) {
+          unicos.set(String(item.code), item);
+        }
+      });
+      return [...unicos.values()].sort((a, b) => extrairNumeroBlocoDeItem(a) - extrairNumeroBlocoDeItem(b));
+    }
+
+    // 1. Prioridade A: Casar por id ou code oficial existente no acervo
+    let matchDireto = null;
+    const progId = slot.programaId || (slot.program && (slot.program.id || slot.program.programaId));
+    if (progId != null && index.porId && index.porId.has(String(progId))) {
+      matchDireto = index.porId.get(String(progId));
+    }
+
+    if (!matchDireto) {
+      const rawCode = slot.code || (slot.program && slot.program.code);
+      if (rawCode && !String(rawCode).startsWith('GRD_') && index.porCode && index.porCode.has(String(rawCode))) {
+        matchDireto = index.porCode.get(String(rawCode));
+      }
+    }
+
+    if (matchDireto) {
+      const chaveMatch = normalizarTituloCatalogo(matchDireto.descricao || matchDireto.title || matchDireto.nome || matchDireto.programaTitulo || matchDireto.programa_titulo);
+      const candidatosMatch = (index.porTitulo && chaveMatch && index.porTitulo.get(chaveMatch)) || [matchDireto];
+      const filtrados = filtrarPorEpisodio(candidatosMatch);
+      if (filtrados.length > 0) {
+        return ordenarEUnificar(filtrados);
+      }
+      if (temEpAlvo) {
+        return [];
+      }
+      return [matchDireto];
+    }
+
+    // 2. Prioridade B: Casar por título normalizado
+    const chave = normalizarTituloCatalogo(slot.titulo || slot.baseTitle);
+    const candidatos = (index.porTitulo ? index.porTitulo.get(chave) : (typeof index.get === 'function' ? index.get(chave) : [])) || [];
+    if (!candidatos.length) return [];
+
+    const filtrados = filtrarPorEpisodio(candidatos);
+    if (!filtrados.length) return [];
+
+    return ordenarEUnificar(filtrados);
   }
 
   function normalizarSlotsGradeDoDia(slotsOuGrade = [], opcoes = {}) {
@@ -299,9 +400,10 @@
           subprogramas: Array.isArray(slot.subprogramas) ? slot.subprogramas : null
         };
         const blocosOficiais = obterBlocosOficiais(normalizado, indiceAcervo);
-        if (blocosOficiais.length) normalizado.blocosCatalogo = blocosOficiais;
-        else if (normalizado.episodio && (normalizado.episodio.temporada != null || normalizado.episodio.episodioNumero != null || normalizado.episodio.episodio != null)) {
-          // Não reutiliza um code do programa-base quando a temporada/episódio da grade não bateu no acervo.
+        if (blocosOficiais.length) {
+          normalizado.blocosCatalogo = blocosOficiais;
+          normalizado.catalogoEncontrado = true;
+        } else {
           normalizado.catalogoEncontrado = false;
           normalizado.code = `GRD_${String(horario).replace(/[^0-9]/g, '')}`;
         }
@@ -331,8 +433,10 @@
             episodio: extrairEpisodioDeTexto(titulo)
           };
           const blocosOficiais = obterBlocosOficiais(normalizado, indiceAcervo);
-          if (blocosOficiais.length) normalizado.blocosCatalogo = blocosOficiais;
-          else if (normalizado.episodio && (normalizado.episodio.temporada != null || normalizado.episodio.episodio != null)) {
+          if (blocosOficiais.length) {
+            normalizado.blocosCatalogo = blocosOficiais;
+            normalizado.catalogoEncontrado = true;
+          } else {
             normalizado.catalogoEncontrado = false;
             normalizado.code = `GRD_${String(horario).replace(/[^0-9]/g, '')}`;
           }
@@ -550,7 +654,9 @@
       duracaoBreakPadrao = '00:03:00'
     } = opcoes;
 
-    const slotsNormalizados = normalizarSlotsGradeDoDia(slotsGrade, opcoes);
+    const indiceAcervo = opcoes.acervoIndex || indexarAcervo(opcoes.acervo || []);
+    const opcoesComIndice = { ...opcoes, acervoIndex: indiceAcervo };
+    const slotsNormalizados = normalizarSlotsGradeDoDia(slotsGrade, opcoesComIndice);
 
     // MODO SUBSTITUIR: Recria do zero a partir da grade
     if (modo === 'substituir' || !Array.isArray(roteiroAtual) || roteiroAtual.length === 0) {
@@ -599,6 +705,23 @@
         }
       });
 
+      const semCadastro = [];
+      const titulosVistosSemCadastro = new Set();
+      novoRoteiro.forEach(item => {
+        if (isProgramaItem(item) && String(item.code || '').startsWith('GRD_')) {
+          const nome = item.descricao || item.programaNome || item.baseTitle || item.code;
+          const nomeLimpo = String(nome).replace(/\s*-?\s*BL\s*0*\d+.*$/i, '').replace(/\s*\(REPRISE\)\s*$/i, '').trim();
+          if (nomeLimpo && !titulosVistosSemCadastro.has(nomeLimpo)) {
+            titulosVistosSemCadastro.add(nomeLimpo);
+            semCadastro.push(nomeLimpo);
+          }
+        }
+      });
+      const msgSubBase = `Roteiro preenchido do zero com ${slotsNormalizados.length} programas da Grade Semanal.`;
+      const msgSub = semCadastro.length > 0
+        ? `${msgSubBase} (${semCadastro.length} programas sem correspondência no cadastro: ${semCadastro.join(', ')})`
+        : msgSubBase;
+
       return {
         roteiroAtualizado: novoRoteiro,
         resumo: {
@@ -609,7 +732,11 @@
           programasNovos: slotsNormalizados.length,
           pecasManuaisPreservadas: 0,
           programasRemovidos: 0,
-          mensagem: `Roteiro preenchido do zero com ${slotsNormalizados.length} programas da Grade Semanal.`
+          programasSemCadastro: semCadastro,
+          totalSemCadastro: semCadastro.length,
+          itensInvalidosCadastro: (indiceAcervo && indiceAcervo.itensInvalidos) || [],
+          totalInvalidosCadastro: (indiceAcervo && indiceAcervo.itensInvalidos ? indiceAcervo.itensInvalidos.length : 0),
+          mensagem: msgSub
         }
       };
     }
@@ -805,6 +932,23 @@
       };
     });
 
+    const semCadastro = [];
+    const titulosVistosSemCadastro = new Set();
+    roteiroFinalRecalculado.forEach(item => {
+      if (isProgramaItem(item) && String(item.code || '').startsWith('GRD_')) {
+        const nome = item.descricao || item.programaNome || item.baseTitle || item.code;
+        const nomeLimpo = String(nome).replace(/\s*-?\s*BL\s*0*\d+.*$/i, '').replace(/\s*\(REPRISE\)\s*$/i, '').trim();
+        if (nomeLimpo && !titulosVistosSemCadastro.has(nomeLimpo)) {
+          titulosVistosSemCadastro.add(nomeLimpo);
+          semCadastro.push(nomeLimpo);
+        }
+      }
+    });
+    const msgIntelBase = `Sincronização concluída com segurança: ${totalProgramasAtualizados} programas atualizados, ${totalProgramasNovos} novos inseridos e ${totalPecasPreservadas} chamadas/vinhetas preservadas.`;
+    const msgIntel = semCadastro.length > 0
+      ? `${msgIntelBase} (${semCadastro.length} programas sem correspondência no cadastro: ${semCadastro.join(', ')})`
+      : msgIntelBase;
+
     return {
       roteiroAtualizado: roteiroFinalRecalculado,
       resumo: {
@@ -815,7 +959,11 @@
         programasNovos: totalProgramasNovos,
         programasRemovidos: totalProgramasRemovidos,
         pecasManuaisPreservadas: totalPecasPreservadas,
-        mensagem: `Sincronização concluída com segurança: ${totalProgramasAtualizados} programas atualizados, ${totalProgramasNovos} novos inseridos e ${totalPecasPreservadas} chamadas/vinhetas preservadas.`
+        programasSemCadastro: semCadastro,
+        totalSemCadastro: semCadastro.length,
+        itensInvalidosCadastro: (indiceAcervo && indiceAcervo.itensInvalidos) || [],
+        totalInvalidosCadastro: (indiceAcervo && indiceAcervo.itensInvalidos ? indiceAcervo.itensInvalidos.length : 0),
+        mensagem: msgIntel
       }
     };
   }
@@ -903,6 +1051,7 @@
     isPecaManual,
     isSlotVazio,
     desestruturarRoteiro,
+    normalizarTituloCatalogo,
     normalizarSlotsGradeDoDia,
     construirBlocosPadraoParaSlot,
     atualizarBlocoExistenteComSlotGrade,

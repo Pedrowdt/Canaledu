@@ -217,21 +217,36 @@
    * Reconstitui os blocos a partir de gradeByDay / gradeOrderByDay salvos.
    */
   function normalizarTituloGrade(valor) {
-    let s = String(valor || '')
+    if (typeof GradeRoteiroSyncCore !== 'undefined' && typeof GradeRoteiroSyncCore.normalizarTituloCatalogo === 'function') {
+      return GradeRoteiroSyncCore.normalizarTituloCatalogo(valor);
+    }
+    if (!valor) return '';
+    let s = String(valor)
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
       .toUpperCase();
-    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA)\s+/i, '');
-    s = s.replace(/\s*[-–—]?\s*CANAL\s+EDUCACAO.*$/i, '');
-    s = s.replace(/\s*[-–—]?\s*TV\s+BRASIL.*$/i, '');
-    s = s.replace(/\s*[-–—]?\s*CANAL\s+GOV.*$/i, '');
+
+    s = s.replace(/&/g, ' E ');
+    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)(?:\s*[-–—:]\s*|\s+)/i, '');
     s = s.replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '');
     s = s.replace(/\s*-?\s*EP\s*\d+.*$/i, '');
-    s = s.replace(/\s*-?\s*BL\s*\d+.*$/i, '');
-    s = s.replace(/\s*_\d+$/g, '');
-    s = s.replace(/\s*\[\d+ª\]$/g, '');
+    s = s.replace(/\s*-?\s*BL\s*0*\d+.*$/i, '');
+    s = s.replace(/\s*\[\s*\d+\s*[ªaº°]?\s*\]/gi, '');
+    s = s.replace(/\s*\[[^\]]*\]/g, '');
+    s = s.replace(/\s*\(REPRISE\)/gi, '');
     s = s.replace(/\s*\([^)]*\)\s*$/g, '');
-    s = s.replace(/\s*\d+\s*['’]\s*$/g, '');
+    s = s.replace(/\s*\d+\s*['’]\s*/g, ' ');
+    s = s.replace(/_\d+/g, ' ');
+
+    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL|CANAL\s+GOV).*$/i, '');
+    if (semCanal.trim()) s = semCanal;
+
     s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    const CONECTIVOS = new Set(['E', 'DE', 'DA', 'DO', 'DAS', 'DOS']);
+    const palavras = s.split(' ').filter(p => p && !CONECTIVOS.has(p));
+    if (palavras.length > 0) {
+      s = palavras.join(' ');
+    }
     return s;
   }
 
@@ -682,5 +697,6 @@
     vincularFaixaIntervalo,
     limparDia,
     limparSemana,
+    normalizarTituloGrade,
   };
 });

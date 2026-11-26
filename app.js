@@ -615,10 +615,34 @@ function montarAcervoParaSync(saved) {
     ...(typeof INITIAL_PROGRAMAS !== 'undefined' && Array.isArray(INITIAL_PROGRAMAS) ? INITIAL_PROGRAMAS : [])
   ];
   const porCode = new Map();
+  const itensInvalidos = [];
+  const vistosInvalidos = new Set();
+
   candidatos.forEach(item => {
-    if (item && item.code && item.tempo) porCode.set(String(item.code), item);
+    if (!item) return;
+    const temCode = Boolean(item.code && String(item.code).trim());
+    const temTempo = Boolean(item.tempo && String(item.tempo).trim());
+    if (temCode && temTempo) {
+      porCode.set(String(item.code), item);
+    } else {
+      const nome = item.title || item.nome || item.descricao || item.programaTitulo || item.code || 'Item sem nome';
+      const chave = `${item.id || ''}|${item.code || ''}|${nome}`;
+      if (!vistosInvalidos.has(chave)) {
+        vistosInvalidos.add(chave);
+        itensInvalidos.push({
+          id: item.id || null,
+          code: item.code || null,
+          tempo: item.tempo || null,
+          nome,
+          semCode: !temCode,
+          semTempo: !temTempo
+        });
+      }
+    }
   });
-  return [...porCode.values()];
+  const res = [...porCode.values()];
+  res.itensInvalidos = itensInvalidos;
+  return res;
 }
 
 function gerarSequenciaComVinhetasGrade(blocos) {
@@ -682,7 +706,20 @@ function sincronizarRoteiroComGradeSemana(options = {}) {
     saveState();
     renderAll();
     renderWeekSelector();
-    toast(resultado.resumo.mensagem, 'success');
+
+    if (resultado.resumo && resultado.resumo.totalSemCadastro > 0) {
+      const lista = resultado.resumo.programasSemCadastro.join(', ');
+      toast(`${resultado.resumo.totalSemCadastro} programas sem correspondência no cadastro: ${lista}`, 'warning');
+    } else {
+      toast(resultado.resumo.mensagem, 'success');
+    }
+
+    const invalidos = (acervo && acervo.itensInvalidos) || (resultado.resumo && resultado.resumo.itensInvalidosCadastro) || [];
+    if (invalidos.length > 0) {
+      const nomes = invalidos.map(i => i.nome).filter(Boolean);
+      const lista = nomes.slice(0, 5).join(', ') + (nomes.length > 5 ? ` (+${nomes.length - 5})` : '');
+      toast(`${invalidos.length} item(ns) do cadastro sem code ou sem tempo: ${lista}`, 'warning');
+    }
     return;
   }
 
