@@ -424,8 +424,42 @@ function secToTimeRaw(s) {
 function recalcTimes() {
   let cur = START_SECONDS;
   state.roteiro = state.roteiro.map(item => {
-    const dur     = timeToSec(item.tempo);
-    const newItem = {...item, IN: secToTime(cur)};
+    const dur = timeToSec(item.tempo);
+    const isLive = Boolean(
+      item.isAoVivo ||
+      item.type === "LIVE" ||
+      (item.descricao && /\bAO\s*VIVO\b/i.test(item.descricao)) ||
+      (item.code && /\bAOVIVO\b/i.test(item.code))
+    );
+    let itemIn = cur;
+    let gapBefore = 0;
+    let atrasoBefore = 0;
+
+    const horarioFixo = item.horarioFixo || (isLive && item._horarioGrade ? item._horarioGrade : null);
+    if (horarioFixo && (!item.bloco || item.bloco <= 1)) {
+      const fixedSec = timeToSec(horarioFixo);
+      if (fixedSec > 0) {
+        if (cur < fixedSec) {
+          gapBefore = fixedSec - cur;
+          itemIn = fixedSec;
+          cur = fixedSec;
+        } else if (cur > fixedSec) {
+          atrasoBefore = cur - fixedSec;
+          itemIn = fixedSec;
+          cur = fixedSec;
+        }
+      }
+    }
+
+    const newItem = {
+      ...item,
+      IN: secToTime(itemIn),
+      OUT: secToTime(itemIn + dur),
+      isAoVivo: isLive,
+      horarioFixo: horarioFixo || null,
+      gapBeforeSec: gapBefore,
+      atrasoBeforeSec: atrasoBefore
+    };
     cur += dur;
     return newItem;
   });
@@ -919,7 +953,14 @@ function renderRoteiro() {
 
     const isSelected = state.selectedRow === i;
 
-    return `<tr class="${isProgram ? 'row-program' : ''} ${isEvnh ? 'row-evnh' : ''} ${rowExtra} ${isSelected ? 'row-selected' : ''}"
+    const isLive = Boolean(
+      item.isAoVivo ||
+      item.type === "LIVE" ||
+      (item.descricao && /\bAO\s*VIVO\b/i.test(item.descricao)) ||
+      (item.code && /\bAOVIVO\b/i.test(item.code))
+    );
+
+    return `<tr class="${isProgram ? 'row-program' : ''} ${isEvnh ? 'row-evnh' : ''} ${isLive ? 'row-live' : ''} ${rowExtra} ${isSelected ? 'row-selected' : ''}"
       data-index="${i}"
       tabindex="${isSelected ? '0' : '-1'}"
       aria-selected="${isSelected ? 'true' : 'false'}"
@@ -933,9 +974,15 @@ function renderRoteiro() {
       ondragend="dragEnd(event)">
       <td class="col-seq"><span class="drag-handle">⠿</span>${i+1}</td>
       <td class="col-code">${escHtml(item.code)}</td>
-      <td class="col-desc">${escHtml(item.descricao)}${gradeInfo ? ' ' + gradeInfo : ''}</td>
+      <td class="col-desc">${escHtml(item.descricao)}${isLive && !/\bAO\s*VIVO\b/i.test(item.descricao || "") ? ' <span class="badge-live-tag">🔴 AO VIVO</span>' : ""}${gradeInfo ? ' ' + gradeInfo : ''}</td>
       <td class="col-dur">${item.tempo}</td>
-      <td class="col-in" style="${rowExtra ? 'color:var(--amber);font-weight:500' : ''}">${item.IN || '—'}</td>
+      <td class="col-in" style="${rowExtra ? 'color:var(--amber);font-weight:500' : ''}">${
+        item.horarioFixo ? `<span class="live-time-fixed" title="Horário fixo da grade">${item.IN}</span>` : (item.IN || "—")
+      }${
+        item.atrasoBeforeSec > 0 ? `<span class="live-warn-atraso" title="Estouro de ${secToTime(item.atrasoBeforeSec)} na programação anterior">⚠️ +${secToTime(item.atrasoBeforeSec)}</span>` : ""
+      }${
+        item.gapBeforeSec > 0 ? `<span class="live-info-gap" title="Lacuna livre de ${secToTime(item.gapBeforeSec)} antes do programa">⏱️ Vago ${secToTime(item.gapBeforeSec)}</span>` : ""
+      }</td>
       <td class="col-type"><span class="type-badge badge-${item.type}">${item.type}</span></td>
       <td class="col-act"><div class="row-actions">
         <button class="act-btn" onclick="editItemModal(${i})" title="Editar">✎</button>

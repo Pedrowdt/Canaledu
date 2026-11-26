@@ -47,6 +47,115 @@
   --mono: 'SF Mono', Consolas, Menlo, monospace;
 }
 
+/* ── Temas Visuais (Sincronizados com Roteiro) ── */
+body.theme-night {
+  --primary: #4f8ef7;
+  --primary-hover: #3b74db;
+  --primary-light: #1e2640;
+  --bg: #0f1117;
+  --bg-card: #171923;
+  --border: #2a2f45;
+  --border-focus: #4f8ef7;
+  --text: #e2e8f0;
+  --text-muted: #8891b0;
+}
+body.theme-sunset {
+  --primary: #ff8b3d;
+  --primary-hover: #e0742a;
+  --primary-light: #35203b;
+  --bg: #1a1423;
+  --bg-card: #241a30;
+  --border: #4a3560;
+  --border-focus: #ff8b3d;
+  --text: #fde68a;
+  --text-muted: #d4a373;
+}
+body.theme-cozy {
+  --primary: #c07a1a;
+  --primary-hover: #9c6010;
+  --primary-light: #ebe0cf;
+  --bg: #faf6f1;
+  --bg-card: #f2ebe0;
+  --border: #d9c9b0;
+  --border-focus: #c07a1a;
+  --text: #3d2c1e;
+  --text-muted: #7a5f45;
+}
+body.theme-hicontrast {
+  --primary: #ffff00;
+  --primary-hover: #ffea00;
+  --primary-light: #222200;
+  --bg: #000000;
+  --bg-card: #0a0a0a;
+  --border: #ffffff;
+  --border-focus: #ffff00;
+  --text: #ffffff;
+  --text-muted: #cccccc;
+}
+body.theme-destaque {
+  --primary: #5aa9ff;
+  --primary-hover: #3d92ed;
+  --primary-light: #1d2538;
+  --bg: #12141c;
+  --bg-card: #1a1d29;
+  --border: #333a52;
+  --border-focus: #5aa9ff;
+  --text: #eef1f8;
+  --text-muted: #9aa3c2;
+}
+
+body.theme-night .sidebar-acervo,
+body.theme-night .day-bar,
+body.theme-night .modal-box,
+body.theme-night .grade-week-scope-bar,
+body.theme-sunset .sidebar-acervo,
+body.theme-sunset .day-bar,
+body.theme-sunset .modal-box,
+body.theme-sunset .grade-week-scope-bar,
+body.theme-cozy .sidebar-acervo,
+body.theme-cozy .day-bar,
+body.theme-cozy .modal-box,
+body.theme-cozy .grade-week-scope-bar,
+body.theme-hicontrast .sidebar-acervo,
+body.theme-hicontrast .day-bar,
+body.theme-hicontrast .modal-box,
+body.theme-hicontrast .grade-week-scope-bar,
+body.theme-destaque .sidebar-acervo,
+body.theme-destaque .day-bar,
+body.theme-destaque .modal-box,
+body.theme-destaque .grade-week-scope-bar {
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+body.theme-night input, body.theme-night select,
+body.theme-sunset input, body.theme-sunset select,
+body.theme-cozy input, body.theme-cozy select,
+body.theme-hicontrast input, body.theme-hicontrast select,
+body.theme-destaque input, body.theme-destaque select {
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+.badge-live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #dc2626;
+  color: #fff;
+}
+.slot-card.is-live {
+  border-left: 3px solid #dc2626 !important;
+  background: rgba(220, 38, 38, 0.08) !important;
+}
+
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -1055,6 +1164,16 @@ input, select { font-family: inherit; font-size: 12px; }
     </div>
 
     <span id="user-email" style="font-size:11px;color:#9aa3c2"></span>
+        <select id="theme-selector" onchange="setTheme(this.value)"
+            class="btn-outline" title="Tema visual (sincronizado com o Roteiro)"
+            style="padding:3px 8px;font-size:11px;background:#242838;color:#fff;border-color:#3e445b;border-radius:4px;cursor:pointer">
+      <option value="day">☀ Dia</option>
+      <option value="night">🌙 Noite</option>
+      <option value="sunset">🌅 Pôr-do-Sol</option>
+      <option value="cozy">☕ Cozy</option>
+      <option value="hicontrast">◐ Alto Contraste</option>
+      <option value="destaque">★ Destaque</option>
+    </select>
     <button type="button" class="btn-outline" style="padding:3px 8px;font-size:11px;background:transparent;color:#bbb;border-color:#444" id="btn-logout">Sair</button>
   </div>
 </header>
@@ -1073,6 +1192,7 @@ input, select { font-family: inherit; font-size: 12px; }
     <span style="font-size:10.5px;color:#64748b">Sincronizada com o Roteiro semanal.</span>
   </div>
   <div style="display:flex;align-items:center;gap:6px">
+        <button type="button" class="btn-primary" id="btn-gerar-semana-anterior" style="padding:2px 10px;font-size:11px;background:#059669;display:inline-flex;align-items:center;gap:4px" onclick="gerarGradeSemanaAtualDaAnterior()" title="Gera a grade desta semana com base na semana anterior, avançando episódios inéditos da fila e espelhando reprises">⚡ Gerar da Semana Anterior</button>
     <button type="button" class="btn-outline" style="padding:2px 8px;font-size:10.5px;border-color:#0284c7;color:#0369a1;font-weight:600" onclick="ajustarNumeroSemanaGrade()" title="Ajustar número oficial da semana (ex: Semana 45 EBC ou Semana 46 civil)">✏️ Ajustar Número</button>
   </div>
 </div>
@@ -1546,36 +1666,69 @@ input, select { font-family: inherit; font-size: 12px; }
 
 <!-- MODAL: FILAS DE EPISÓDIOS POR PROGRAMA -->
 <div class="overlay" id="modal-filas-episodios" style="display:none" onclick="if(event.target===this)closeModalFilasEpisodios()">
-  <div class="modal-box" style="max-width:640px;max-height:85vh;display:flex;flex-direction:column">
-    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between">
+  <div class="modal-box" style="max-width:700px;max-height:88vh;display:flex;flex-direction:column;gap:12px">
+    <div class="modal-title" style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:8px">
       <span>🎬 Fila Ordenada de Episódios</span>
-      <span style="font-size:11px;font-weight:400;color:#64748b">Ordem sequencial · Títulos temáticos</span>
+      <span style="font-size:11px;font-weight:400;color:var(--text-muted)">Avanço automático · Vínculo com acervo</span>
     </div>
 
-    <div style="margin-bottom:12px">
+    <div>
       <label style="display:block;font-size:11px;font-weight:600;margin-bottom:4px">Selecione o Programa:</label>
       <select id="select-programa-fila" class="search-input" onchange="carregarFilaProgramaSelecionado()">
         <!-- Opções dos programas do acervo -->
       </select>
     </div>
 
-    <!-- Adicionar Novo Episódio -->
-    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:12px">
-      <div style="font-size:11px;font-weight:700;color:#334155;margin-bottom:6px">+ Adicionar Episódio à Fila</div>
-      <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center">
-        <input type="text" id="novo-ep-titulo" class="search-input" placeholder="Título (ex: 7 de Setembro)">
-        <input type="text" id="novo-ep-codigo" class="search-input" placeholder="Cód (ex: IND_01)">
-        <input type="text" id="novo-ep-duracao" class="search-input" value="00:26:00" placeholder="00:26:00">
-        <button type="button" class="btn-primary" style="padding:6px 12px;font-size:11px" onclick="adicionarEpisodioAFila()">Adicionar</button>
+    <!-- PAINEL 1: EPISÓDIOS DISPONÍVEIS NO ACERVO -->
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text)">
+          📦 Episódios Cadastrados no Acervo (<span id="contagem-eps-acervo">0</span> disponíveis)
+        </div>
+        <button type="button" class="btn-primary" id="btn-importar-todos-fila" style="padding:3px 10px;font-size:11px;background:#059669" onclick="importarTodosEpisodiosDoAcervoParaFila()">
+          ⚡ Importar Todos do Acervo
+        </button>
+      </div>
+
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input type="text" id="filtro-eps-acervo" class="search-input" placeholder="🔍 Filtrar episódios do acervo por nome ou código..." oninput="filtrarEpisodiosAcervoUI(this.value)">
+      </div>
+
+      <div id="container-eps-acervo-disponiveis" style="max-height:130px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:4px;background:var(--bg)">
+        <!-- Lista de episódios disponíveis no acervo -->
       </div>
     </div>
 
-    <!-- Lista de Episódios na Fila -->
-    <div style="flex:1;overflow-y:auto;max-height:280px;border:1px solid var(--border);border-radius:6px;padding:8px" id="container-episodios-fila">
-      <!-- Gerado via JS -->
+    <!-- PAINEL 2: FILA SEQUENCIAL ATIVA -->
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;padding:10px;flex:1;display:flex;flex-direction:column;min-height:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-size:11.5px;font-weight:700;color:var(--text)">
+          📋 Fila Sequencial Ativa (<span id="contagem-eps-fila">0</span> episódios)
+        </div>
+        <button type="button" class="btn-outline" style="padding:2px 8px;font-size:10.5px;color:#dc2626;border-color:#fca5a5" onclick="limparFilaProgramaAtual()">
+          🗑️ Limpar Fila
+        </button>
+      </div>
+
+      <div style="flex:1;overflow-y:auto;max-height:180px;border:1px solid var(--border);border-radius:4px;padding:6px;background:var(--bg)" id="container-episodios-fila">
+        <!-- Itens da fila gerados via JS -->
+      </div>
     </div>
 
-    <div class="modal-actions" style="margin-top:14px">
+    <!-- CADASTRO MANUAL (EXCEÇÃO) -->
+    <details style="font-size:11px;color:var(--text-muted)">
+      <summary style="cursor:pointer;color:var(--primary);font-weight:600">➕ Cadastrar episódio manualmente (caso não esteja no acervo)</summary>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:6px">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;align-items:center">
+          <input type="text" id="novo-ep-titulo" class="search-input" placeholder="Título (ex: Ep 05 - Especial)">
+          <input type="text" id="novo-ep-codigo" class="search-input" placeholder="Cód (ex: EDU_05)">
+          <input type="text" id="novo-ep-duracao" class="search-input" value="00:26:00" placeholder="00:26:00">
+          <button type="button" class="btn-primary" style="padding:6px 12px;font-size:11px" onclick="adicionarEpisodioAFila()">Adicionar</button>
+        </div>
+      </div>
+    </details>
+
+    <div class="modal-actions" style="margin-top:6px">
       <button class="btn-primary" onclick="closeModalFilasEpisodios()">Concluir</button>
     </div>
   </div>

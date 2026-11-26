@@ -397,6 +397,15 @@
           faixaOcupada: slot.faixaNome || p.faixaOcupada || p.faixa_ocupada || '',
           classificacao: slot.classificacao || p.classificacao || 'L',
           programaId: p.id || slot.programaId || null,
+          isAoVivo: Boolean(
+            slot.isAoVivo || p.isAoVivo ||
+            (slot.classificacao && /ao_vivo|aovivo/i.test(slot.classificacao)) ||
+            (p.classificacao && /ao_vivo|aovivo/i.test(p.classificacao)) ||
+            (p.type === "LIVE") || (slot.type === "LIVE") ||
+            /\bAO\s*VIVO\b/i.test(titulo) || /\bAOVIVO\b/i.test(titulo) ||
+            /\bAO\s*VIVO\b/i.test(p.code || "")
+          ),
+          horarioFixo: (slot.isAoVivo || p.isAoVivo || /\bAO\s*VIVO\b/i.test(titulo) || (p.type === "LIVE")) ? horario : (slot.horarioFixo || p.horarioFixo || null),
           subprogramas: Array.isArray(slot.subprogramas) ? slot.subprogramas : null
         };
         const blocosOficiais = obterBlocosOficiais(normalizado, indiceAcervo);
@@ -481,7 +490,9 @@
           faixaOcupada: slotGrade.faixaOcupada || null,
           _gradeSlotId: slotGrade.slotId,
           _horarioGrade: slotGrade.horario,
-          _catalogoOficial: true
+          _catalogoOficial: true,
+          isAoVivo: Boolean(slotGrade.isAoVivo),
+          horarioFixo: slotGrade.isAoVivo ? slotGrade.horario : (slotGrade.horarioFixo || null)
         };
       });
     }
@@ -512,7 +523,9 @@
           origemReprise: slotGrade.origemReprise || null,
           faixaOcupada: slotGrade.faixaOcupada || null,
           _gradeSlotId: slotGrade.slotId,
-          _horarioGrade: slotGrade.horario
+          _horarioGrade: slotGrade.horario,
+          isAoVivo: Boolean(slotGrade.isAoVivo),
+          horarioFixo: slotGrade.isAoVivo ? slotGrade.horario : (slotGrade.horarioFixo || null)
         };
       });
     }
@@ -539,7 +552,9 @@
         faixaOcupada: slotGrade.faixaOcupada || null,
         _gradeSlotId: slotGrade.slotId,
         _horarioGrade: slotGrade.horario,
-        _catalogoOficial: true
+        _catalogoOficial: true,
+        isAoVivo: Boolean(slotGrade.isAoVivo),
+        horarioFixo: slotGrade.isAoVivo ? slotGrade.horario : (slotGrade.horarioFixo || null)
       }];
     }
 
@@ -573,7 +588,9 @@
         origemReprise: slotGrade.origemReprise || null,
         faixaOcupada: slotGrade.faixaOcupada || null,
         _gradeSlotId: slotGrade.slotId,
-        _horarioGrade: slotGrade.horario
+        _horarioGrade: slotGrade.horario,
+        isAoVivo: Boolean(slotGrade.isAoVivo),
+        horarioFixo: slotGrade.isAoVivo ? slotGrade.horario : (slotGrade.horarioFixo || null)
       });
     }
 
@@ -586,6 +603,10 @@
    */
   function atualizarBlocoExistenteComSlotGrade(blocoExistente, slotGrade) {
     const atualizado = { ...blocoExistente };
+    if (slotGrade.isAoVivo) {
+      atualizado.isAoVivo = true;
+      atualizado.horarioFixo = slotGrade.horario;
+    }
     const ep = slotGrade.episodio;
 
     // Código e minutagem oficiais substituem somente identificadores/durações artificiais

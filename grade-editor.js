@@ -30,6 +30,33 @@
 
   // Persistência por emissora de regras de recorrência, filas e exceções.
   let recurrenceState = { slots: {}, episodeQueues: {}, dateExceptions: {} };
+
+  // ── Sistema de Temas Visuais (Sincronizado com o Roteiro) ──
+  const THEME_KEY = "roteiroTheme";
+  const THEMES = ["day", "night", "sunset", "cozy", "hicontrast", "destaque"];
+
+  window.setTheme = function (themeName) {
+    if (!THEMES.includes(themeName)) themeName = "day";
+    const body = document.body;
+    if (!body) return;
+    THEMES.forEach(t => body.classList.remove("theme-" + t));
+    if (themeName !== "day") body.classList.add("theme-" + themeName);
+    try { localStorage.setItem(THEME_KEY, themeName); } catch (_) {}
+    const sel = document.getElementById("theme-selector");
+    if (sel && sel.value !== themeName) sel.value = themeName;
+  };
+
+  window.loadTheme = function () {
+    let saved = "day";
+    try { saved = localStorage.getItem(THEME_KEY) || "day"; } catch (_) { saved = "day"; }
+    if (!document.body) {
+      document.addEventListener("DOMContentLoaded", () => window.setTheme(saved), { once: true });
+    } else {
+      window.setTheme(saved);
+    }
+  };
+  window.loadTheme();
+
   let slotConfigContext = null;
   let exceptionContext = null;
   const RECURRENCE_STORAGE_KEY = 'gradeRecorrencia';
@@ -394,6 +421,12 @@
     renderAcervo();
     atualizarBadgesDias();
     atualizarRotulosSemanaGrade();
+    const chaveInicial = obterChaveSemanaAtual();
+    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
+    if (!saved.gradesPorSemana[chaveInicial] && blocksByDay[1] && blocksByDay[1].length > 0) {
+      saved.gradesPorSemana[chaveInicial] = JSON.parse(JSON.stringify(blocksByDay));
+      try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch (_) {}
+    }
     renderActiveView();
     setSyncStatus('Pronto');
   }
@@ -1093,6 +1126,39 @@
   }
 
 
+
+  function obterChaveSemanaAtual() {
+    const resumo = obterResumoSemanaAtiva();
+    return resumo ? (resumo.dataInicio || "default") : "default";
+  }
+
+  function salvarSemanaAtualEmStorage(saved) {
+    if (!saved) return;
+    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
+    const chave = obterChaveSemanaAtual();
+    saved.gradesPorSemana[chave] = JSON.parse(JSON.stringify(blocksByDay));
+  }
+
+  function carregarSemanaEmStorage(saved) {
+    if (!saved) return;
+    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
+    const chave = obterChaveSemanaAtual();
+    if (saved.gradesPorSemana[chave] && Array.isArray(saved.gradesPorSemana[chave][1]) && saved.gradesPorSemana[chave][1].length > 0) {
+      blocksByDay = saved.gradesPorSemana[chave];
+    } else {
+      // Quando mudar de semana e ainda não houver grade definida, ela aparece limpa!
+      blocksByDay = {
+        0: window.GradeEditorCore.generateBaseSlots(6, 30),
+        1: window.GradeEditorCore.generateBaseSlots(6, 30),
+        2: window.GradeEditorCore.generateBaseSlots(6, 30),
+        3: window.GradeEditorCore.generateBaseSlots(6, 30),
+        4: window.GradeEditorCore.generateBaseSlots(6, 30),
+        5: window.GradeEditorCore.generateBaseSlots(6, 30),
+        6: window.GradeEditorCore.generateBaseSlots(6, 30)
+      };
+    }
+  }
+
   function obterResumoSemanaAtiva() {
     const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
     if (!utils) return null;
@@ -1149,6 +1215,9 @@
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
+    // Salva a semana atual antes de trocar
+    salvarSemanaAtualEmStorage(saved);
+
     const resumo = utils.obterResumoSemana(dataValor, 0, null);
     saved.semanaDataBase = resumo.dataInicio;
     saved.semanaCustomNumero = resumo.numeroSemana;
@@ -1158,8 +1227,16 @@
       saved.gradeSemanalInfo.dataFim = resumo.dataFim;
       saved.gradeSemanalInfo.descricao = resumo.rotuloCompleto;
     }
+
+    // Carrega a nova semana ou deixa limpa se ainda não existir
+    carregarSemanaEmStorage(saved);
     localStorage.setItem(storageKey, JSON.stringify(saved));
+
+    aplicarHerancaNaGradeUI();
     atualizarRotulosSemanaGrade();
+    renderActiveView();
+    atualizarBadgesDias();
+
     if (typeof showToast === 'function') {
       showToast(`Semana selecionada: ${resumo.rotuloCompleto}`, "info");
     }
@@ -1182,6 +1259,9 @@
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
+    // Salva a semana atual antes de trocar
+    salvarSemanaAtualEmStorage(saved);
+
     const resumo = utils.obterResumoSemana(dataBase, 0, null);
     saved.semanaDataBase = resumo.dataInicio;
     saved.semanaCustomNumero = resumo.numeroSemana;
@@ -1191,11 +1271,80 @@
       saved.gradeSemanalInfo.dataFim = resumo.dataFim;
       saved.gradeSemanalInfo.descricao = resumo.rotuloCompleto;
     }
+
+    // Carrega a nova semana ou deixa limpa se ainda não existir
+    carregarSemanaEmStorage(saved);
     localStorage.setItem(storageKey, JSON.stringify(saved));
+
+    aplicarHerancaNaGradeUI();
     atualizarRotulosSemanaGrade();
+    renderActiveView();
+    atualizarBadgesDias();
+
     if (typeof showToast === 'function') {
       showToast(`Navegado para: ${resumo.rotuloCompleto}`, "info");
     }
+  };
+
+
+  window.gerarGradeSemanaAtualDaAnterior = function () {
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) {
+      showToast("SemanaUtils não disponível", "error");
+      return;
+    }
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const resumoAtual = obterResumoSemanaAtiva();
+    if (!resumoAtual || !resumoAtual.dataInicio) {
+      showToast("Semana atual não identificada", "error");
+      return;
+    }
+
+    // Calcula data da semana anterior (-7 dias)
+    const dt = new Date(resumoAtual.dataInicio + "T12:00:00Z");
+    dt.setUTCDate(dt.getUTCDate() - 7);
+    const resumoAnterior = utils.obterResumoSemana(dt, 0, null);
+    const chaveAnterior = resumoAnterior.dataInicio;
+
+    const gradeSemanaAnterior = (saved.gradesPorSemana && saved.gradesPorSemana[chaveAnterior]) ||
+                                saved.gradeBlocksByDay ||
+                                blocksByDay;
+
+    const core = (typeof window !== "undefined" && window.GradeRecorrenciaCore) ? window.GradeRecorrenciaCore : ((typeof GradeRecorrenciaCore !== "undefined") ? GradeRecorrenciaCore : null);
+    if (!core || typeof core.gerarGradeSemanaComBaseAnterior !== "function") {
+      showToast("Motor de geração semanal não disponível", "error");
+      return;
+    }
+
+    const resultado = core.gerarGradeSemanaComBaseAnterior({
+      gradeSemanaAnterior,
+      episodeQueues: recurrenceState.episodeQueues || {},
+      cursoresIniciais: recurrenceState.cursores || {},
+      recurrenceSlots: recurrenceState.slots || {}
+    });
+
+    blocksByDay = resultado.gradeNovaPorDia;
+    if (resultado.cursoresAtualizados) {
+      recurrenceState.cursores = resultado.cursoresAtualizados;
+      persistirEstadoRecorrencia();
+    }
+
+    const chaveAtual = obterChaveSemanaAtual();
+    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
+    saved.gradesPorSemana[chaveAtual] = blocksByDay;
+    saved.gradeBlocksByDay = blocksByDay;
+    localStorage.setItem(storageKey, JSON.stringify(saved));
+    isDirty = true;
+
+    aplicarHerancaNaGradeUI();
+    renderActiveView();
+    atualizarBadgesDias();
+
+    showToast(
+      `Grade gerada com base na semana anterior (${resumoAnterior.rotuloCompleto})! ${resultado.resumo.totalSlots} horários, ${resultado.resumo.ineditosAvancados} inéditos avançados na fila, ${resultado.resumo.reprisesVinculadas} reprises vinculadas.`,
+      "success"
+    );
   };
 
   window.ajustarNumeroSemanaGrade = function () {
@@ -2106,20 +2255,166 @@
     return select?._programList?.[Number(select.value)] || null;
   }
 
+  let _episodiosAcervoCache = [];
+
   window.carregarFilaProgramaSelecionado = function () {
     const program = programaFilaSelecionado();
+    if (!program) return;
     const key = getProgramKey(program);
     const items = recurrenceState.episodeQueues[key] || [];
-    const container = document.getElementById('container-episodios-fila');
+
+    const containerFila = document.getElementById("container-episodios-fila");
+    const contagemFilaEl = document.getElementById("contagem-eps-fila");
+    if (contagemFilaEl) contagemFilaEl.textContent = String(items.length);
+
+    if (containerFila) {
+      if (!items.length) {
+        containerFila.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:11.5px">Fila sequencial vazia. Adicione episódios do acervo acima ou cadastre uma exceção.</div>';
+      } else {
+        containerFila.innerHTML = items.map((ep, idx) => `
+          <div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border);border-radius:4px;background:var(--bg-card);margin-bottom:3px">
+            <strong style="color:var(--text-muted);font-size:11px">${idx + 1}.</strong>
+            <div>
+              <div style="font-size:11.5px;font-weight:600;color:var(--text)">${escapeHtml(ep.titulo)}</div>
+              <div style="font-size:10px;color:var(--text-muted)">
+                <span style="font-family:var(--mono);font-weight:600;color:var(--primary)">${escapeHtml(ep.codigo || "S/ CÓD")}</span> · <span>${escapeHtml(ep.duracao || "00:26:00")}</span>
+                ${ep.temporada != null ? ` · T${String(ep.temporada).padStart(2,"0")}` : ""}${ep.episodioNumero != null ? ` EP${String(ep.episodioNumero).padStart(2,"0")}` : ""}
+              </div>
+            </div>
+            <div style="display:flex;gap:3px">
+              <button type="button" class="btn-outline" style="padding:2px 6px;font-size:10.5px" onclick="moverEpisodioFila(${idx},-1)" ${idx===0?"disabled":""}>↑</button>
+              <button type="button" class="btn-outline" style="padding:2px 6px;font-size:10.5px" onclick="moverEpisodioFila(${idx},1)" ${idx===items.length-1?"disabled":""}>↓</button>
+              <button type="button" class="btn-outline" style="padding:2px 6px;font-size:10.5px;color:#b91c1c" onclick="removerEpisodioFila(${idx})">×</button>
+            </div>
+          </div>
+        `).join("");
+      }
+    }
+
+    // Extrai e filtra episódios disponíveis no acervo da emissora
+    const core = (typeof window !== "undefined" && window.GradeRecorrenciaCore) ? window.GradeRecorrenciaCore : ((typeof GradeRecorrenciaCore !== "undefined") ? GradeRecorrenciaCore : null);
+    _episodiosAcervoCache = (core && typeof core.extrairEpisodiosDoAcervo === "function")
+      ? core.extrairEpisodiosDoAcervo(program, programas)
+      : [];
+
+    renderEpisodiosAcervoDisponiveis();
+  };
+
+  function renderEpisodiosAcervoDisponiveis(filtroTexto = "") {
+    const program = programaFilaSelecionado();
+    const key = getProgramKey(program);
+    const filaAtual = recurrenceState.episodeQueues[key] || [];
+    const codigosNaFila = new Set(filaAtual.map(ep => String(ep.codigo || ep.id || ep.titulo).trim().toUpperCase()));
+
+    let filtrados = _episodiosAcervoCache.filter(ep => {
+      if (!filtroTexto) return true;
+      const ft = filtroTexto.toLowerCase();
+      return ep.titulo.toLowerCase().includes(ft) || ep.codigo.toLowerCase().includes(ft);
+    });
+
+    const contagemAcervoEl = document.getElementById("contagem-eps-acervo");
+    const naoAdicionados = _episodiosAcervoCache.filter(ep => !codigosNaFila.has(String(ep.codigo || ep.id || ep.titulo).trim().toUpperCase()));
+    if (contagemAcervoEl) contagemAcervoEl.textContent = String(naoAdicionados.length);
+
+    const container = document.getElementById("container-eps-acervo-disponiveis");
     if (!container) return;
-    if (!items.length) {
-      container.innerHTML = '<div style="padding:16px;text-align:center;color:#64748b;font-size:12px">Fila vazia. Adicione episódios abaixo; a ordem é definida aqui e não depende do título.</div>';
+
+    if (!_episodiosAcervoCache.length) {
+      container.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-muted);font-size:11px">Nenhum episódio cadastrado com este prefixo/título no acervo. Use o cadastro manual abaixo se necessário.</div>';
       return;
     }
-    container.innerHTML = items.map((ep, idx) => `<div style="display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:7px;border-bottom:1px solid #f1f5f9">
-      <strong style="color:#64748b">${idx+1}.</strong><div><div style="font-size:12px;font-weight:600">${escapeHtml(ep.titulo)}</div><div style="font-size:10px;color:#64748b">${escapeHtml(ep.codigo || 'Sem código')} · ${escapeHtml(ep.duracao || '')}</div></div>
-      <div style="display:flex;gap:3px"><button class="btn-outline" style="padding:2px 6px" onclick="moverEpisodioFila(${idx},-1)" ${idx===0?'disabled':''}>↑</button><button class="btn-outline" style="padding:2px 6px" onclick="moverEpisodioFila(${idx},1)" ${idx===items.length-1?'disabled':''}>↓</button><button class="btn-outline" style="padding:2px 6px;color:#b91c1c" onclick="removerEpisodioFila(${idx})">×</button></div>
-    </div>`).join('');
+
+    if (!filtrados.length) {
+      container.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-muted);font-size:11px">Nenhum episódio corresponde ao filtro de busca.</div>';
+      return;
+    }
+
+    container.innerHTML = filtrados.map((ep, idx) => {
+      const jaNaFila = codigosNaFila.has(String(ep.codigo || ep.id || ep.titulo).trim().toUpperCase());
+      return `
+        <div style="display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;padding:5px 8px;border-bottom:1px solid var(--border);background:${jaNaFila ? "var(--bg)" : "var(--bg-card)"};opacity:${jaNaFila ? "0.6" : "1"}">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text)">${escapeHtml(ep.titulo)}</div>
+            <div style="font-size:10px;color:var(--text-muted)">
+              <strong style="color:var(--primary);font-family:var(--mono)">${escapeHtml(ep.codigo || "S/ CÓD")}</strong> · ${escapeHtml(ep.duracao || "00:26:00")}
+              ${jaNaFila ? '<span style="color:#059669;font-weight:600;margin-left:6px">✓ na fila</span>' : ""}
+            </div>
+          </div>
+          <button type="button" class="${jaNaFila ? "btn-outline" : "btn-primary"}" style="padding:3px 8px;font-size:10.5px" onclick="adicionarEpisodioAcervoAFila(${idx})" ${jaNaFila ? "disabled" : ""}>
+            ${jaNaFila ? "Adicionado" : "+ Adicionar"}
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  window.filtrarEpisodiosAcervoUI = function (texto) {
+    renderEpisodiosAcervoDisponiveis(texto);
+  };
+
+  window.adicionarEpisodioAcervoAFila = function (indexNoCache) {
+    const ep = _episodiosAcervoCache[indexNoCache];
+    if (!ep) return;
+    const program = programaFilaSelecionado();
+    if (!program) return;
+    const key = getProgramKey(program);
+    const fila = recurrenceState.episodeQueues[key] || [];
+
+    recurrenceState.episodeQueues[key] = [...fila, {
+      id: ep.id || ep.codigo || `ep-${Date.now()}`,
+      codigo: ep.codigo,
+      titulo: ep.titulo,
+      duracao: ep.duracao,
+      temporada: ep.temporada,
+      episodioNumero: ep.episodioNumero,
+      ordem: fila.length + 1
+    }];
+
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+    showToast(`Episódio "${ep.titulo}" adicionado à fila!`, "success");
+  };
+
+  window.importarTodosEpisodiosDoAcervoParaFila = function () {
+    const program = programaFilaSelecionado();
+    if (!program) return;
+    const key = getProgramKey(program);
+    const fila = recurrenceState.episodeQueues[key] || [];
+    const codigosNaFila = new Set(fila.map(ep => String(ep.codigo || ep.id || ep.titulo).trim().toUpperCase()));
+
+    const paraAdicionar = _episodiosAcervoCache.filter(ep => !codigosNaFila.has(String(ep.codigo || ep.id || ep.titulo).trim().toUpperCase()));
+    if (!paraAdicionar.length) {
+      showToast("Todos os episódios do acervo já estão na fila.", "info");
+      return;
+    }
+
+    recurrenceState.episodeQueues[key] = [
+      ...fila,
+      ...paraAdicionar.map((ep, i) => ({
+        id: ep.id || ep.codigo || `ep-${Date.now()}-${i}`,
+        codigo: ep.codigo,
+        titulo: ep.titulo,
+        duracao: ep.duracao,
+        temporada: ep.temporada,
+        episodioNumero: ep.episodioNumero,
+        ordem: fila.length + i + 1
+      }))
+    ];
+
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+    showToast(`${paraAdicionar.length} episódios importados do acervo para a fila!`, "success");
+  };
+
+  window.limparFilaProgramaAtual = function () {
+    const program = programaFilaSelecionado();
+    if (!program) return;
+    if (!confirm(`Deseja limpar a fila de "${program.title || program.nome}"?`)) return;
+    const key = getProgramKey(program);
+    recurrenceState.episodeQueues[key] = [];
+    persistirEstadoRecorrencia();
+    window.carregarFilaProgramaSelecionado();
+    showToast("Fila limpa com sucesso.", "info");
   };
 
   window.adicionarEpisodioAFila = function () {
@@ -2184,6 +2479,7 @@
 
     const gradeByDay = saved.gradeByDay || {};
     const gradeOrderByDay = saved.gradeOrderByDay || {};
+    salvarSemanaAtualEmStorage(saved);
     const gradeBlocksByDay = {};
 
     for (let dow = 0; dow <= 6; dow++) {

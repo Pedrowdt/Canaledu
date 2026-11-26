@@ -12,7 +12,7 @@
   } else {
     root.GradeRecorrenciaCore = factory();
   }
-})(typeof self !== 'undefined' ? self : this, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : (typeof self !== 'undefined' ? self : this), function () {
   'use strict';
 
   const TIPOS_SLOT = {
@@ -997,6 +997,227 @@
     };
   }
 
+  function normalizarTituloSimples(s) {
+    return String(s || "")
+      .toUpperCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)\b(?:\s*[-–—:]\s*|\s+)/i, "")
+      .replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, "")
+      .replace(/\s*-?\s*EP\s*\d+.*$/i, "")
+      .replace(/\s*-?\s*\bBL\s*0*\d+.*$/i, "")
+      .replace(/\s*\[\s*\d+\s*[ªaº°]?\s*\]/gi, "")
+      .replace(/\s*\[[^\]]*\]/g, "")
+      .replace(/\s*\(REPRISE\)\s*$/i, "")
+      .replace(/\s*\([^)]*\)\s*$/, "")
+      .replace(/\s*\d+\s*['’]\s*$/, "")
+      .replace(/[^A-Z0-9]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /**
+   * Extrai e ordena automaticamente os episódios de um programa cadastrados no acervo.
+   * Evita digitação manual repetitiva de título, código e duração.
+   */
+  function extrairEpisodiosDoAcervo(programa, catalogoCompleto = []) {
+    if (!programa || !Array.isArray(catalogoCompleto)) return [];
+    const progId = String(programa.id || "").trim();
+    const progCode = String(programa.code || "").trim().toUpperCase();
+    const progTitulo = normalizarTituloSimples(programa.programaTitulo || programa.programa_titulo || programa.title || programa.nome || programa.descricao || "");
+
+    const prefixoMatch = progCode.match(/^([A-Z0-9]+)[_-]/);
+    const progPrefixo = prefixoMatch ? prefixoMatch[1] : "";
+
+    const encontrados = [];
+    const vistos = new Set();
+
+    for (const item of catalogoCompleto) {
+      if (!item) continue;
+      const itemCode = String(item.code || "").trim().toUpperCase();
+      const itemDesc = item.descricao || item.title || item.nome || "";
+      const itemProgTitulo = normalizarTituloSimples(item.programaTitulo || item.programa_titulo || "");
+      const itemBase = normalizarTituloSimples(itemDesc);
+
+      const matchId = progId && item.programaId && String(item.programaId) === progId;
+      const matchProgTitulo = progTitulo && itemProgTitulo && (itemProgTitulo === progTitulo || itemProgTitulo.includes(progTitulo) || progTitulo.includes(itemProgTitulo));
+      const matchBase = progTitulo && (itemBase === progTitulo || itemBase.startsWith(progTitulo));
+      const matchCodePrefixo = progPrefixo && progPrefixo.length >= 3 && itemCode.startsWith(progPrefixo);
+
+      if (matchId || matchProgTitulo || matchBase || (matchCodePrefixo && (matchBase || !progTitulo))) {
+        const chaveUnica = itemCode || itemDesc;
+        if (vistos.has(chaveUnica)) continue;
+        vistos.add(chaveUnica);
+
+        const epMatch = itemDesc.match(/(?:T\s*(\d+)\s*)?EP\s*(\d+)(?:\s*[-–—:]\s*(.+))?/i);
+        const temporada = item.temporada ?? (epMatch && epMatch[1] ? Number(epMatch[1]) : null);
+        const episodioNumero = item.episodio ?? (epMatch ? Number(epMatch[2]) : null);
+        const subtitulo = epMatch && epMatch[3] ? epMatch[3].trim() : "";
+
+        encontrados.push({
+          id: item.id || item.code || ("ep-" + encontrados.length),
+          codigo: item.code || "",
+          titulo: itemDesc || item.title || item.nome || "Episódio",
+          duracao: item.tempo || item.duration || "00:26:00",
+          temporada,
+          episodioNumero,
+          subtitulo,
+          ordem: (temporada ? temporada * 1000 : 0) + (episodioNumero || (encontrados.length + 1))
+        });
+      }
+    }
+
+    return encontrados.sort((a, b) => (a.ordem || 0) - (b.ordem || 0)).map((ep, i) => ({
+      ...ep,
+      ordem: i + 1
+    }));
+  }
+
+  /**
+   * Gera a grade da nova semana com base na estrutura da semana anterior:
+   * - Inéditos consomem e avançam o próximo episódio da fila ordenada
+   * - Reprises espelham o novo episódio do inédito correspondente
+   * - Horários fixos / Ao Vivo são preservados
+   */
+  function gerarGradeSemanaComBaseAnterior(params = {}) {
+    const {
+      gradeSemanaAnterior = {},
+      episodeQueues = {},
+      cursoresIniciais = {},
+      recurrenceSlots = {},
+      diasSemana = [1, 2, 3, 4, 5, 6, 0]
+    } = params;
+
+    const gradeNovaPorDia = { 0: [], 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+    const cursoresAtuais = { ...cursoresIniciais };
+    let totalSlots = 0;
+    let ineditosAvancados = 0;
+    let reprisesVinculadas = 0;
+
+    const ineditosNovaSemanaPorProg = new Map();
+    const ineditosNovaSemanaPorSlot = new Map();
+
+    for (const dow of diasSemana) {
+      const slotsAntigos = gradeSemanaAnterior[dow] || [];
+      const novosSlots = [];
+
+      for (let sIdx = 0; sIdx < slotsAntigos.length; sIdx++) {
+        const slotAntigo = slotsAntigos[sIdx];
+        if (!slotAntigo) continue;
+        totalSlots++;
+
+        const novoSlot = JSON.parse(JSON.stringify(slotAntigo));
+        const prog = novoSlot.program || {};
+        const progNome = prog.title || prog.nome || prog.descricao || novoSlot.programaNome || "";
+        const progKey = String(prog.code || prog.id || progNome || "").trim();
+
+        const regra = (novoSlot.time && recurrenceSlots[`${dow}|${novoSlot.time}`]) ||
+                      (novoSlot.time && recurrenceSlots[`${dow}:${novoSlot.time}`]) ||
+                      novoSlot;
+
+        const tipoExibicao = regra.tipoExibicao || novoSlot.tipoExibicao || "fixo";
+        novoSlot.tipoExibicao = tipoExibicao;
+
+        if (
+          novoSlot.isAoVivo ||
+          (prog && (prog.isAoVivo || prog.type === "LIVE")) ||
+          (novoSlot.classificacao && /ao_vivo|aovivo/i.test(novoSlot.classificacao)) ||
+          /\bAO\s*VIVO\b/i.test(progNome)
+        ) {
+          novoSlot.isAoVivo = true;
+          novoSlot.horarioFixo = novoSlot.time;
+        }
+
+        if (tipoExibicao === TIPOS_SLOT.INEDITO && progKey) {
+          let fila = episodeQueues[progKey];
+          if (!fila || !fila.length) {
+            const normProg = normalizarTituloSimples(progNome);
+            for (const [k, f] of Object.entries(episodeQueues)) {
+              if (normalizarTituloSimples(k) === normProg && f && f.length) {
+                fila = f;
+                break;
+              }
+            }
+          }
+
+          if (fila && fila.length > 0) {
+            const cursor = cursoresAtuais[progKey] || 0;
+            const proximoEp = obterProximoEpisodio(fila, cursor);
+            if (proximoEp) {
+              cursoresAtuais[progKey] = cursor + 1;
+              ineditosAvancados++;
+              novoSlot.episodio = {
+                id: proximoEp.id,
+                titulo: proximoEp.titulo,
+                codigo: proximoEp.codigo,
+                duracao: proximoEp.duracao,
+                temporada: proximoEp.temporada,
+                episodioNumero: proximoEp.episodioNumero
+              };
+              if (novoSlot.program) {
+                novoSlot.program.episodio = novoSlot.episodio;
+                if (proximoEp.codigo) novoSlot.program.code = proximoEp.codigo;
+                if (proximoEp.duracao) novoSlot.program.tempo = proximoEp.duracao;
+              }
+            }
+          }
+
+          ineditosNovaSemanaPorProg.set(progKey, novoSlot);
+          if (novoSlot.id) ineditosNovaSemanaPorSlot.set(novoSlot.id, novoSlot);
+          ineditosNovaSemanaPorSlot.set(`${dow}|${novoSlot.time}`, novoSlot);
+        }
+
+        novosSlots.push(novoSlot);
+      }
+
+      gradeNovaPorDia[dow] = novosSlots;
+    }
+
+    // Vincula reprises na semana gerada
+    for (const dow of diasSemana) {
+      for (const slot of gradeNovaPorDia[dow]) {
+        if (slot.tipoExibicao === TIPOS_SLOT.REPRISE && !slot.bloquearHeranca) {
+          let mestre = null;
+          if (slot.mestreSlotId && ineditosNovaSemanaPorSlot.has(slot.mestreSlotId)) {
+            mestre = ineditosNovaSemanaPorSlot.get(slot.mestreSlotId);
+          } else if (slot.origemReprise) {
+            const chave = `${slot.origemReprise.diaSemana}|${slot.origemReprise.horario}`;
+            if (ineditosNovaSemanaPorSlot.has(chave)) {
+              mestre = ineditosNovaSemanaPorSlot.get(chave);
+            }
+          }
+          if (!mestre) {
+            const prog = slot.program || {};
+            const progKey = String(prog.code || prog.id || prog.title || slot.programaNome || "").trim();
+            if (progKey && ineditosNovaSemanaPorProg.has(progKey)) {
+              mestre = ineditosNovaSemanaPorProg.get(progKey);
+            }
+          }
+
+          if (mestre && mestre.episodio) {
+            slot.episodio = { ...mestre.episodio, isReprise: true };
+            if (slot.program) {
+              slot.program.episodio = slot.episodio;
+              if (mestre.episodio.codigo) slot.program.code = mestre.episodio.codigo;
+              if (mestre.episodio.duracao) slot.program.tempo = mestre.episodio.duracao;
+            }
+            reprisesVinculadas++;
+          }
+        }
+      }
+    }
+
+    return {
+      gradeNovaPorDia,
+      cursoresAtualizados: cursoresAtuais,
+      resumo: {
+        totalSlots,
+        ineditosAvancados,
+        reprisesVinculadas
+      }
+    };
+  }
+
+
   return {
     TIPOS_SLOT,
     TIPOS_EXCECAO,
@@ -1027,6 +1248,8 @@
     propagarHerancaGradeSemana,
     atribuirEpisodioSlotMestre,
     desmembrarSlotEmItensRoteiro,
-    validarConsistenciaReprises
+    validarConsistenciaReprises,
+    extrairEpisodiosDoAcervo,
+    gerarGradeSemanaComBaseAnterior
   };
 });
