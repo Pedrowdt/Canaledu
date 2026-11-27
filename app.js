@@ -709,11 +709,29 @@ function sincronizarRoteiroComGradeSemana(options = {}) {
   const fonteGrade = temBlocos ? gradeBlocks : gradeSimples;
   const SyncCore = typeof GradeRoteiroSyncCore !== 'undefined' ? GradeRoteiroSyncCore : (typeof window !== 'undefined' ? window.GradeRoteiroSyncCore : null);
   const acervo = montarAcervoParaSync(saved);
+
+  let emissoraSlug = null;
+  let emissoraId = null;
+  try {
+    if (window.EmissoraContext) {
+      emissoraId = EmissoraContext.getEmissoraAtivaId();
+      const ativa = typeof EmissoraContext.getEmissoraAtiva === "function" ? EmissoraContext.getEmissoraAtiva() : null;
+      emissoraSlug = ativa?.slug || ativa?.codigo || emissoraId;
+    }
+  } catch (_) {}
+
+  const tipoPrograma = (emissoraSlug === "tv-brasil-int" || emissoraId === "00000000-0000-0000-0000-000000000003")
+    ? "IPRO"
+    : (emissoraSlug === "canal-gov" || emissoraId === "00000000-0000-0000-0000-000000000004" ? "GPRO" : "RPRO");
+
   const opcoesSync = {
     modo: options.modo || (state.roteiro.length > 0 ? 'inteligente' : 'substituir'),
     duracaoBreakPadrao: '00:03:00',
     acervo,
-    geradorSequenciaPrograma: gerarSequenciaComVinhetasGrade
+    geradorSequenciaPrograma: gerarSequenciaComVinhetasGrade,
+    tipoPrograma,
+    emissora: emissoraSlug,
+    emissoraId
   };
 
   if (state.roteiro.length > 0 && !options.modo) {
@@ -764,7 +782,15 @@ function sincronizarRoteiroComGradeSemana(options = {}) {
       const p = b.program || {};
       const nome = p.title || p.nome || p.descricao;
       if (!nome) return;
-      progs.push({ code: p.code || b.code || '', descricao: nome, tempo: p.tempo || b.duration || '', midia: p.midia || '0OMN', type: 'RPRO' });
+      progs.push({
+        code: p.code || b.code || "",
+        descricao: nome,
+        tempo: p.tempo || b.duration || "",
+        midia: p.midia || "0OMN",
+        type: p.type || tipoPrograma,
+        programaId: p.id || p.programaId || b.programaId || null,
+        isAoVivo: Boolean(p.isAoVivo || b.isAoVivo)
+      });
     });
   }
   if (!progs.length) {

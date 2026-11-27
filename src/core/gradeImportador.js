@@ -7305,7 +7305,19 @@
 
   function criarIndiceAcervo(acervoAtual = []) {
     const indice = new Map();
+    const porId = new Map();
+    const porCode = new Map();
+
     (acervoAtual || []).forEach(programa => {
+      if (!programa) return;
+      if (programa.id != null) porId.set(String(programa.id), programa);
+      if (programa.programaId != null) porId.set(String(programa.programaId), programa);
+      if (programa.code) {
+        const c = String(programa.code).trim();
+        porCode.set(c, programa);
+        porCode.set(c.toUpperCase(), programa);
+      }
+
       // 1. Chave pelo título canônico
       const tit = obterTituloRegistroPrograma(programa);
       const chaveTit = normalizarTituloCatalogo(tit);
@@ -7322,10 +7334,33 @@
         }
       }
     });
+
+    indice._porId = porId;
+    indice._porCode = porCode;
     return indice;
   }
 
-  function encontrarProgramaNoAcervo(titulo, indiceAcervo, episodio = null) {
+  function encontrarProgramaNoAcervo(itemOuTitulo, indiceAcervo, episodio = null, extra = null) {
+    if (!indiceAcervo) return null;
+
+    let titulo = typeof itemOuTitulo === "string" ? itemOuTitulo : (itemOuTitulo?.title || itemOuTitulo?.nome || itemOuTitulo?.descricao || "");
+    let code = extra?.code || (typeof itemOuTitulo === "object" ? itemOuTitulo?.code : null);
+    let progId = extra?.id || extra?.programaId || (typeof itemOuTitulo === "object" ? (itemOuTitulo?.id || itemOuTitulo?.programaId) : null);
+
+    // 1. Prioridade A: busca direta por ID oficial
+    if (progId != null && indiceAcervo._porId && indiceAcervo._porId.has(String(progId))) {
+      return indiceAcervo._porId.get(String(progId));
+    }
+
+    // 2. Prioridade B: busca direta por CODE oficial
+    if (code && indiceAcervo._porCode) {
+      const cUpper = String(code).trim().toUpperCase();
+      if (!cUpper.startsWith("GRD_") && indiceAcervo._porCode.has(cUpper)) {
+        return indiceAcervo._porCode.get(cUpper);
+      }
+    }
+
+    // 3. Prioridade C: busca por título normalizado
     const chave = normalizarTituloCatalogo(titulo);
     if (!chave) return null;
     const candidatos = indiceAcervo instanceof Map ? (indiceAcervo.get(chave) || []) : [];
@@ -7343,7 +7378,7 @@
 
       if (exatos.length > 0) {
         // Se houver múltiplos blocos (ex: _1 e _2), prefere bloco 1
-        const bloco1 = exatos.find(p => p.bloco === 1 || /_1$/.test(p.code || ''));
+        const bloco1 = exatos.find(p => p.bloco === 1 || /_1$/.test(p.code || ""));
         return bloco1 || exatos[0];
       }
     }
@@ -7385,25 +7420,36 @@
       const blocks = [];
       items.forEach((item, idx) => {
         const prog = item.program || {};
-        const title = (prog.title || item.title || 'Livre').trim();
-        const episodioInfo = item.episodioInfo || (typeof item.episodio === 'object' ? item.episodio : extrairMetadadosEpisodio(item.episodio || item.detalhes));
-        const registroAcervo = encontrarProgramaNoAcervo(title, indiceAcervo, episodioInfo);
-        const code = String(prog.code || item.code || registroAcervo?.code || '').trim();
-        const categoria = prog.categoria || item.categoria || registroAcervo?.categoria || 'Geral';
-        const durStr = item.duration || '00:30:00';
-        const duracaoInformada = String(item.duracaoExplicita || episodioInfo?.duracaoTotal || '').trim();
-        const tempoCatalogo = String(registroAcervo?.tempo || prog.tempo || '').trim();
+        const title = (prog.title || item.title || "Livre").trim();
+        const itemCode = String(prog.code || item.code || "").trim();
+        const itemId = prog.id || prog.programaId || item.id || item.programaId || null;
+        const episodioInfo = item.episodioInfo || (typeof item.episodio === "object" ? item.episodio : extrairMetadadosEpisodio(item.episodio || item.detalhes));
+        const registroAcervo = encontrarProgramaNoAcervo(title, indiceAcervo, episodioInfo, { code: itemCode, id: itemId });
+        const code = String(itemCode || registroAcervo?.code || "").trim();
+        const progIdOficial = registroAcervo?.id || registroAcervo?.programaId || itemId || null;
+        const categoria = prog.categoria || item.categoria || registroAcervo?.categoria || "Geral";
+        const durStr = item.duration || "00:30:00";
+        const duracaoInformada = String(item.duracaoExplicita || episodioInfo?.duracaoTotal || "").trim();
+        const tempoCatalogo = String(registroAcervo?.tempo || prog.tempo || "").trim();
         const tempoPrograma = tempoCatalogo || duracaoInformada;
-        const programaImportado = title !== 'Livre' ? {
+        const isAoVivo = Boolean(
+          item.isAoVivo || prog.isAoVivo || (registroAcervo && (registroAcervo.isAoVivo || registroAcervo.aoVivo)) ||
+          /\bAO\s*VIVO\b/i.test(title) || item.tipoExibicao === "ao_vivo"
+        );
+        const programaImportado = title !== "Livre" ? {
           ...prog,
+          id: progIdOficial,
+          programaId: progIdOficial,
           title,
           code,
           categoria,
           tempo: tempoPrograma,
-          duracaoFonte: tempoCatalogo ? 'acervo' : (duracaoInformada ? 'planilha' : null),
+          duracaoFonte: tempoCatalogo ? "acervo" : (duracaoInformada ? "planilha" : null),
           catalogoEncontrado: !!registroAcervo,
           temporada: registroAcervo?.temporada ?? episodioInfo?.temporada ?? null,
           episodioNumero: registroAcervo?.episodio ?? episodioInfo?.episodioNumero ?? null,
+          isAoVivo,
+          horarioFixo: isAoVivo ? (item.time || "06:00:00") : null,
         } : null;
         const durSec = timeToSec(durStr);
         const isFaixa = !!(item.isFaixa || prog.isFaixa || /ANIMADA|FAIXA/i.test(title));
@@ -7534,12 +7580,17 @@
         }
 
         const block = {
-          id: `slot_imp_${d}_${idx}_${(item.time || '00:00:00').replace(/:/g, '')}`,
+          id: `slot_imp_${d}_${idx}_${(item.time || "00:00:00").replace(/:/g, "")}`,
           index: blocks.length,
-          time: item.time || '06:00:00',
+          time: item.time || "06:00:00",
           duration: durStr,
           durationSec: durSec,
-          endTime: addSeconds(item.time || '06:00:00', durSec),
+          endTime: addSeconds(item.time || "06:00:00", durSec),
+          programaId: progIdOficial,
+          code: code,
+          tempo: tempoPrograma || durStr,
+          isAoVivo,
+          horarioFixo: isAoVivo ? (item.time || "06:00:00") : null,
           program: programaImportado,
           episodio: episodioInfo ? { ...episodioInfo, codigo: episodioInfo.codigo || (registroAcervo && (registroAcervo.temporada != null || registroAcervo.episodio != null) ? registroAcervo.code : null) } : null,
           origemMam: item.origemMam || episodioInfo?.origemMam || null,

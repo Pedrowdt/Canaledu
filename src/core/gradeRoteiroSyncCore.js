@@ -214,7 +214,7 @@
     s = s.replace(/\s*\d+\s*['’]\s*/g, ' ');
     s = s.replace(/_\d+\b/g, ' ');
 
-    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL|CANAL\s+GOV)\b.*$/i, '');
+    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL(?:\s+INTERNACIONAL)?|CANAL\s+GOV|TVBI)\b.*$/i, '');
     if (semCanal.trim()) s = semCanal;
 
     s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -396,7 +396,7 @@
           episodio: slot.episodio || p.episodio || extrairEpisodioDeTexto(titulo),
           faixaOcupada: slot.faixaNome || p.faixaOcupada || p.faixa_ocupada || '',
           classificacao: slot.classificacao || p.classificacao || 'L',
-          programaId: p.id || slot.programaId || null,
+          programaId: p.programaId || p.id || slot.programaId || null,
           isAoVivo: Boolean(
             slot.isAoVivo || p.isAoVivo ||
             (slot.classificacao && /ao_vivo|aovivo/i.test(slot.classificacao)) ||
@@ -460,7 +460,11 @@
    * Constrói blocos RPRO padrão para um slot da grade que é novo ou precisa de montagem inicial.
    */
   function construirBlocosPadraoParaSlot(slotGrade, opcoes = {}) {
-    const tipoPrograma = opcoes.tipoPrograma || 'RPRO';
+    const tipoPrograma = opcoes.tipoPrograma || (
+      (opcoes.emissora === "tv-brasil-int" || opcoes.emissoraId === "00000000-0000-0000-0000-000000000003" || (slotGrade && slotGrade.code && /^IPRO/i.test(slotGrade.code)))
+        ? "IPRO"
+        : ((opcoes.emissora === "canal-gov" || opcoes.emissoraId === "00000000-0000-0000-0000-000000000004" || (slotGrade && slotGrade.code && /^GPRO/i.test(slotGrade.code))) ? "GPRO" : "RPRO")
+    );
     const duracaoTotal = slotGrade.tempoPrograma || slotGrade.duracao || '00:30:00';
     const ep = slotGrade.episodio;
 

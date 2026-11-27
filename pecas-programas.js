@@ -1637,6 +1637,16 @@ function abrirImportPreview({ fileName, delimiterInfo, rows }) {
     return;
   }
 
+  let emissoraSlug = null;
+  let emissoraId = null;
+  try {
+    if (window.EmissoraContext) {
+      emissoraId = EmissoraContext.getEmissoraAtivaId();
+      const ativa = typeof EmissoraContext.getEmissoraAtiva === "function" ? EmissoraContext.getEmissoraAtiva() : null;
+      emissoraSlug = ativa?.slug || ativa?.codigo || ativa?.nome || emissoraId;
+    }
+  } catch (_) {}
+
   let analise;
   if (importador && typeof importador.analisarImportacao === "function") {
     analise = importador.analisarImportacao({
@@ -1644,6 +1654,9 @@ function abrirImportPreview({ fileName, delimiterInfo, rows }) {
       itensExistentes: items(),
       isPecas,
       uidGenerator: uid,
+      emissora: emissoraSlug,
+      emissoraId: emissoraId,
+      tipos: tiposAtivosEmissora,
     });
   } else {
     const headers = rows[0].map(h => String(h || "").trim().toUpperCase());
@@ -1840,6 +1853,17 @@ function processImportedRows(rows) {
     return;
   }
 
+  let emissoraSlug = null;
+  let emissoraId = null;
+  try {
+    if (window.EmissoraContext) {
+      emissoraId = EmissoraContext.getEmissoraAtivaId();
+      const ativa = typeof EmissoraContext.getEmissoraAtiva === "function" ? EmissoraContext.getEmissoraAtiva() : null;
+      emissoraSlug = ativa?.slug || ativa?.codigo || ativa?.nome || emissoraId;
+    }
+  } catch (_) {}
+
+  const importador = window.CsvImportador;
   const list = items();
   const existing = new Set(list.map(p => p.code));
   let added = 0, skipped = 0;
@@ -1851,16 +1875,21 @@ function processImportedRows(rows) {
     if (!code || !desc) continue;
     if (existing.has(code)) { skipped++; continue; }
 
-    const tempo = excelTimeToHMS(ci.tempo >= 0 ? r[ci.tempo] : '', isPecas ? '00:01:00' : '00:30:00');
+    const rawTempo = ci.tempo >= 0 ? r[ci.tempo] : '';
+    const tempo = (importador && typeof importador.normalizarDuracao === 'function')
+      ? importador.normalizarDuracao(rawTempo, isPecas ? '00:01:00' : '00:30:00')
+      : excelTimeToHMS(rawTempo, isPecas ? '00:01:00' : '00:30:00');
+
+    const rawType = ci.type >= 0 ? String(r[ci.type] || '').trim() : '';
+    const typeFinal = (importador && typeof importador.mapearTipo === 'function')
+      ? importador.mapearTipo(rawType, desc, isPecas, emissoraSlug, tiposAtivosEmissora)
+      : (rawType || (isPecas ? 'EVNH' : 'RPRO'));
 
     let novo = {
       id: uid(),
       code, descricao: desc, tempo,
       midia: ci.midia >= 0 ? String(r[ci.midia] || '0OMN').trim() : '0OMN',
-      // [OBS] Se o CSV/XLSX não tiver uma coluna TYPE/TIPO reconhecida (o que é o caso
-      // dos arquivos exportados atualmente), TODO programa importado recebe "RPRO" por
-      // padrão — é esse valor que a regra de negócio de assinatura (item 3) assume.
-      type:  ci.type  >= 0 ? String(r[ci.type]  || (isPecas ? 'EVNH' : 'RPRO')).trim() : (isPecas ? 'EVNH' : 'RPRO'),
+      type: typeFinal,
     };
 
     if (isPecas) {

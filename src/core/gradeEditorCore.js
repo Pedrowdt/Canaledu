@@ -118,7 +118,18 @@
 
     const faixaOcupada = (programData.faixaOcupada || programData.faixa_ocupada || '').trim();
 
+    const progId = programData.id || programData.programaId || null;
+    slot.programaId = progId;
+    slot.code = programData.code || slot.code || '';
+    slot.tempo = programData.tempo || slot.tempo || null;
+    slot.isAoVivo = Boolean(programData.isAoVivo);
+    if (slot.isAoVivo) {
+      slot.horarioFixo = slot.time;
+    }
+
     slot.program = {
+      id: progId,
+      programaId: progId,
       title: programData.title || programData.nome || programData.descricao || 'SEM TÍTULO',
       code: programData.code || '',
       tempo: programData.tempo || slot.duration,
@@ -131,6 +142,8 @@
       temporada: programData.temporada ?? null,
       episodio: programData.episodio ?? null,
       bloco: programData.bloco ?? null,
+      isAoVivo: Boolean(programData.isAoVivo),
+      horarioFixo: programData.isAoVivo ? slot.time : (programData.horarioFixo || null)
     };
 
     if (faixaOcupada) {
@@ -226,7 +239,7 @@
       .toUpperCase();
 
     s = s.replace(/&/g, ' E ');
-    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)(?:\s*[-–—:]\s*|\s+)/i, '');
+    s = s.replace(/^\s*(?:PGM|PROGRAMA|INTPGM|INTERPROGRAMA|RPRO|GPRO|IPRO)\b(?:\s*[-–—:]\s*|\s+)/i, '');
     s = s.replace(/\s*-?\s*T\s*\d+\s*EP\s*\d+.*$/i, '');
     s = s.replace(/\s*-?\s*EP\s*\d+.*$/i, '');
     s = s.replace(/\s*-?\s*BL\s*0*\d+.*$/i, '');
@@ -235,9 +248,9 @@
     s = s.replace(/\s*\(REPRISE\)/gi, '');
     s = s.replace(/\s*\([^)]*\)\s*$/g, '');
     s = s.replace(/\s*\d+\s*['’]\s*/g, ' ');
-    s = s.replace(/_\d+/g, ' ');
+    s = s.replace(/_\d+\b/g, ' ');
 
-    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL|CANAL\s+GOV).*$/i, '');
+    const semCanal = s.replace(/\s*[-–—:]?\s*(?:CANAL\s+EDUCACAO|TV\s+BRASIL(?:\s+INTERNACIONAL)?|CANAL\s+GOV|TVBI)\b.*$/i, '');
     if (semCanal.trim()) s = semCanal;
 
     s = s.replace(/[^A-Z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -312,27 +325,42 @@
       const meta = catalogMap.get(cleanTitle.toUpperCase()) || (normClean ? catalogMap.get(normClean) : null) || {};
       const faixaOcupada = (meta.faixaOcupada || meta.faixa_ocupada || meta.faixa || '').trim();
 
+      const isAoVivo = Boolean(
+        meta.isAoVivo || meta.aoVivo || meta.type === "AO VIVO" || meta.type === "LIVE" ||
+        /\bAO\s*VIVO\b/i.test(cur.title)
+      );
+      const progId = meta.id || meta.programaId || null;
+
       resultBlocks.push({
-        id: `slot_${i}_${startTime.replace(/:/g, '')}`,
+        id: `slot_${i}_${startTime.replace(/:/g, "")}`,
         index: i,
         time: startTime,
         duration: secToTime(durationSec),
         durationSec: durationSec,
         endTime: addSeconds(startTime, durationSec),
+        programaId: progId,
+        code: meta.code || "",
+        tempo: meta.tempo || secToTime(durationSec),
+        isAoVivo: isAoVivo,
+        horarioFixo: isAoVivo ? startTime : null,
         faixaNome: faixaOcupada || undefined,
         program: {
+          id: progId,
+          programaId: progId,
           title: cur.title,
-          code: meta.code || '',
+          code: meta.code || "",
           tempo: meta.tempo || secToTime(durationSec),
-          categoria: meta.categoria || meta.faixa || '',
+          categoria: meta.categoria || meta.faixa || "",
           cor: meta.cor || null,
-          type: meta.type || '',
+          type: meta.type || "",
           faixaOcupada: faixaOcupada,
           faixaNome: faixaOcupada,
-          programaTitulo: meta.programaTitulo || meta.programa_titulo || '',
+          programaTitulo: meta.programaTitulo || meta.programa_titulo || "",
           temporada: meta.temporada ?? null,
           episodio: meta.episodio ?? null,
           bloco: meta.bloco ?? null,
+          isAoVivo: isAoVivo,
+          horarioFixo: isAoVivo ? startTime : null,
         },
       });
     }

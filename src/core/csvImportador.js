@@ -185,33 +185,173 @@
    * @returns {Object} resumo da pré-visualização
    */
   /**
-   * Mapeia tipos brutos exportados do servidor (ex: "CANAL EDUCACAO - VINHETA", "(GCHM)")
-   * para os tipos reconhecidos pelo sistema: ECHE, ECHM, RCOM, RPOL, EINT, EVNH, RPRO.
+   * Normaliza a identificação da emissora (slug, id, nome ou objeto) para uma chave padronizada.
    */
-  function mapearTipo(tipoRaw, descRaw, isPecas) {
-    const t = String(tipoRaw || '').toUpperCase().trim();
-    const d = String(descRaw || '').toUpperCase().trim();
-
-    const padroesConhecidos = new Set(['ECHE', 'ECHM', 'RCOM', 'RPOL', 'EINT', 'EVNH', 'RPRO']);
-    if (padroesConhecidos.has(t)) return t;
-
-    if (t.includes('ESTREIA')) return 'ECHE';
-    if (t.includes('VINHETA') || t.includes('(GVNH)') || t === 'VH') return 'EVNH';
-    if (t.includes('INTERPROGRAMA') || t.includes('(GINT)') || t.includes('INTPGM')) return 'EINT';
-    if (t.includes('CHAMADA') || t.includes('(GCHM)') || t.includes('MANUT')) return 'ECHM';
-    if (t.includes('COMERCIAL') || t.includes('(GCOM)')) return 'RCOM';
-    if (t.includes('POLITIC') || t.includes('(GPOL)')) return 'RPOL';
-    if (t.includes('PROGRAMA') || t.includes('(GPRO)')) return 'RPRO';
-
-    // Heurística secundária pelo prefixo da descrição
-    if (d.startsWith('VH ') || d.startsWith('VINHETA ')) return 'EVNH';
-    if (d.startsWith('CH ') || d.startsWith('CHAMADA ')) return 'ECHM';
-    if (d.startsWith('INTPGM ') || d.startsWith('INTERPROGRAMA ')) return 'EINT';
-
-    return isPecas ? 'EVNH' : 'RPRO';
+  function normalizarSlugEmissora(val) {
+    if (!val) return "";
+    if (typeof val === "object" && val !== null) {
+      return normalizarSlugEmissora(val.slug || val.codigo || val.nome || val.id);
+    }
+    const s = String(val).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (s.includes("gov")) return "canal-gov";
+    if (s.includes("inter") || s.includes("-int") || s.includes("tvbi") || s === "tv-brasil-int") return "tv-brasil-int";
+    if (s.includes("brasil") || s.includes("rede")) return "tv-brasil";
+    if (s.includes("educa")) return "canal-educacao";
+    return s;
   }
 
-  function analisarImportacao({ rows = [], itensExistentes = [], isPecas = true, uidGenerator = null }) {
+  /**
+   * Mapeia tipos brutos exportados do servidor (ex: "CANAL EDUCACAO - VINHETA", "INTERNACIONAL - CHAMADA MANUTENÇÃO", "(GCHM)")
+   * para os tipos reconhecidos pelo sistema de acordo com a emissora ativa.
+   *
+   * @param {string} tipoRaw
+   * @param {string} descRaw
+   * @param {boolean} isPecas
+   * @param {string|Object} [emissora] - slug, nome, id ou objeto emissora
+   * @param {Array} [tiposPersonalizados] - lista opcional de tipos configurados
+   * @returns {string} Código do tipo reconhecido
+   */
+  function mapearTipo(tipoRaw, descRaw, isPecas, emissora, tiposPersonalizados) {
+    const t = String(tipoRaw || "").toUpperCase().trim();
+    const d = String(descRaw || "").toUpperCase().trim();
+
+    // Se houver lista de tipos configurada, e o tipo raw já corresponder a um código oficial, mantém
+    if (Array.isArray(tiposPersonalizados) && tiposPersonalizados.length > 0) {
+      const match = tiposPersonalizados.find(tp => (tp.codigo || "").toUpperCase() === t);
+      if (match) return match.codigo;
+    }
+
+    // Resolve a emissora: parâmetro explícito -> contexto global -> inferência por texto
+    let slug = normalizarSlugEmissora(emissora);
+    if (!slug) {
+      try {
+        const ctx = (typeof window !== "undefined" && window.EmissoraContext)
+          ? window.EmissoraContext
+          : (typeof globalThis !== "undefined" && globalThis.EmissoraContext ? globalThis.EmissoraContext : null);
+        if (ctx && typeof ctx.getEmissoraAtiva === "function") {
+          const at = ctx.getEmissoraAtiva();
+          slug = normalizarSlugEmissora(at?.slug || at?.codigo || at?.nome || at?.id);
+        }
+      } catch (_) {}
+    }
+
+    if (!slug) {
+      if (t.includes("INTERNACIONAL") || d.includes("INTERNACIONAL") || d.includes("TVBI") || d.includes("TV BRASIL INTERNACIONAL")) {
+        slug = "tv-brasil-int";
+      } else if (t.includes("GOV") || d.includes("CANAL GOV")) {
+        slug = "canal-gov";
+      } else if (t.includes("CANAL EDUCACAO") || d.includes("CANAL EDUCACAO") || t.includes("CANAL EDUCAÇÃO") || d.includes("CANAL EDUCAÇÃO")) {
+        slug = "canal-educacao";
+      }
+    }
+
+    // ----------------------------------------------------
+    // TV BRASIL INTERNACIONAL (TVBI)
+    // ----------------------------------------------------
+    if (slug === "tv-brasil-int") {
+      const padroesTVBI = new Set(["IPRO", "CH", "VH", "PROMO", "INTERPRO", "CI"]);
+      if (padroesTVBI.has(t)) return t;
+
+      // 1. Prioridade para coluna TYPE
+      if (t.includes("PROMO")) return "PROMO";
+      if (t.includes("PILULA") || t.includes("PÍLULA") || t.includes("INTERPROGRAMA") || t.includes("(GINT)") || t.includes("INTPGM")) return "INTERPRO";
+      if (t.includes("VINHETA") || t.includes("(GVNH)") || t === "VH") return "VH";
+      if (t.includes("CHAMADA") || t.includes("(GCHM)") || t.includes("MANUT") || t === "CH") return "CH";
+      if (t.includes("CLASSIFIC") || t === "CI") return "CI";
+      if (t.includes("PROGRAMA") || t.includes("(GPRO)") || t === "IPRO" || t === "PGM") return "IPRO";
+
+      // 2. Heurística secundária pela descrição
+      if (d.startsWith("VH ") || d.startsWith("VINHETA ")) return "VH";
+      if (d.startsWith("CH ") || d.startsWith("CHAMADA ")) return "CH";
+      if (d.startsWith("PROMO ") || d.startsWith("PROMOCAO ") || d.startsWith("PROMOÇÃO ")) return "PROMO";
+      if (d.startsWith("PILULA ") || d.startsWith("PÍLULA ") || d.startsWith("PIRILA ") || d.startsWith("INTPGM ") || d.startsWith("INTERPROGRAMA ")) return "INTERPRO";
+      if (d.startsWith("CI ") || d.includes("CLASSIFICACAO INDICATIVA") || d.includes("CLASSIFICAÇÃO INDICATIVA")) return "CI";
+
+      return isPecas ? "VH" : "IPRO";
+    }
+
+    // ----------------------------------------------------
+    // TV BRASIL (REDE)
+    // ----------------------------------------------------
+    if (slug === "tv-brasil") {
+      const padroesRede = new Set(["RPRO", "CH", "VH", "PROMO", "INTERPRO", "CI", "PROGRAMETE"]);
+      if (padroesRede.has(t)) return t;
+
+      // 1. Prioridade para coluna TYPE
+      if (t.includes("PROMO")) return "PROMO";
+      if (t.includes("PROGRAMETE")) return "PROGRAMETE";
+      if (t.includes("PILULA") || t.includes("PÍLULA") || t.includes("INTERPROGRAMA") || t.includes("(GINT)") || t.includes("INTPGM")) return "INTERPRO";
+      if (t.includes("VINHETA") || t.includes("(GVNH)") || t === "VH") return "VH";
+      if (t.includes("CHAMADA") || t.includes("(GCHM)") || t.includes("MANUT") || t === "CH") return "CH";
+      if (t.includes("CLASSIFIC") || t === "CI") return "CI";
+      if (t.includes("PROGRAMA") || t.includes("(GPRO)") || t === "RPRO" || t === "PGM") return "RPRO";
+
+      // 2. Heurística secundária pela descrição
+      if (d.startsWith("VH ") || d.startsWith("VINHETA ")) return "VH";
+      if (d.startsWith("CH ") || d.startsWith("CHAMADA ")) return "CH";
+      if (d.startsWith("PROMO ")) return "PROMO";
+      if (d.startsWith("PGT ") || d.startsWith("PROGRAMETE ")) return "PROGRAMETE";
+      if (d.startsWith("PILULA ") || d.startsWith("INTPGM ") || d.startsWith("INTERPROGRAMA ")) return "INTERPRO";
+      if (d.startsWith("CI ")) return "CI";
+
+      return isPecas ? "VH" : "RPRO";
+    }
+
+    // ----------------------------------------------------
+    // CANAL GOV
+    // ----------------------------------------------------
+    if (slug === "canal-gov") {
+      const padroesGov = new Set(["GPRO", "GVNH", "GCHM", "GGV", "GINS", "LIVE"]);
+      if (padroesGov.has(t)) return t;
+
+      // 1. Prioridade para coluna TYPE
+      if (t.includes("AO VIVO") || t.includes("LIVE") || t.includes("TRANSMISSAO")) return "LIVE";
+      if (t.includes("INSTITUCIONAL") || t === "GINS") return "GINS";
+      if (t.includes("GOVERNO") || t.includes("CAMPANHA") || t === "GGV") return "GGV";
+      if (t.includes("INTERPROGRAMA") || t.includes("PILULA") || t.includes("PÍLULA") || t.includes("(GINT)") || t.includes("INTPGM")) return "GGV";
+      if (t.includes("VINHETA") || t.includes("(GVNH)") || t === "GVNH" || t === "VH") return "GVNH";
+      if (t.includes("CHAMADA") || t.includes("(GCHM)") || t.includes("MANUT") || t === "GCHM" || t === "CH") return "GCHM";
+      if (t.includes("PROGRAMA") || t.includes("(GPRO)") || t === "GPRO") return "GPRO";
+
+      // 2. Heurística secundária pela descrição
+      if (d.startsWith("VH ") || d.startsWith("VINHETA ")) return "GVNH";
+      if (d.startsWith("CH ") || d.startsWith("CHAMADA ")) return "GCHM";
+      if (d.startsWith("INTPGM ") || d.startsWith("INTERPROGRAMA ") || d.startsWith("PILULA ")) return "GGV";
+
+      return isPecas ? "GVNH" : "GPRO";
+    }
+
+    // ----------------------------------------------------
+    // CANAL EDUCAÇÃO (PADRÃO HISTÓRICO / COMPATIBILIDADE)
+    // ----------------------------------------------------
+    const padroesConhecidos = new Set(["ECHE", "ECHM", "RCOM", "RPOL", "EINT", "EVNH", "RPRO"]);
+    if (padroesConhecidos.has(t)) return t;
+
+    if (t.includes("ESTREIA")) return "ECHE";
+    if (t.includes("VINHETA") || t.includes("(GVNH)") || t === "VH") return "EVNH";
+    if (t.includes("INTERPROGRAMA") || t.includes("(GINT)") || t.includes("INTPGM")) return "EINT";
+    if (t.includes("CHAMADA") || t.includes("(GCHM)") || t.includes("MANUT")) return "ECHM";
+    if (t.includes("COMERCIAL") || t.includes("(GCOM)")) return "RCOM";
+    if (t.includes("POLITIC") || t.includes("(GPOL)")) return "RPOL";
+    if (t.includes("PROGRAMA") || t.includes("(GPRO)")) return "RPRO";
+
+    // Heurística secundária pelo prefixo da descrição
+    if (d.startsWith("VH ") || d.startsWith("VINHETA ")) return "EVNH";
+    if (d.startsWith("CH ") || d.startsWith("CHAMADA ")) return "ECHM";
+    if (d.startsWith("INTPGM ") || d.startsWith("INTERPROGRAMA ")) return "EINT";
+
+    return isPecas ? "EVNH" : "RPRO";
+  }
+
+  function analisarImportacao({
+    rows = [],
+    itensExistentes = [],
+    isPecas = true,
+    uidGenerator = null,
+    emissora = null,
+    emissoraId = null,
+    tipos = null,
+  }) {
     if (!rows || rows.length < 2) {
       return { valido: false, erro: 'Arquivo vazio ou sem linhas de dados' };
     }
@@ -260,7 +400,8 @@
       const tempoFormatado = normalizarDuracao(rawTempo, isPecas ? '00:01:00' : '00:30:00');
       const jaExiste = existingCodes.has(rawCode);
 
-      const tipoFinal = mapearTipo(rawType, rawDesc, isPecas);
+      const emissoraRef = emissora || emissoraId;
+      const tipoFinal = mapearTipo(rawType, rawDesc, isPecas, emissoraRef, tipos);
 
       let novoItem = {
         id: genId(),
@@ -329,6 +470,7 @@
       totalNovos,
       totalDuplicados,
       totalInvalidos,
+      emissoraSlug: normalizarSlugEmissora(emissora || emissoraId) || "canal-educacao",
       amostra,
       novosItens: itens,
     };
@@ -338,6 +480,7 @@
     stripBOM,
     detectarDelimitador,
     normalizarDuracao,
+    normalizarSlugEmissora,
     detectarColunas,
     mapearTipo,
     analisarImportacao,

@@ -359,6 +359,7 @@ async function fetchAndMergeCloudData(user) {
   // gradePublicadaBlocksByDay e o Roteiro dizia "nenhuma grade encontrada".
   merged.gradeBlocksByDay          = localRaw.gradeBlocksByDay || null;
   merged.gradePublicadaBlocksByDay = localRaw.gradePublicadaBlocksByDay || null;
+  merged.gradesPorSemana           = localRaw.gradesPorSemana || {};
   merged.semanasCustom             = localRaw.semanasCustom || {};
   if (localRaw.semanaDataBase !== undefined)     merged.semanaDataBase     = localRaw.semanaDataBase;
   if (localRaw.semanaCustomNumero !== undefined) merged.semanaCustomNumero = localRaw.semanaCustomNumero;

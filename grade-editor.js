@@ -402,17 +402,33 @@
       });
     }
 
-    for (let dow = 0; dow <= 6; dow++) {
-      if (saved.gradeBlocksByDay && Array.isArray(saved.gradeBlocksByDay[dow]) && saved.gradeBlocksByDay[dow].length > 0) {
-        blocksByDay[dow] = saved.gradeBlocksByDay[dow];
-      } else if (saved.gradeByDay && saved.gradeByDay[dow] && Object.keys(saved.gradeByDay[dow]).length > 0) {
-        const order = (saved.gradeOrderByDay && saved.gradeOrderByDay[dow]) || [];
-        blocksByDay[dow] = window.GradeEditorCore.gradeToBlocks(saved.gradeByDay[dow], order, programas);
-      } else if (isCanalEdu && typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeByDay && GRADE_BASE.gradeByDay[dow]) {
-        const order = GRADE_BASE.gradeOrderByDay ? GRADE_BASE.gradeOrderByDay[dow] : [];
-        blocksByDay[dow] = window.GradeEditorCore.gradeToBlocks(GRADE_BASE.gradeByDay[dow], order, programas);
-      } else {
+    const chaveInicial = obterChaveSemanaAtual(saved);
+    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
+
+    if (saved.gradesPorSemana[chaveInicial] && Array.isArray(saved.gradesPorSemana[chaveInicial][1]) && saved.gradesPorSemana[chaveInicial][1].length > 0) {
+      blocksByDay = JSON.parse(JSON.stringify(saved.gradesPorSemana[chaveInicial]));
+    } else if (Object.keys(saved.gradesPorSemana).length > 0) {
+      // Quando abrir uma semana que ainda não foi criada, ela deve iniciar limpa!
+      for (let dow = 0; dow <= 6; dow++) {
         blocksByDay[dow] = window.GradeEditorCore.generateBaseSlots(6, 30);
+      }
+    } else {
+      for (let dow = 0; dow <= 6; dow++) {
+        if (saved.gradeBlocksByDay && Array.isArray(saved.gradeBlocksByDay[dow]) && saved.gradeBlocksByDay[dow].length > 0) {
+          blocksByDay[dow] = saved.gradeBlocksByDay[dow];
+        } else if (saved.gradeByDay && saved.gradeByDay[dow] && Object.keys(saved.gradeByDay[dow]).length > 0) {
+          const order = (saved.gradeOrderByDay && saved.gradeOrderByDay[dow]) || [];
+          blocksByDay[dow] = window.GradeEditorCore.gradeToBlocks(saved.gradeByDay[dow], order, programas);
+        } else if (isCanalEdu && typeof GRADE_BASE !== 'undefined' && GRADE_BASE.gradeByDay && GRADE_BASE.gradeByDay[dow]) {
+          const order = GRADE_BASE.gradeOrderByDay ? GRADE_BASE.gradeOrderByDay[dow] : [];
+          blocksByDay[dow] = window.GradeEditorCore.gradeToBlocks(GRADE_BASE.gradeByDay[dow], order, programas);
+        } else {
+          blocksByDay[dow] = window.GradeEditorCore.generateBaseSlots(6, 30);
+        }
+      }
+      if (blocksByDay[1] && blocksByDay[1].length > 0) {
+        saved.gradesPorSemana[chaveInicial] = JSON.parse(JSON.stringify(blocksByDay));
+        try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch (_) {}
       }
     }
 
@@ -421,12 +437,6 @@
     renderAcervo();
     atualizarBadgesDias();
     atualizarRotulosSemanaGrade();
-    const chaveInicial = obterChaveSemanaAtual();
-    if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
-    if (!saved.gradesPorSemana[chaveInicial] && blocksByDay[1] && blocksByDay[1].length > 0) {
-      saved.gradesPorSemana[chaveInicial] = JSON.parse(JSON.stringify(blocksByDay));
-      try { localStorage.setItem(storageKey, JSON.stringify(saved)); } catch (_) {}
-    }
     renderActiveView();
     setSyncStatus('Pronto');
   }
@@ -1127,24 +1137,48 @@
 
 
 
-  function obterChaveSemanaAtual() {
-    const resumo = obterResumoSemanaAtiva();
+  function gradeTemProgramas(grade) {
+    if (!grade || typeof grade !== 'object') return false;
+    for (let dow = 0; dow <= 6; dow++) {
+      const slots = grade[dow] || [];
+      for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
+        if (slot && slot.program && (slot.program.title || slot.program.nome || slot.program.code)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function obterResumoSemanaAtiva(savedContext) {
+    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
+    if (!utils) return null;
+    const storageKey = getStorageKey();
+    const saved = savedContext || JSON.parse(localStorage.getItem(storageKey) || "{}");
+    const dataRef = saved.semanaDataBase || saved.gradeSemanalInfo?.dataInicio || new Date();
+    const customNum = saved.semanaCustomNumero || saved.gradeSemanalInfo?.numeroSemana || null;
+    return utils.obterResumoSemana(dataRef, 0, customNum);
+  }
+
+  function obterChaveSemanaAtual(savedContext) {
+    const resumo = obterResumoSemanaAtiva(savedContext);
     return resumo ? (resumo.dataInicio || "default") : "default";
   }
 
   function salvarSemanaAtualEmStorage(saved) {
     if (!saved) return;
     if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
-    const chave = obterChaveSemanaAtual();
+    const chave = obterChaveSemanaAtual(saved);
     saved.gradesPorSemana[chave] = JSON.parse(JSON.stringify(blocksByDay));
   }
 
   function carregarSemanaEmStorage(saved) {
     if (!saved) return;
     if (!saved.gradesPorSemana) saved.gradesPorSemana = {};
-    const chave = obterChaveSemanaAtual();
+    const chave = obterChaveSemanaAtual(saved);
     if (saved.gradesPorSemana[chave] && Array.isArray(saved.gradesPorSemana[chave][1]) && saved.gradesPorSemana[chave][1].length > 0) {
-      blocksByDay = saved.gradesPorSemana[chave];
+      blocksByDay = JSON.parse(JSON.stringify(saved.gradesPorSemana[chave]));
     } else {
       // Quando mudar de semana e ainda não houver grade definida, ela aparece limpa!
       blocksByDay = {
@@ -1157,16 +1191,6 @@
         6: window.GradeEditorCore.generateBaseSlots(6, 30)
       };
     }
-  }
-
-  function obterResumoSemanaAtiva() {
-    const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
-    if (!utils) return null;
-    const storageKey = getStorageKey();
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
-    const dataRef = saved.semanaDataBase || saved.gradeSemanalInfo?.dataInicio || new Date();
-    const customNum = saved.semanaCustomNumero || saved.gradeSemanalInfo?.numeroSemana || null;
-    return utils.obterResumoSemana(dataRef, 0, customNum);
   }
 
   function atualizarRotulosSemanaGrade() {
@@ -1246,18 +1270,18 @@
     const utils = (typeof window !== "undefined" && window.SemanaUtils) ? window.SemanaUtils : ((typeof SemanaUtils !== "undefined") ? SemanaUtils : null);
     if (!utils) return;
 
+    const storageKey = getStorageKey();
+    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+
     let dataBase;
     if (deltaSemanas === 0) {
       dataBase = new Date();
     } else {
-      const resumoAtual = obterResumoSemanaAtiva();
+      const resumoAtual = obterResumoSemanaAtiva(saved);
       const dt = (resumoAtual && resumoAtual.segunda) ? new Date(resumoAtual.segunda) : new Date();
       dt.setDate(dt.getDate() + deltaSemanas * 7);
       dataBase = dt;
     }
-
-    const storageKey = getStorageKey();
-    const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
 
     // Salva a semana atual antes de trocar
     salvarSemanaAtualEmStorage(saved);
@@ -1295,7 +1319,7 @@
     }
     const storageKey = getStorageKey();
     const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
-    const resumoAtual = obterResumoSemanaAtiva();
+    const resumoAtual = obterResumoSemanaAtiva(saved);
     if (!resumoAtual || !resumoAtual.dataInicio) {
       showToast("Semana atual não identificada", "error");
       return;
@@ -1307,9 +1331,14 @@
     const resumoAnterior = utils.obterResumoSemana(dt, 0, null);
     const chaveAnterior = resumoAnterior.dataInicio;
 
-    const gradeSemanaAnterior = (saved.gradesPorSemana && saved.gradesPorSemana[chaveAnterior]) ||
-                                saved.gradeBlocksByDay ||
-                                blocksByDay;
+    const gradeSemanaAnterior = (saved.gradesPorSemana && saved.gradesPorSemana[chaveAnterior])
+      ? saved.gradesPorSemana[chaveAnterior]
+      : null;
+
+    if (!gradeSemanaAnterior || !gradeTemProgramas(gradeSemanaAnterior)) {
+      showToast(`Não há grade anterior disponível (${resumoAnterior.rotuloCompleto}) para gerar a semana atual.`, "warning");
+      return;
+    }
 
     const core = (typeof window !== "undefined" && window.GradeRecorrenciaCore) ? window.GradeRecorrenciaCore : ((typeof GradeRecorrenciaCore !== "undefined") ? GradeRecorrenciaCore : null);
     if (!core || typeof core.gerarGradeSemanaComBaseAnterior !== "function") {
